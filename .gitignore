@@ -1,0 +1,15 @@
+node_modules/
+.env
+.env.*
+!.env.example
+*.log
+*.bak*
+.sessions.json
+.venv/
+__pycache__/
+*.onnx
+student_face_gallery.*
+apps/finance/dist/app.js
+apps/finance/dist/uploads/
+apps/telegram-bot/dist/
+apps/telegram-bot/late-photos/

@@ -1,0 +1,25 @@
+{
+  "name": "@repo/ai-assistant",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "ask": "tsx src/scripts/ask.ts",
+    "scan-anomalies": "tsx src/scripts/scan-anomalies.ts",
+    "parse-receipt": "tsx src/scripts/parse-receipt.ts",
+    "test:mock": "tsx src/scripts/test-mock-receipts.ts",
+    "test:live-ocr": "tsx src/scripts/test-live-receipt-ocr.ts",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.10.0",
+    "dotenv": "^16.4.5",
+    "openai": "^4.57.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.4",
+    "sharp": "^0.35.4",
+    "tsx": "^4.19.1",
+    "typescript": "^5.4.0"
+  }
+}
