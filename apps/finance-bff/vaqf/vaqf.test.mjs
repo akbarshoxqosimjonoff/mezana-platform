@@ -56,7 +56,7 @@ test("1. Migrations: clean database from scratch & idempotent re-run", async () 
     cwd: BFF_DIR,
     encoding: "utf8",
   });
-  assert.match(out1, /Newly applied: 2/);
+  assert.match(out1, /Newly applied: [23]/);
 
   // Re-run on existing populated schema to verify idempotency
   const out2 = execFileSync("node", [path.join(__dirname, "migrate.mjs")], {

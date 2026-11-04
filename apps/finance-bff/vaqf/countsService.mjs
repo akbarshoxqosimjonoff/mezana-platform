@@ -400,7 +400,11 @@ export async function createCount(body, actor) {
   const preview = await resolveAssetsAndLocationsInScope(institutionId, scope);
 
   // Merge user-supplied location assignments with resolved locations
-  const suppliedLocs = Array.isArray(body.locations) ? body.locations : [];
+  const suppliedLocs = Array.isArray(body.locations)
+    ? body.locations
+    : Array.isArray(body.assignments)
+    ? body.assignments
+    : [];
   const suppliedByLocId = new Map();
   for (const sl of suppliedLocs) {
     const lid = Number(sl?.location_id || sl?.locationId);
@@ -1625,7 +1629,7 @@ export async function approveCount(countId, body, actor) {
           [item.asset_id]
         );
         await tx.query(
-          `INSERT INTO vaqf.asset_events (asset_id, event_type, old_value, new_value, note, created_by, created_by_name)
+          `INSERT INTO vaqf.asset_events (asset_id, event_type, old_value, new_value, note, actor_id, actor_name)
            VALUES ($1, 'status_changed', $2::jsonb, $3::jsonb, $4, $5, $6)`,
           [
             item.asset_id,
@@ -1641,7 +1645,7 @@ export async function approveCount(countId, body, actor) {
         if (item.result === "extra" && !item.asset_id) {
           const ex = item.extra_data || {};
           const invRes = await tx.query(`SELECT vaqf.next_inventory_no($1) AS inv_no`, [
-            count.institution_code || "MZN",
+            count.institution_id || 1,
           ]);
           const invNo = invRes.rows[0].inv_no;
           const newCond =
@@ -1703,7 +1707,7 @@ export async function approveCount(countId, body, actor) {
           );
 
           await tx.query(
-            `INSERT INTO vaqf.asset_events (asset_id, event_type, old_value, new_value, note, created_by, created_by_name)
+            `INSERT INTO vaqf.asset_events (asset_id, event_type, old_value, new_value, note, actor_id, actor_name)
              VALUES ($1, 'created', NULL, $2::jsonb, $3, $4, $5)`,
             [
               createdAsset.id,
@@ -1760,7 +1764,7 @@ export async function approveCount(countId, body, actor) {
               : "updated";
 
           await tx.query(
-            `INSERT INTO vaqf.asset_events (asset_id, event_type, old_value, new_value, note, created_by, created_by_name)
+            `INSERT INTO vaqf.asset_events (asset_id, event_type, old_value, new_value, note, actor_id, actor_name)
              VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, $6, $7)`,
             [
               item.asset_id,
