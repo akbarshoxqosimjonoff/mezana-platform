@@ -311,6 +311,12 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
       return sendJson(res, 404, { error: `Sanoq API endpoint topilmadi: ${method} ${pathname}` });
     }
 
+    // Categories GET is also allowed for active count scanners (for adding extra items)
+    if (pathname === "/vaqf-api/categories" && method === "GET" && (vAccess.canView || vAccess.canCount)) {
+      const items = await listCategories();
+      return sendJson(res, 200, { items });
+    }
+
     // All non-count endpoints require full Vaqf view/edit permission
     if (!vAccess.canView) {
       return sendJson(res, 403, { error: "Vaqf tizimiga kirish huquqi yo'q" });

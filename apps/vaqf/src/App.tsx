@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  ClipboardCheck,
   Download,
   Edit3,
   Eye,
@@ -30,12 +31,15 @@ import {
   Users,
   X,
 } from "lucide-react";
+import { DirectorInventoryCountsSection, MobileCountScannerPage } from "./InventoryCountModule";
 
 type VaqfPage =
   | "dashboard"
   | "assets"
   | "asset_detail"
   | "new_asset"
+  | "counts"
+  | "mobile_count"
   | "locations"
   | "categories"
   | "import"
@@ -138,6 +142,7 @@ export function App() {
   });
   const [auth, setAuth] = useState<any>({ loading: true, authenticated: false });
   const [page, setPage] = useState<VaqfPage>("dashboard");
+  const [mobileCountId, setMobileCountId] = useState<number>(0);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [toast, setToast] = useState<{ text: string; type: "ok" | "err" } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -264,9 +269,24 @@ export function App() {
     }
   }, [theme]);
 
-  // URL Deep-Link Handler: /vaqf/a/:inventoryNo or /vaqf/assets/:id
-  const parseUrlRoute = useCallback(async () => {
+  // URL Deep-Link Handler: /vaqf/count/:id, /vaqf/a/:inventoryNo or /vaqf/assets/:id
+  const parseUrlRoute = useCallback(async (meData?: any) => {
     const p = window.location.pathname;
+    const countMatch = p.match(/^\/vaqf\/count\/(\d+)\/?$/);
+    if (countMatch) {
+      setMobileCountId(Number(countMatch[1]));
+      setPage("mobile_count");
+      return true;
+    }
+    if (meData && !meData.vaqfAccess?.canView && meData.vaqfAccess?.canCount) {
+      const firstCountId = Number(meData.vaqfAccess?.assignedCountIds?.[0] || 0);
+      if (firstCountId > 0) {
+        setMobileCountId(firstCountId);
+        setPage("mobile_count");
+        window.history.replaceState({}, "", `/vaqf/count/${firstCountId}`);
+        return true;
+      }
+    }
     const qrMatch = p.match(/^\/vaqf\/a\/([^/]+)\/?$/);
     if (qrMatch) {
       const code = decodeURIComponent(qrMatch[1]);
@@ -282,7 +302,7 @@ export function App() {
       } finally {
         setBusy(false);
       }
-      return;
+      return true;
     }
     const idMatch = p.match(/^\/vaqf\/assets\/(\d+)\/?$/);
     if (idMatch) {
@@ -297,7 +317,9 @@ export function App() {
       } finally {
         setBusy(false);
       }
+      return true;
     }
+    return false;
   }, [notify]);
 
   const loadReferenceData = useCallback(async () => {
@@ -345,8 +367,15 @@ export function App() {
         const me = await apiFetch("/vaqf-api/me");
         setAuth({ loading: false, ...me });
         setStaffList(me.staff || []);
-        await Promise.all([loadReferenceData(), loadSummary(), loadAssets()]);
-        await parseUrlRoute();
+        if (me.vaqfAccess?.canView) {
+          await Promise.all([loadReferenceData(), loadSummary(), loadAssets()]);
+        } else {
+          try {
+            const catRes = await apiFetch("/vaqf-api/categories");
+            setCategories(catRes.items || []);
+          } catch {}
+        }
+        await parseUrlRoute(me);
       } catch (err: any) {
         if (err.status === 401) {
           const returnPath = window.location.pathname + window.location.search;
@@ -359,7 +388,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!auth.authenticated || auth.forbidden) return;
+    if (!auth.authenticated || auth.forbidden || !auth.vaqfAccess?.canView) return;
     loadAssets().catch((e) => notify(e.message, "err"));
   }, [filters, selectedInstitutionId, auth.authenticated, auth.forbidden]);
 
@@ -678,13 +707,52 @@ export function App() {
           <ShieldAlert size={42} color="#f43f5e" style={{ margin: "0 auto 12px" }} />
           <h2 style={{ fontSize: 19, fontWeight: 800, marginBottom: 8 }}>Kirish ruxsati yo'q (403)</h2>
           <p style={{ color: "var(--text-secondary)", fontSize: 13.5, marginBottom: 18 }}>
-            Vaqf mulk va inventarizatsiya bo'limiga faqat vakolatli rahbar (Direktor) kira oladi.
+            Vaqf mulk va inventarizatsiya bo'limiga faqat vakolatli rahbar (Direktor) yoki faol sanoqqa biriktirilgan xodimlar kira oladi.
           </p>
           <a href="/" className="btn btn-primary" style={{ textDecoration: "none" }}>
             <ArrowLeft size={16} /> Mezana Akademiyasiga qaytish
           </a>
         </div>
       </div>
+    );
+  }
+
+  if (page === "mobile_count" && mobileCountId > 0) {
+    return (
+      <>
+        {toast && (
+          <div
+            className="animate-in"
+            style={{
+              position: "fixed",
+              bottom: 24,
+              right: 24,
+              zIndex: 300,
+              padding: "12px 18px",
+              borderRadius: 12,
+              background: toast.type === "err" ? "rgba(244,63,94,0.95)" : "rgba(16,185,129,0.95)",
+              color: "#fff",
+              fontWeight: 600,
+              fontSize: 13.5,
+              boxShadow: "0 12px 30px rgba(0,0,0,0.45)",
+            }}
+          >
+            {toast.text}
+          </div>
+        )}
+        <MobileCountScannerPage
+          countId={mobileCountId}
+          categories={categories}
+          notify={notify}
+          onBackToAdmin={() => {
+            if (auth.vaqfAccess?.canView) {
+              navigatePage("counts");
+            } else {
+              window.location.href = "/";
+            }
+          }}
+        />
+      </>
     );
   }
 
@@ -779,6 +847,9 @@ export function App() {
           </button>
           <button className={`nav-btn ${page === "new_asset" ? "active" : ""}`} onClick={() => navigatePage("new_asset")}>
             <Plus size={17} /> Yangi buyum qo'shish
+          </button>
+          <button className={`nav-btn ${page === "counts" ? "active" : ""}`} onClick={() => navigatePage("counts")}>
+            <ClipboardCheck size={17} /> Inventarizatsiya (Sanoq)
           </button>
 
           <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--text-muted)", padding: "12px 10px 4px", letterSpacing: "0.06em" }}>
@@ -2902,6 +2973,24 @@ export function App() {
                           ? `Tanlangan ${selectedIds.length} ta buyum uchun PDF chiqarish`
                           : "Oxirgi buyumlar uchun QR PDF chiqarish"}
                       </button>
+                      <button
+                        className="btn btn-cyan"
+                        onClick={() => {
+                          localStorage.setItem("vaqf_label_settings", JSON.stringify(labelSettings));
+                          const q = new URLSearchParams();
+                          q.set("mode", "locations");
+                          q.set("institution_id", String(selectedInstitutionId));
+                          q.set("preset", labelSettings.preset);
+                          q.set("cols", String(labelSettings.cols || 3));
+                          q.set("rows", String(labelSettings.rows || 8));
+                          q.set("width_mm", String(labelSettings.widthMm || 58));
+                          q.set("height_mm", String(labelSettings.heightMm || 40));
+                          if (labelSettings.baseUrl) q.set("base_url", labelSettings.baseUrl);
+                          window.open(`/vaqf-api/labels?${q.toString()}`, "_blank");
+                        }}
+                      >
+                        <Building2 size={16} /> Xona / Eshik QR Yorliqlari (PDF)
+                      </button>
                       {selectedIds.length > 0 && (
                         <button className="btn" onClick={() => setSelectedIds([])}>
                           Tanlovni tozalash
@@ -2968,6 +3057,24 @@ export function App() {
                 </div>
               </div>
             </div>
+          )}
+
+          {/* ============================================================== */}
+          {/* 9. INVENTARIZATSIYA (SANOQ) — DIREKTOR MODULI */}
+          {/* ============================================================== */}
+          {page === "counts" && (
+            <DirectorInventoryCountsSection
+              selectedInstitutionId={selectedInstitutionId}
+              locations={locations}
+              categories={categories}
+              staffList={staffList}
+              notify={notify}
+              onOpenMobileScanner={(cId) => {
+                setMobileCountId(cId);
+                setPage("mobile_count");
+                window.history.pushState({}, "", `/vaqf/count/${cId}`);
+              }}
+            />
           )}
         </main>
       </div>

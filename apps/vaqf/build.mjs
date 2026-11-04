@@ -31,7 +31,7 @@ await esbuild.build({
   },
 });
 
-for (const pubFile of ["styles.css", "ezan-logo.svg"]) {
+for (const pubFile of ["styles.css", "ezan-logo.svg", "jsQR.min.js"]) {
   const srcPath = path.join(__dirname, "public", pubFile);
   if (fs.existsSync(srcPath)) {
     fs.copyFileSync(srcPath, path.join(distDir, pubFile));
@@ -44,9 +44,10 @@ const html = `<!DOCTYPE html>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Ezan Vakf? ? Vaqf Mulk va Inventarizatsiya Tizimi</title>
+    <title>Ezan Vakfı — Vaqf Mulk va Inventarizatsiya Tizimi</title>
     <link rel="stylesheet" href="/vaqf/styles.css?v=${ts}" />
     <link rel="icon" type="image/svg+xml" href="/vaqf/ezan-logo.svg" />
+    <script src="/vaqf/jsQR.min.js"></script>
   </head>
   <body>
     <div id="root"></div>
