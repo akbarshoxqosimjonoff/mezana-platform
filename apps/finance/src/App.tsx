@@ -395,7 +395,7 @@ function App() {
   });
   const [debtorFilter, setDebtorFilter] = useState({
     search: "",
-    signal: "ALL",
+    signal: "ACTIVE",
     gender: "",
     groupId: "",
     year: "",
@@ -1223,7 +1223,8 @@ function App() {
       const due = st.paidUntilDate ? String(st.paidUntilDate).slice(0, 10) : null;
       const isArchived = Boolean(st.isArchived || !st.isActive || st.isDeleted);
       if (debtorFilter.signal === "ARCHIVED") return isArchived;
-      if (isArchived && debtorFilter.signal !== "ALL" && !debtorFilter.year) return false;
+      if (isArchived && debtorFilter.signal !== "ALL" && debtorFilter.year !== "2025-2026") return false;
+      if (debtorFilter.signal === "ACTIVE") return !isArchived;
       if (debtorFilter.signal === "OVERDUE") return due && due < today;
       if (debtorFilter.signal === "DUESOON") return due && due >= today && due <= soon;
       if (debtorFilter.signal === "NODATE") return !due;
@@ -1231,29 +1232,9 @@ function App() {
     });
   }, [debtorsData.debtors, debtorFilter, overview?.asOf]);
 
-  // Filtered expenses & employee breakdown
-  const employeeExpenseStats = useMemo(() => {
-    const map = new Map<string, { id: string; name: string; count: number; totalTl: number; totalUsd: number }>();
-    for (const e of expensesData.items || []) {
-      const empId = e.employeeId || e.employee?.id || "other";
-      const empName = (e.employee?.fullName || e.employee?.firstName || "Xodim").trim();
-      if (!map.has(empId)) {
-        map.set(empId, { id: empId, name: empName, count: 0, totalTl: 0, totalUsd: 0 });
-      }
-      const st = map.get(empId)!;
-      st.count += 1;
-      if (e.status === "PAID") {
-        st.totalTl += Number(e.amountInDefault || e.amount || 0);
-        st.totalUsd += Number(e.amountUsd || 0);
-      }
-    }
-    return [...map.values()].sort((a, b) => b.totalUsd - a.totalUsd);
-  }, [expensesData.items]);
-
-  const filteredExpenses = useMemo(() => {
-    const list = (expensesData.items || []).filter((e: any) => {
-      if (expFilter.status && e.status !== expFilter.status) return false;
-      if (expFilter.employeeId && e.employeeId !== expFilter.employeeId && e.employee?.id !== expFilter.employeeId) return false;
+  const matchExpenseNonEmployeeFilters = useCallback(
+    (e: any, ignoreStatus = false) => {
+      if (!ignoreStatus && expFilter.status && e.status !== expFilter.status) return false;
       if (expFilter.categoryId && e.categoryId !== expFilter.categoryId && e.category?.id !== expFilter.categoryId) return false;
 
       let targetDate = "";
@@ -1274,13 +1255,96 @@ function App() {
 
       if (!expFilter.search) return true;
       const q = expFilter.search.toLowerCase();
-      return (
+      return Boolean(
         e.title?.toLowerCase().includes(q) ||
-        e.description?.toLowerCase().includes(q) ||
-        e.category?.name?.toLowerCase().includes(q) ||
-        e.employee?.firstName?.toLowerCase().includes(q) ||
-        e.employee?.fullName?.toLowerCase().includes(q)
+          e.description?.toLowerCase().includes(q) ||
+          e.category?.name?.toLowerCase().includes(q) ||
+          e.employee?.firstName?.toLowerCase().includes(q) ||
+          e.employee?.fullName?.toLowerCase().includes(q)
       );
+    },
+    [expFilter.status, expFilter.categoryId, expFilter.dateField, expFilter.from, expFilter.to, expFilter.search]
+  );
+
+  // Filtered expenses & employee breakdown (reacts to active date/status/category/search filters)
+  const expensesMatchingNonEmployee = useMemo(() => {
+    return (expensesData.items || []).filter((e: any) => matchExpenseNonEmployeeFilters(e, false));
+  }, [expensesData.items, matchExpenseNonEmployeeFilters]);
+
+  const employeeExpenseStats = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; count: number; totalTl: number; totalUsd: number }>();
+    // Seed all known employees so their chips stay visible even when 0 in the selected date/filter
+    for (const e of expensesData.items || []) {
+      const empId = e.employeeId || e.employee?.id || "other";
+      const empName = (e.employee?.fullName || e.employee?.firstName || "Xodim").trim();
+      if (!map.has(empId)) {
+        map.set(empId, { id: empId, name: empName, count: 0, totalTl: 0, totalUsd: 0 });
+      }
+    }
+    for (const e of expensesMatchingNonEmployee) {
+      const empId = e.employeeId || e.employee?.id || "other";
+      const empName = (e.employee?.fullName || e.employee?.firstName || "Xodim").trim();
+      if (!map.has(empId)) {
+        map.set(empId, { id: empId, name: empName, count: 0, totalTl: 0, totalUsd: 0 });
+      }
+      const st = map.get(empId)!;
+      st.count += 1;
+      const shouldSum = expFilter.status ? e.status === expFilter.status : e.status === "PAID";
+      if (shouldSum) {
+        st.totalTl += Number(e.amountInDefault || e.amount || 0);
+        st.totalUsd += Number(e.amountUsd || 0);
+      }
+    }
+    return [...map.values()].sort((a, b) => b.totalUsd - a.totalUsd || b.count - a.count);
+  }, [expensesData.items, expensesMatchingNonEmployee, expFilter.status]);
+
+  const allEmployeesFilteredTotals = useMemo(() => {
+    let totalTl = 0;
+    let totalUsd = 0;
+    for (const emp of employeeExpenseStats) {
+      totalTl += emp.totalTl;
+      totalUsd += emp.totalUsd;
+    }
+    return { count: expensesMatchingNonEmployee.length, totalTl, totalUsd };
+  }, [employeeExpenseStats, expensesMatchingNonEmployee.length]);
+
+  const filteredExpenseKpis = useMemo(() => {
+    let paidCount = 0,
+      paidTl = 0,
+      paidUsd = 0;
+    let pendingCount = 0,
+      pendingTl = 0,
+      pendingUsd = 0;
+    let approvedCount = 0,
+      approvedTl = 0,
+      approvedUsd = 0;
+
+    for (const e of expensesData.items || []) {
+      if (expFilter.employeeId && e.employeeId !== expFilter.employeeId && e.employee?.id !== expFilter.employeeId) continue;
+      if (!matchExpenseNonEmployeeFilters(e, true)) continue;
+      const tl = Number(e.amountInDefault || e.amount || 0);
+      const usd = Number(e.amountUsd || 0);
+      if (e.status === "PAID") {
+        paidCount += 1;
+        paidTl += tl;
+        paidUsd += usd;
+      } else if (e.status === "PENDING") {
+        pendingCount += 1;
+        pendingTl += tl;
+        pendingUsd += usd;
+      } else if (e.status === "APPROVED") {
+        approvedCount += 1;
+        approvedTl += tl;
+        approvedUsd += usd;
+      }
+    }
+    return { paidCount, paidTl, paidUsd, pendingCount, pendingTl, pendingUsd, approvedCount, approvedTl, approvedUsd };
+  }, [expensesData.items, expFilter.employeeId, matchExpenseNonEmployeeFilters]);
+
+  const filteredExpenses = useMemo(() => {
+    const list = expensesMatchingNonEmployee.filter((e: any) => {
+      if (expFilter.employeeId && e.employeeId !== expFilter.employeeId && e.employee?.id !== expFilter.employeeId) return false;
+      return true;
     });
 
     const sortMode = expFilter.sortBy || "createdAt";
@@ -1305,11 +1369,10 @@ function App() {
       const cb = String(b.createdAtText || b.createdAt || "");
       return cb.localeCompare(ca);
     });
-  }, [expensesData.items, expFilter]);
+  }, [expensesMatchingNonEmployee, expFilter.employeeId, expFilter.sortBy]);
 
-  const filteredExpenseRequests = useMemo(() => {
-    const list = (expenseRequestsData.items || []).filter((r: any) => {
-      if (reqFilter.status && r.status !== reqFilter.status) return false;
+  const requestsMatchingNonStatus = useMemo(() => {
+    return (expenseRequestsData.items || []).filter((r: any) => {
       if (reqFilter.urgency && r.urgency !== reqFilter.urgency) return false;
       if (reqFilter.employeeId && r.employeeId !== reqFilter.employeeId) return false;
       if (reqFilter.categoryId && r.categoryId !== reqFilter.categoryId) return false;
@@ -1332,17 +1395,69 @@ function App() {
 
       if (!reqFilter.search) return true;
       const q = reqFilter.search.toLowerCase();
-      return (
+      return Boolean(
         r.requestCode?.toLowerCase().includes(q) ||
-        r.description?.toLowerCase().includes(q) ||
-        r.categoryName?.toLowerCase().includes(q) ||
-        r.requesterName?.toLowerCase().includes(q) ||
-        r.employeeName?.toLowerCase().includes(q) ||
-        r.sourceLabel?.toLowerCase().includes(q)
+          r.description?.toLowerCase().includes(q) ||
+          r.categoryName?.toLowerCase().includes(q) ||
+          r.requesterName?.toLowerCase().includes(q) ||
+          r.employeeName?.toLowerCase().includes(q) ||
+          r.sourceLabel?.toLowerCase().includes(q)
       );
     });
-    return list;
-  }, [expenseRequestsData.items, reqFilter]);
+  }, [expenseRequestsData.items, reqFilter.urgency, reqFilter.employeeId, reqFilter.categoryId, reqFilter.dateField, reqFilter.from, reqFilter.to, reqFilter.search]);
+
+  const filteredRequestKpis = useMemo(() => {
+    let pendingCount = 0,
+      pendingTry = 0,
+      pendingUsd = 0;
+    let approvedCount = 0,
+      approvedTry = 0,
+      approvedUsd = 0;
+    let completedCount = 0,
+      completedTry = 0,
+      completedUsd = 0;
+    let rejectedCount = 0;
+
+    for (const r of requestsMatchingNonStatus) {
+      const tryAmt = Number(r.amountInTry || r.amount || 0);
+      const usdAmt = Number(r.amountUsd || 0);
+      if (r.status === "PENDING") {
+        pendingCount += 1;
+        pendingTry += tryAmt;
+        pendingUsd += usdAmt;
+      } else if (r.status === "APPROVED") {
+        approvedCount += 1;
+        approvedTry += tryAmt;
+        approvedUsd += usdAmt;
+      } else if (r.status === "COMPLETED") {
+        completedCount += 1;
+        completedTry += tryAmt;
+        completedUsd += usdAmt;
+      } else if (r.status === "REJECTED") {
+        rejectedCount += 1;
+      }
+    }
+    return {
+      pendingCount,
+      pendingTry,
+      pendingUsd,
+      approvedCount,
+      approvedTry,
+      approvedUsd,
+      completedCount,
+      completedTry,
+      completedUsd,
+      rejectedCount,
+      totalCount: requestsMatchingNonStatus.length,
+    };
+  }, [requestsMatchingNonStatus]);
+
+  const filteredExpenseRequests = useMemo(() => {
+    return requestsMatchingNonStatus.filter((r: any) => {
+      if (reqFilter.status && r.status !== reqFilter.status) return false;
+      return true;
+    });
+  }, [requestsMatchingNonStatus, reqFilter.status]);
 
   if (auth.loading) {
     return (
@@ -2652,11 +2767,12 @@ function App() {
 
               <div className="filter-bar">
                 {[
-                  { id: "ALL", label: "Barchasi" },
+                  { id: "ACTIVE", label: "🟢 Faol talabalar" },
                   { id: "OVERDUE", label: "🔴 Muddati o'tgan" },
                   { id: "DUESOON", label: "🟡 Yaqin 7 kunda" },
                   { id: "NODATE", label: "⚪ Muddat belgilanmagan" },
                   { id: "ARCHIVED", label: "📦 O'tgan yil (Arxiv)" },
+                  { id: "ALL", label: "🌐 Barchasi (Faol + Arxiv)" },
                 ].map((s) => (
                   <button
                     key={s.id}
@@ -2866,17 +2982,17 @@ function App() {
                   <div style={{ fontSize: 11.5, color: "var(--text-secondary)", fontWeight: 700 }}>TO'LANGAN XARAJATLAR (JAMI)</div>
                   <div className="kpi-value" style={{ color: "#f43f5e" }}>
                     {access.isDirector
-                      ? fmtUSD(expensesData.summary?.paidUsd ?? erp.totalExpensesUsd)
-                      : fmtTL(expensesData.summary?.paidTl ?? erp.totalExpensesTl)}
+                      ? fmtUSD(filteredExpenseKpis.paidUsd)
+                      : fmtTL(filteredExpenseKpis.paidTl)}
                   </div>
                   <div className="kpi-sub">
                     {access.isDirector && (
                       <>
-                        <span>Asl summasi: <strong>{fmtTL(expensesData.summary?.paidTl ?? erp.totalExpensesTl)}</strong></span>
+                        <span>Asl summasi: <strong>{fmtTL(filteredExpenseKpis.paidTl)}</strong></span>
                         <span>•</span>
                       </>
                     )}
-                    <span>{expensesData.summary?.paidCount ?? erp.paidCount ?? 0} ta xarajat</span>
+                    <span>{filteredExpenseKpis.paidCount} ta xarajat</span>
                   </div>
                 </div>
 
@@ -2889,17 +3005,17 @@ function App() {
                   <div style={{ fontSize: 11.5, color: "var(--text-secondary)", fontWeight: 700 }}>TASDIQ KUTILMOQDA (PENDING)</div>
                   <div className="kpi-value" style={{ color: "#f59e0b" }}>
                     {access.isDirector
-                      ? fmtUSD(expensesData.summary?.pendingUsd ?? erp.pendingUsd)
-                      : fmtTL(expensesData.summary?.pendingTl ?? erp.pendingTl)}
+                      ? fmtUSD(filteredExpenseKpis.pendingUsd)
+                      : fmtTL(filteredExpenseKpis.pendingTl)}
                   </div>
                   <div className="kpi-sub">
                     {access.isDirector && (
                       <>
-                        <span>Asl summasi: <strong>{fmtTL(expensesData.summary?.pendingTl ?? erp.pendingTl)}</strong></span>
+                        <span>Asl summasi: <strong>{fmtTL(filteredExpenseKpis.pendingTl)}</strong></span>
                         <span>•</span>
                       </>
                     )}
-                    <span>{expensesData.summary?.pendingCount ?? erp.pendingCount ?? 0} ta so'rov</span>
+                    <span>{filteredExpenseKpis.pendingCount} ta so'rov</span>
                   </div>
                 </div>
 
@@ -2912,17 +3028,17 @@ function App() {
                   <div style={{ fontSize: 11.5, color: "var(--text-secondary)", fontWeight: 700 }}>TASDIQLANGAN (TO'LOV KUTMOQDA)</div>
                   <div className="kpi-value" style={{ color: "#06b6d4" }}>
                     {access.isDirector
-                      ? fmtUSD(expensesData.summary?.approvedUsd ?? erp.approvedUsd)
-                      : fmtTL(expensesData.summary?.approvedTl ?? erp.approvedTl)}
+                      ? fmtUSD(filteredExpenseKpis.approvedUsd)
+                      : fmtTL(filteredExpenseKpis.approvedTl)}
                   </div>
                   <div className="kpi-sub">
                     {access.isDirector && (
                       <>
-                        <span>Asl summasi: <strong>{fmtTL(expensesData.summary?.approvedTl ?? erp.approvedTl)}</strong></span>
+                        <span>Asl summasi: <strong>{fmtTL(filteredExpenseKpis.approvedTl)}</strong></span>
                         <span>•</span>
                       </>
                     )}
-                    <span>{expensesData.summary?.approvedCount ?? erp.approvedCount ?? 0} ta</span>
+                    <span>{filteredExpenseKpis.approvedCount} ta</span>
                   </div>
                 </div>
 
@@ -2986,7 +3102,10 @@ function App() {
                       className={`emp-chip ${!expFilter.employeeId ? "active" : ""}`}
                       onClick={() => setExpFilter({ ...expFilter, employeeId: "" })}
                     >
-                      Barcha xodimlar ({(expensesData.items || []).length})
+                      <span>Barcha xodimlar</span>
+                      <span style={{ opacity: 0.85, fontSize: 11 }}>
+                        ({allEmployeesFilteredTotals.count} ta • {fmtUSD(allEmployeesFilteredTotals.totalUsd)})
+                      </span>
                     </button>
                     {employeeExpenseStats.map((emp) => (
                       <button
@@ -3436,17 +3555,17 @@ function App() {
                       </div>
                       <div className="kpi-value" style={{ color: "#f59e0b" }}>
                         {access.isDirector
-                          ? fmtUSD(expenseRequestsData.summary?.pendingUsd || 0)
-                          : fmtTL(expenseRequestsData.summary?.pendingTry || 0)}
+                          ? fmtUSD(filteredRequestKpis.pendingUsd)
+                          : fmtTL(filteredRequestKpis.pendingTry)}
                       </div>
                       <div className="kpi-sub">
                         {access.isDirector && (
                           <>
-                            <span>TL: <strong>{fmtTL(expenseRequestsData.summary?.pendingTry || 0)}</strong></span>
+                            <span>TL: <strong>{fmtTL(filteredRequestKpis.pendingTry)}</strong></span>
                             <span>•</span>
                           </>
                         )}
-                        <span>{expenseRequestsData.summary?.pendingCount || 0} ta talabnoma</span>
+                        <span>{filteredRequestKpis.pendingCount} ta talabnoma</span>
                       </div>
                     </div>
 
@@ -3461,17 +3580,17 @@ function App() {
                       </div>
                       <div className="kpi-value" style={{ color: "#06b6d4" }}>
                         {access.isDirector
-                          ? fmtUSD(expenseRequestsData.summary?.approvedUsd || 0)
-                          : fmtTL(expenseRequestsData.summary?.approvedTry || 0)}
+                          ? fmtUSD(filteredRequestKpis.approvedUsd)
+                          : fmtTL(filteredRequestKpis.approvedTry)}
                       </div>
                       <div className="kpi-sub">
                         {access.isDirector && (
                           <>
-                            <span>TL: <strong>{fmtTL(expenseRequestsData.summary?.approvedTry || 0)}</strong></span>
+                            <span>TL: <strong>{fmtTL(filteredRequestKpis.approvedTry)}</strong></span>
                             <span>•</span>
                           </>
                         )}
-                        <span>{expenseRequestsData.summary?.approvedCount || 0} ta ruxsat etilgan</span>
+                        <span>{filteredRequestKpis.approvedCount} ta ruxsat etilgan</span>
                       </div>
                     </div>
 
@@ -3486,17 +3605,17 @@ function App() {
                       </div>
                       <div className="kpi-value" style={{ color: "#10b981" }}>
                         {access.isDirector
-                          ? fmtUSD(expenseRequestsData.summary?.completedUsd || 0)
-                          : fmtTL(expenseRequestsData.summary?.completedTry || 0)}
+                          ? fmtUSD(filteredRequestKpis.completedUsd)
+                          : fmtTL(filteredRequestKpis.completedTry)}
                       </div>
                       <div className="kpi-sub">
                         {access.isDirector && (
                           <>
-                            <span>TL: <strong>{fmtTL(expenseRequestsData.summary?.completedTry || 0)}</strong></span>
+                            <span>TL: <strong>{fmtTL(filteredRequestKpis.completedTry)}</strong></span>
                             <span>•</span>
                           </>
                         )}
-                        <span>{expenseRequestsData.summary?.completedCount || 0} ta xarajatga o'tgan</span>
+                        <span>{filteredRequestKpis.completedCount} ta xarajatga o'tgan</span>
                       </div>
                     </div>
 
@@ -3510,10 +3629,10 @@ function App() {
                         ❌ RAD ETILGAN SO'ROVLAR
                       </div>
                       <div className="kpi-value" style={{ color: "#f43f5e" }}>
-                        {expenseRequestsData.summary?.rejectedCount || 0} ta
+                        {filteredRequestKpis.rejectedCount} ta
                       </div>
                       <div className="kpi-sub">
-                        <span>Jami talabnomalar: <strong>{expenseRequestsData.summary?.totalCount || 0} ta</strong></span>
+                        <span>Jami talabnomalar: <strong>{filteredRequestKpis.totalCount} ta</strong></span>
                       </div>
                     </div>
                   </div>
@@ -4359,16 +4478,25 @@ function App() {
                 >
                   <option value="">— Talabani tanlang —</option>
                   {studentsList
-                    .filter((s) =>
-                      !paymentModal.studentSearch ||
-                      s.fullname?.toLowerCase().includes(paymentModal.studentSearch.toLowerCase())
-                    )
+                    .filter((s) => {
+                      const isArchivedOrInactive = Boolean(s.isArchived || !s.isActive || s.isDeleted);
+                      if (!paymentModal.studentSearch) {
+                        return !isArchivedOrInactive || String(s.id) === String(paymentModal.studentId);
+                      }
+                      return (
+                        String(s.id) === String(paymentModal.studentId) ||
+                        s.fullname?.toLowerCase().includes(paymentModal.studentSearch.toLowerCase())
+                      );
+                    })
                     .slice(0, 120)
-                    .map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.fullname} ({s.group?.name || "Guruhsiz"}) — Qarz: {fmtUSD(s.remainingAmount)}
-                      </option>
-                    ))}
+                    .map((s) => {
+                      const isArch = Boolean(s.isArchived || !s.isActive || s.isDeleted);
+                      return (
+                        <option key={s.id} value={s.id}>
+                          {s.fullname} ({s.group?.name || "Guruhsiz"}){isArch ? " [Arxiv]" : ""} — Qarz: {fmtUSD(s.remainingAmount)}
+                        </option>
+                      );
+                    })}
                 </select>
               </div>
 

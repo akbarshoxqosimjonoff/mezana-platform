@@ -217,7 +217,7 @@ export function UnifiedModules({
 
   // --- SMART FILTERS ---
   const [stuFilter, setStuFilter] = useState({
-    archiveMode: "all" as "all" | "active" | "archived2025" | "deleted",
+    archiveMode: "active" as "all" | "active" | "archived2025" | "deleted",
     studyPlace: "",
     gender: "",
     groupId: "",
@@ -648,15 +648,19 @@ export function UnifiedModules({
     const activeCount = allStudents.filter((s: any) => s.isActive && !s.isArchived && !s.isDeleted).length;
     const archived2025Count = allStudents.filter((s: any) => (!s.isActive || s.isArchived) && !s.isDeleted).length;
     const deletedCount = allStudents.filter((s: any) => s.isDeleted).length;
-    const iqomaCount = allStudents.filter((s: any) => s.hasIqoma).length;
-    const overpaidCount = allStudents.filter((s: any) => Number(s.overpaidAmount || 0) > 0).length;
+    const baseArchiveStudents = allStudents.filter((s: any) => {
+      if (stuFilter.archiveMode === "active") return s.isActive && !s.isArchived && !s.isDeleted;
+      if (stuFilter.archiveMode === "archived2025") return (!s.isActive || s.isArchived) && !s.isDeleted;
+      if (stuFilter.archiveMode === "deleted") return Boolean(s.isDeleted);
+      return true;
+    });
+    const debtorsCount = baseArchiveStudents.filter((s: any) => Number(s.remainingAmount || 0) > 0).length;
+    const paidCount = baseArchiveStudents.filter((s: any) => Number(s.totalPayment || 0) > 0 && Number(s.remainingAmount || 0) <= 0).length;
+    const iqomaCount = baseArchiveStudents.filter((s: any) => s.hasIqoma).length;
+    const overpaidCount = baseArchiveStudents.filter((s: any) => Number(s.overpaidAmount || 0) > 0).length;
+    const expiringIqomaCount = baseArchiveStudents.filter((s: any) => expiringIds.has(String(s.id))).length;
 
-    const filteredStudents = allStudents.filter((s: any) => {
-      // 1. Archive status filter
-      if (stuFilter.archiveMode === "active" && (!s.isActive || s.isArchived || s.isDeleted)) return false;
-      if (stuFilter.archiveMode === "archived2025" && ((s.isActive && !s.isArchived) || s.isDeleted)) return false;
-      if (stuFilter.archiveMode === "deleted" && !s.isDeleted) return false;
-
+    const filteredStudents = baseArchiveStudents.filter((s: any) => {
       // 2. StudyPlace / Year filter
       if (stuFilter.studyPlace && (s.studyPlace || "") !== stuFilter.studyPlace) return false;
 
@@ -698,22 +702,12 @@ export function UnifiedModules({
         <div className="kpi-grid">
           <div
             className="glass-card kpi-card"
-            onClick={() => setStuFilter({ ...stuFilter, archiveMode: "all" })}
-            style={{ cursor: "pointer", borderColor: stuFilter.archiveMode === "all" ? "#10b981" : undefined }}
-          >
-            <div className="kpi-label"><Users size={15} color="#10b981" /> BARCHA TALABALAR (BAZA + ARXIV)</div>
-            <div className="kpi-value">{allStudents.length} ta</div>
-            <div className="kpi-sub">Barcha yillar va arxivlar jamlanmasi</div>
-          </div>
-
-          <div
-            className="glass-card kpi-card"
             onClick={() => setStuFilter({ ...stuFilter, archiveMode: "active" })}
-            style={{ cursor: "pointer", borderColor: stuFilter.archiveMode === "active" ? "#06b6d4" : undefined }}
+            style={{ cursor: "pointer", borderColor: stuFilter.archiveMode === "active" ? "#10b981" : undefined }}
           >
-            <div className="kpi-label"><UserCheck size={15} color="#06b6d4" /> FAOL TALABALAR (2026-2027)</div>
-            <div className="kpi-value" style={{ color: "#38bdf8" }}>{activeCount} ta</div>
-            <div className="kpi-sub">Hozir o'qiyotgan faol talabalar</div>
+            <div className="kpi-label"><UserCheck size={15} color="#10b981" /> FAOL TALABALAR (2026-2027)</div>
+            <div className="kpi-value" style={{ color: "#10b981" }}>{activeCount} ta</div>
+            <div className="kpi-sub">Hozir o'qiyotgan faol talabalar (standart)</div>
           </div>
 
           <div
@@ -723,7 +717,7 @@ export function UnifiedModules({
           >
             <div className="kpi-label"><History size={15} color="#f59e0b" /> 2025-2026 O'QUV YILI ARXIVI</div>
             <div className="kpi-value" style={{ color: "#fcd34d" }}>{archived2025Count} ta</div>
-            <div className="kpi-sub">O'tgan o'quv yili (Akademiya va Madrasa)</div>
+            <div className="kpi-sub">O'tgan o'quv yili va nofaol talabalar</div>
           </div>
 
           <div
@@ -733,9 +727,19 @@ export function UnifiedModules({
           >
             <div className="kpi-label"><AlertTriangle size={15} color="#f43f5e" /> O'CHIRILGANLAR ARXIVI</div>
             <div className="kpi-value" style={{ color: "#fda4af" }}>
-              {deletedCount} ta <span style={{ fontSize: 12, color: "#38bdf8" }}>• Iqoma: {iqomaCount}</span>
+              {deletedCount} ta
             </div>
             <div className="kpi-sub">Chetlashtirilgan yoki o'chirilgan yozuvlar</div>
+          </div>
+
+          <div
+            className="glass-card kpi-card"
+            onClick={() => setStuFilter({ ...stuFilter, archiveMode: "all" })}
+            style={{ cursor: "pointer", borderColor: stuFilter.archiveMode === "all" ? "#06b6d4" : undefined }}
+          >
+            <div className="kpi-label"><Users size={15} color="#06b6d4" /> BARCHA TALABALAR (FAOL + ARXIV)</div>
+            <div className="kpi-value" style={{ color: "#38bdf8" }}>{allStudents.length} ta</div>
+            <div className="kpi-sub">Barcha yillar va arxivlar jamlanmasi</div>
           </div>
         </div>
 
@@ -744,19 +748,19 @@ export function UnifiedModules({
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 12 }}>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: 5 }}>
-                <Filter size={14} /> Arxiv holati:
+                <Filter size={14} /> Talabalar holati:
               </span>
-              <button className={`btn btn-sm ${stuFilter.archiveMode === "all" ? "btn-primary" : ""}`} onClick={() => setStuFilter({ ...stuFilter, archiveMode: "all" })}>
-                🌐 Barchasi ({allStudents.length})
-              </button>
               <button className={`btn btn-sm ${stuFilter.archiveMode === "active" ? "btn-primary" : ""}`} onClick={() => setStuFilter({ ...stuFilter, archiveMode: "active" })}>
-                🟢 Faol ({activeCount})
+                🟢 Faol talabalar ({activeCount})
               </button>
               <button className={`btn btn-sm ${stuFilter.archiveMode === "archived2025" ? "btn-primary" : ""}`} onClick={() => setStuFilter({ ...stuFilter, archiveMode: "archived2025" })}>
-                📦 2025-2026 Arxiv ({archived2025Count})
+                📦 Arxiv / Nofaol ({archived2025Count})
               </button>
               <button className={`btn btn-sm ${stuFilter.archiveMode === "deleted" ? "btn-primary" : ""}`} onClick={() => setStuFilter({ ...stuFilter, archiveMode: "deleted" })}>
                 🗑️ O'chirilganlar ({deletedCount})
+              </button>
+              <button className={`btn btn-sm ${stuFilter.archiveMode === "all" ? "btn-primary" : ""}`} onClick={() => setStuFilter({ ...stuFilter, archiveMode: "all" })}>
+                🌐 Barchasi ({allStudents.length})
               </button>
             </div>
 
@@ -813,13 +817,13 @@ export function UnifiedModules({
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 14, paddingTop: 10, borderTop: "1px solid var(--border-subtle)" }}>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               <button className={`btn btn-sm ${stuFilter.smartChip === "all" ? "btn-cyan" : ""}`} onClick={() => setStuFilter({ ...stuFilter, smartChip: "all" })}>
-                Barcha toifalar
+                Barcha toifalar ({baseArchiveStudents.length})
               </button>
               <button className={`btn btn-sm ${stuFilter.smartChip === "debtors" ? "btn-cyan" : ""}`} onClick={() => setStuFilter({ ...stuFilter, smartChip: "debtors" })}>
-                🔴 Qarzdorlar
+                🔴 Qarzdorlar ({debtorsCount})
               </button>
               <button className={`btn btn-sm ${stuFilter.smartChip === "paid" ? "btn-cyan" : ""}`} onClick={() => setStuFilter({ ...stuFilter, smartChip: "paid" })}>
-                🟢 To'liq to'laganlar
+                🟢 To'liq to'laganlar ({paidCount})
               </button>
               {overpaidCount > 0 && (
                 <button className={`btn btn-sm ${stuFilter.smartChip === "overpaid" ? "btn-cyan" : ""}`} onClick={() => setStuFilter({ ...stuFilter, smartChip: "overpaid" })}>
@@ -830,7 +834,7 @@ export function UnifiedModules({
                 🪪 Iqomasi bor ({iqomaCount})
               </button>
               <button className={`btn btn-sm ${stuFilter.smartChip === "expiring_iqoma" ? "btn-cyan" : ""}`} onClick={() => setStuFilter({ ...stuFilter, smartChip: "expiring_iqoma" })}>
-                ⚠️ Iqoma muddati yaqin ({academic.expiringIqoma?.length || 0})
+                ⚠️ Iqoma muddati yaqin ({expiringIqomaCount})
               </button>
             </div>
 
@@ -877,12 +881,12 @@ export function UnifiedModules({
                   <option key={g.id} value={g.id}>{g.name}</option>
                 ))}
               </select>
-              {(stuFilter.search || stuFilter.studyPlace || stuFilter.gender || stuFilter.groupId || stuFilter.smartChip !== "all" || stuFilter.archiveMode !== "all") && (
+              {(stuFilter.search || stuFilter.studyPlace || stuFilter.gender || stuFilter.groupId || stuFilter.smartChip !== "all" || stuFilter.archiveMode !== "active") && (
                 <button
                   className="btn btn-sm"
                   onClick={() =>
                     setStuFilter({
-                      archiveMode: "all",
+                      archiveMode: "active",
                       studyPlace: "",
                       gender: "",
                       groupId: "",
