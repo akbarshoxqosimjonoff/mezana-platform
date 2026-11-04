@@ -475,6 +475,7 @@ function App() {
     wallet: any;
     amount: string;
     currency: string;
+    date: string;
     description: string;
   } | null>(null);
 
@@ -1069,6 +1070,7 @@ function App() {
         body: JSON.stringify({
           amount: Number(assignWalletModal.amount),
           currency: assignWalletModal.currency,
+          date: assignWalletModal.date,
           description: assignWalletModal.description,
         }),
       });
@@ -3910,7 +3912,15 @@ function App() {
                           <button
                             className="btn btn-sm btn-primary"
                             style={{ flex: 1 }}
-                            onClick={() => setAssignWalletModal({ wallet: w, amount: "", currency: "TRY", description: "" })}
+                            onClick={() =>
+                              setAssignWalletModal({
+                                wallet: w,
+                                amount: "",
+                                currency: "TRY",
+                                date: new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Istanbul" }).format(new Date()),
+                                description: "",
+                              })
+                            }
                           >
                             <Plus size={13} /> Mablag' berish
                           </button>
@@ -4957,19 +4967,73 @@ function App() {
               Hamyonga mablag' berish — {assignWalletModal.wallet.employee?.firstName} {assignWalletModal.wallet.employee?.lastName}
             </h3>
             <form onSubmit={submitAssignWallet} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div className="form-field">
-                <label className="form-label">Summa (₺)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="1"
-                  className="input"
-                  value={assignWalletModal.amount}
-                  onChange={(e) => setAssignWalletModal({ ...assignWalletModal, amount: e.target.value })}
-                  required
-                  autoFocus
-                />
+              <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10 }}>
+                <div className="form-field">
+                  <label className="form-label">Summa</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="1"
+                    className="input"
+                    value={assignWalletModal.amount}
+                    onChange={(e) => setAssignWalletModal({ ...assignWalletModal, amount: e.target.value })}
+                    required
+                    autoFocus
+                  />
+                </div>
+                <div className="form-field">
+                  <label className="form-label">Valyuta</label>
+                  <select
+                    className="select"
+                    value={assignWalletModal.currency}
+                    onChange={(e) => setAssignWalletModal({ ...assignWalletModal, currency: e.target.value })}
+                  >
+                    <option value="TRY">₺ (TL)</option>
+                    <option value="USD">$ (USD)</option>
+                  </select>
+                </div>
               </div>
+
+              <div className="form-field">
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, flexWrap: "wrap", gap: 6 }}>
+                  <label className="form-label" style={{ marginBottom: 0 }}>
+                    📅 Mablag' berilgan sana (orqa sana bilan ham kiritish mumkin)
+                  </label>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    {[
+                      { label: "Bugun", offsetDays: 0 },
+                      { label: "Kecha", offsetDays: 1 },
+                      { label: "2 kun oldin", offsetDays: 2 },
+                    ].map((btn) => {
+                      const d = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Istanbul" }).format(
+                        new Date(Date.now() - btn.offsetDays * 86400 * 1000)
+                      );
+                      return (
+                        <button
+                          key={btn.label}
+                          type="button"
+                          className={`btn btn-sm ${assignWalletModal.date === d ? "btn-primary" : ""}`}
+                          style={{ padding: "2px 8px", fontSize: 11 }}
+                          onClick={() => setAssignWalletModal({ ...assignWalletModal, date: d })}
+                        >
+                          {btn.label} ({d.slice(5)})
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <input
+                  type="date"
+                  className="input"
+                  value={assignWalletModal.date}
+                  onChange={(e) => setAssignWalletModal({ ...assignWalletModal, date: e.target.value })}
+                  required
+                />
+                <span style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 3 }}>
+                  🕒 Amalda pul berilgan sanani tanlang (masalan: kecha yoki o'tgan oy). Tizimga kiritilgan vaqt alohida saqlanadi.
+                </span>
+              </div>
+
               <div className="form-field">
                 <label className="form-label">Izoh</label>
                 <input
@@ -5003,39 +5067,61 @@ function App() {
               <table className="fin-table">
                 <thead>
                   <tr>
-                    <th>Sana</th>
+                    <th>Sana (Amaliyot / Kiritildi)</th>
                     <th>Amaliyot turi</th>
                     <th>Summa</th>
                     <th>Tavsif</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {walletTxModal.items.map((tx: any) => (
-                    <tr key={tx.id}>
-                      <td>{String(tx.occurredAt || tx.createdAt || "").slice(0, 10)}</td>
-                      <td>
-                        <span
-                          className={`badge ${
-                            tx.type === "ASSIGNMENT"
-                              ? "badge-emerald"
+                  {walletTxModal.items.map((tx: any) => {
+                    const occD = tx.occurredDate || String(tx.occurredAt || tx.createdAt || "").slice(0, 10);
+                    const crtD = tx.createdDate || String(tx.createdAt || "").slice(0, 10);
+                    const crtTxt = tx.createdAtText || (tx.createdAt ? String(tx.createdAt).slice(0, 16).replace("T", " ") : occD);
+                    const isBackdated = occD && crtD && occD !== crtD;
+                    return (
+                      <tr key={tx.id}>
+                        <td style={{ whiteSpace: "nowrap" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ fontWeight: 800, fontSize: 13 }}>📅 {occD}</span>
+                            {isBackdated && (
+                              <span
+                                className="badge badge-amber"
+                                style={{ fontSize: 9.5, padding: "1px 6px" }}
+                                title={`Asl amaliyot ${occD} sanasida bo'lgan, tizimga ${crtD} da kiritilgan`}
+                              >
+                                Orqa sana bilan
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 2 }}>
+                            🕒 Kiritildi: {crtTxt}
+                          </div>
+                        </td>
+                        <td>
+                          <span
+                            className={`badge ${
+                              tx.type === "ASSIGNMENT"
+                                ? "badge-emerald"
+                                : tx.type === "ADJUSTMENT"
+                                ? "badge-cyan"
+                                : "badge-rose"
+                            }`}
+                          >
+                            {tx.type === "ASSIGNMENT"
+                              ? "Mablag' berildi (+)"
                               : tx.type === "ADJUSTMENT"
-                              ? "badge-cyan"
-                              : "badge-rose"
-                          }`}
-                        >
-                          {tx.type === "ASSIGNMENT"
-                            ? "Mablag' berildi (+)"
-                            : tx.type === "ADJUSTMENT"
-                            ? "Qayta hisoblash"
-                            : tx.type === "EXPENSE"
-                            ? "Xarajat (−)"
-                            : tx.type}
-                        </span>
-                      </td>
-                      <td style={{ fontWeight: 700 }}>{fmtTL(tx.amountInDefault || tx.amount)}</td>
-                      <td>{tx.description || "—"}</td>
-                    </tr>
-                  ))}
+                              ? "Qayta hisoblash"
+                              : tx.type === "EXPENSE" || tx.type === "EXPENSE_DEBIT"
+                              ? "Xarajat (−)"
+                              : tx.type}
+                          </span>
+                        </td>
+                        <td style={{ fontWeight: 700 }}>{fmtTL(tx.amountInDefault || tx.amount)}</td>
+                        <td>{tx.description || "—"}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

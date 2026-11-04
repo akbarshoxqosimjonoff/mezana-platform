@@ -2772,7 +2772,21 @@ async function handleApi(req, res, url) {
       }
       const items = await queryPgJson(
         erpEnv.DATABASE_URL,
-        `SELECT id, "walletId", type::text AS type, amount::float AS amount, "balanceBefore"::float AS "balanceBefore", "balanceAfter"::float AS "balanceAfter", currency, description, "expenseId", "occurredAt", "createdAt"
+        `SELECT
+           id,
+           "walletId",
+           type::text AS type,
+           amount::float AS amount,
+           "balanceBefore"::float AS "balanceBefore",
+           "balanceAfter"::float AS "balanceAfter",
+           currency,
+           description,
+           "expenseId",
+           "occurredAt",
+           "createdAt",
+           TO_CHAR("occurredAt", 'YYYY-MM-DD') AS "occurredDate",
+           TO_CHAR("createdAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD') AS "createdDate",
+           TO_CHAR("createdAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD HH24:MI') AS "createdAtText"
          FROM "WalletTransaction"
          WHERE "walletId" = ${sqlStr(wallet.id)}
          ORDER BY "occurredAt" DESC, "createdAt" DESC
@@ -2786,19 +2800,100 @@ async function handleApi(req, res, url) {
       if (!access.isDirector) {
         return sendJson(res, 403, { error: "Hamyonga mablag' ajratish faqat Direktor uchun ruxsat etilgan" });
       }
-      if (!sess.erpToken) return sendJson(res, 403, { error: "ERP hisobi ulanmagan" });
+      const targetId = walletAssignMatch[1];
       const body = await readJsonBody(req);
-      const cur = !body.currency || body.currency === "TRY" ? "TL" : body.currency;
-      const r = await erpRequest("POST", `/wallets/${walletAssignMatch[1]}/assign`, {
-        body: {
-          amount: Number(body.amount),
-          currency: cur,
-          description: body.description || "Mablag' berildi",
-          ...(body.date || body.occurredAt ? { date: body.date || body.occurredAt } : {}),
-        },
-        token: sess.erpToken,
+      const rawAmt = Number(body.amount || 0);
+      if (!(rawAmt > 0)) {
+        return sendJson(res, 400, { error: "Summa 0 dan katta bo'lishi kerak" });
+      }
+
+      const wRows = await queryPgJson(
+        erpEnv.DATABASE_URL,
+        `SELECT w.id, w."employeeId", COALESCE(w.balance, 0)::float AS balance, emp."fullName", emp.username
+         FROM "Wallet" w
+         LEFT JOIN "Employee" emp ON emp.id = w."employeeId"
+         WHERE w.id = ${sqlStr(targetId)} OR w."employeeId" = ${sqlStr(targetId)}
+         LIMIT 1`
+      );
+      const wallet = wRows[0];
+      if (!wallet) {
+        return sendJson(res, 404, { error: "Xodim hamyoni topilmadi" });
+      }
+
+      const latestRateRow = await queryPgJson(
+        erpEnv.DATABASE_URL,
+        `SELECT rate::float AS rate FROM "ExchangeRate" WHERE "fromCurrency" = 'USD' ORDER BY "effectiveDate" DESC, "createdAt" DESC LIMIT 1`
+      );
+      const currentUsdRate = Number(latestRateRow[0]?.rate || 49.628);
+
+      const cur = String(body.currency || "TRY").toUpperCase();
+      const amountTl = cur === "USD" ? Number((rawAmt * currentUsdRate).toFixed(2)) : rawAmt;
+      const todayIst = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Istanbul" }).format(new Date());
+      const rawDate = String(body.date || body.occurredAt || todayIst).trim().slice(0, 10);
+      const assignedDate = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : todayIst;
+      const isBackdated = assignedDate !== todayIst;
+
+      const baseDesc = String(body.description || "Mablag' berildi").trim();
+      const curSuffix = cur === "USD" ? ` ($${rawAmt.toLocaleString("en-US")} USD)` : "";
+      const dateSuffix = isBackdated ? ` [Sana: ${assignedDate}]` : "";
+      const fullDesc = `${baseDesc}${curSuffix}${dateSuffix}`;
+
+      const balBefore = Number(wallet.balance || 0);
+      const balAfter = Number((balBefore + amountTl).toFixed(4));
+      const txId = "wtx_asg_" + crypto.randomBytes(8).toString("hex");
+      const refId = "ref_asg_" + crypto.randomBytes(8).toString("hex");
+
+      await execPgSql(
+        erpEnv.DATABASE_URL,
+        `UPDATE "Wallet"
+         SET balance = balance + ${amountTl},
+             "totalAssigned" = COALESCE("totalAssigned", 0) + ${amountTl},
+             "updatedAt" = NOW()
+         WHERE id = ${sqlStr(wallet.id)};
+         INSERT INTO "WalletTransaction"
+           (id, "referenceId", "walletId", type, amount, "balanceBefore", "balanceAfter", currency, description, "createdAt", "occurredAt")
+         VALUES (
+           ${sqlStr(txId)},
+           ${sqlStr(refId)},
+           ${sqlStr(wallet.id)},
+           'ASSIGNMENT'::"TransactionType",
+           ${amountTl},
+           ${balBefore},
+           ${balAfter},
+           'TL',
+           ${sqlStr(fullDesc)},
+           NOW(),
+           ${sqlStr(assignedDate)}::timestamp
+         );`
+      );
+
+      // Notify recipient employee on Telegram
+      try {
+        const empTgIds = getEmployeeTelegramIds(wallet.employeeId, null, null);
+        const empHtml =
+          `💳 <b>HAMYONINGIZGA MABLAG' AJRATILDI!</b>\n` +
+          `────────────────────\n` +
+          `🏦 Hisob: <b>${wallet.fullName || wallet.username || "Xodim"}</b>\n` +
+          `➕ Qo'shilgan summa: <b>+₺${amountTl.toLocaleString("tr-TR")} TL</b>${curSuffix}\n` +
+          `📅 Berilgan sana: <b>${assignedDate}</b>${isBackdated ? " <i>(Orqa sana bilan)</i>" : ""}\n` +
+          `📝 Izoh: <b>${baseDesc}</b>\n` +
+          `👑 Tasdiqladi: <b>${sess.user?.name || "Direktor"}</b>\n` +
+          `────────────────────\n` +
+          `💰 Hamyon yangi balansi: <b>₺${balAfter.toLocaleString("tr-TR")} TL</b>`;
+        for (const tgId of empTgIds) {
+          await sendTelegramHtml(tgId, empHtml);
+        }
+      } catch {}
+
+      return sendJson(res, 201, {
+        success: true,
+        walletId: wallet.id,
+        employeeId: wallet.employeeId,
+        amountTl,
+        balanceBefore: balBefore,
+        balanceAfter: balAfter,
+        occurredDate: assignedDate,
       });
-      return sendJson(res, 201, r.data);
     }
 
     if (pathname === "/fin-api/erp/income" && method === "GET") {
@@ -3705,13 +3800,27 @@ MUHIM QOIDALAR:
         const employeeId = payload.employeeId;
         const amount = Number(payload.amount || 0);
         const description = payload.description || "Hamyonga mablag' ajratildi";
-        await erpRequest("POST", `/wallets/${employeeId}/assign`, {
-          body: { amount, description },
-          token: sess.erpToken,
-        });
+        const todayIst = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Istanbul" }).format(new Date());
+        const assignedDate = String(payload.date || payload.occurredAt || todayIst).slice(0, 10);
+        const wRows = await queryPgJson(
+          erpEnv.DATABASE_URL,
+          `SELECT id, COALESCE(balance, 0)::float AS balance FROM "Wallet" WHERE "employeeId" = ${sqlStr(employeeId)} OR id = ${sqlStr(employeeId)} LIMIT 1`
+        );
+        const wallet = wRows[0];
+        if (!wallet) return sendJson(res, 404, { error: "Xodim hamyoni topilmadi" });
+        const balBefore = Number(wallet.balance || 0);
+        const balAfter = Number((balBefore + amount).toFixed(4));
+        const txId = "wtx_asg_" + crypto.randomBytes(8).toString("hex");
+        const refId = "ref_asg_" + crypto.randomBytes(8).toString("hex");
+        await execPgSql(
+          erpEnv.DATABASE_URL,
+          `UPDATE "Wallet" SET balance = balance + ${amount}, "totalAssigned" = COALESCE("totalAssigned", 0) + ${amount}, "updatedAt" = NOW() WHERE id = ${sqlStr(wallet.id)};
+           INSERT INTO "WalletTransaction" (id, "referenceId", "walletId", type, amount, "balanceBefore", "balanceAfter", currency, description, "createdAt", "occurredAt")
+           VALUES (${sqlStr(txId)}, ${sqlStr(refId)}, ${sqlStr(wallet.id)}, 'ASSIGNMENT'::"TransactionType", ${amount}, ${balBefore}, ${balAfter}, 'TL', ${sqlStr(description)}, NOW(), ${sqlStr(assignedDate)}::timestamp);`
+        );
         return sendJson(res, 200, {
           success: true,
-          message: `Xodim hamyoniga ₺${amount.toLocaleString("tr-TR")} muvaffaqiyatli o'tkazildi!`,
+          message: `Xodim hamyoniga ₺${amount.toLocaleString("tr-TR")} (${assignedDate} sanasi bilan) muvaffaqiyatli o'tkazildi!`,
         });
       }
 

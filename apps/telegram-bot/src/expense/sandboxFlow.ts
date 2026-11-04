@@ -382,13 +382,24 @@ async function saveReceiptToDiskAndDb(
   return publicUrl;
 }
 
-function getIstanbulDateStr(): string {
+function getIstanbulDateStr(offsetDays = 0): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Europe/Istanbul",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).format(new Date());
+  }).format(new Date(Date.now() - offsetDays * 86400 * 1000));
+}
+
+function extractDateFromText(text: string, fallback: string): string {
+  if (!text) return fallback;
+  const iso = text.match(/\b(20\d{2}-\d{2}-\d{2})\b/);
+  if (iso && iso[1]) return iso[1];
+  const dmy = text.match(/\b(\d{2})[./-](\d{2})[./-](20\d{2})\b/);
+  if (dmy && dmy[1] && dmy[2] && dmy[3]) return `${dmy[3]}-${dmy[2]}-${dmy[1]}`;
+  if (/\b(kecha|kechagi)\b/i.test(text)) return getIstanbulDateStr(1);
+  if (/\b(2\s*kun\s*oldin|o['`’]?tgan\s*kuni)\b/i.test(text)) return getIstanbulDateStr(2);
+  return fallback;
 }
 
 function fmtNum(n: number, decimals = 2): string {
@@ -1504,10 +1515,18 @@ async function assignFundsToWallet(
   targetKey: string,
   amountTl: number,
   description: string,
-  directorName: string
-): Promise<{ balanceBefore: number; balanceAfter: number }> {
+  directorName: string,
+  assignedDate?: string
+): Promise<{ balanceBefore: number; balanceAfter: number; occurredDate: string }> {
   const target = ACCOUNT_TARGETS[targetKey];
   if (!target) throw new Error("Hisob topilmadi: " + targetKey);
+
+  const todayIst = getIstanbulDateStr(0);
+  const cleanDate =
+    assignedDate && /^\d{4}-\d{2}-\d{2}$/.test(assignedDate.trim().slice(0, 10))
+      ? assignedDate.trim().slice(0, 10)
+      : todayIst;
+  const isBackdated = cleanDate !== todayIst;
 
   const wRows: any[] = await moliyPrisma.$queryRawUnsafe(
     `SELECT balance::float AS balance FROM "Wallet" WHERE id = $1 LIMIT 1`,
@@ -1517,7 +1536,8 @@ async function assignFundsToWallet(
   const balAfter = Number((balBefore + amountTl).toFixed(4));
   const txId = "wtx_asg_" + crypto.randomBytes(8).toString("hex");
   const refId = "ref_asg_" + crypto.randomBytes(8).toString("hex");
-  const fullDesc = `${description || "Hamyonga mablag' ajratildi"} [Direktor: ${directorName}]`;
+  const dateSuffix = isBackdated ? ` [Sana: ${cleanDate}]` : "";
+  const fullDesc = `${description || "Hamyonga mablag' ajratildi"}${dateSuffix} [Direktor: ${directorName}]`;
 
   await moliyPrisma.$transaction([
     moliyPrisma.$executeRawUnsafe(
@@ -1537,7 +1557,7 @@ async function assignFundsToWallet(
       ) VALUES (
         $1, $2, $3, 'ASSIGNMENT'::"TransactionType", $4,
         $5, $6, 'TL', $7,
-        NOW(), NOW()
+        NOW(), $8::timestamp
       )`,
       txId,
       refId,
@@ -1545,7 +1565,8 @@ async function assignFundsToWallet(
       amountTl,
       balBefore,
       balAfter,
-      fullDesc
+      fullDesc,
+      cleanDate
     ),
   ]);
 
@@ -1568,7 +1589,7 @@ async function assignFundsToWallet(
         ) VALUES (
           $1, $2, $3, 'ASSIGNMENT'::finance."TransactionType", $4,
           $5, $6, 'TL', $7,
-          NOW(), NOW()
+          NOW(), $8::timestamp
         )`,
         txId,
         refId,
@@ -1576,7 +1597,8 @@ async function assignFundsToWallet(
         amountTl,
         balBefore,
         balAfter,
-        fullDesc
+        fullDesc,
+        cleanDate
       ),
     ]);
   } catch {}
@@ -1594,6 +1616,7 @@ async function assignFundsToWallet(
           "────────────────────",
           `🏦 Hisob: *${target.label}*`,
           `➕ Qo'shilgan summa: *+₺${fmtNum(amountTl)} TL*`,
+          `📅 Berilgan sana: *${cleanDate}*` + (isBackdated ? " _(Orqa sana bilan)_" : ""),
           `📝 Izoh: ${description || "Hamyon to'ldirildi"}`,
           `👑 Tasdiqladi: *${directorName}*`,
           "────────────────────",
@@ -1604,7 +1627,7 @@ async function assignFundsToWallet(
     } catch {}
   }
 
-  return { balanceBefore: balBefore, balanceAfter: balAfter };
+  return { balanceBefore: balBefore, balanceAfter: balAfter, occurredDate: cleanDate };
 }
 
 // Director action: Record Treasury Income (Kirim)
@@ -2027,6 +2050,7 @@ interface AiParsedResult {
     amount: number;
     currency: "TL" | "USD";
     description: string;
+    date?: string;
   };
   treasuryIncome?: {
     source: string;
@@ -2102,8 +2126,8 @@ Agar foydalanuvchi xabari shu ochiq qoralamani tuzatishga qaratilgan bo'lsa (mas
 
   const directorRules = isDirector
     ? `FOYDALANUVCHI — DIREKTOR (RAHBAR):
-1) Agar Direktor biror xodim/bo'lim hamyoniga pul ajratayotgan bo'lsa (masalan: "Idoraga 20000 lira berdim", "Vaqf hamyoniga 10000 tl o'tkaz", "Muhammadjonga 5000 tl ajrat"):
-   intent="assign_wallet" qaytaring va "walletAssign": { "targetAccount": "Idora"|"Vaqf"|"Abdurahmon"|"Muhammadjon"|"Mezana", "amount": ..., "currency": "TL"|"USD", "description": "..." } to'ldiring.
+1) Agar Direktor biror xodim/bo'lim hamyoniga pul ajratayotgan bo'lsa (masalan: "Idoraga 20000 lira berdim", "Kecha Vaqf hamyoniga 10000 tl o'tkazdim", "1-noyabr kuni Muhammadjonga 5000 tl ajratdim"):
+   intent="assign_wallet" qaytaring va "walletAssign": { "targetAccount": "Idora"|"Vaqf"|"Abdurahmon"|"Muhammadjon"|"Mezana", "amount": ..., "currency": "TL"|"USD", "description": "...", "date": "YYYY-MM-DD" } to'ldiring (agar "kecha" yoki o'tgan sana aytilgan bo'lsa o'sha sanani, aks holda "${todayStr}" qo'ying).
 2) Agar Direktor xazinaga kirim kiritayotgan bo'lsa (masalan: "Xazinaga 5000 dollar kirim bo'ldi", "Kassaga 100000 lira tushdi"):
    intent="treasury_income" qaytaring va "treasuryIncome": { "source": "...", "amount": ..., "currency": "TL"|"USD", "description": "..." } to'ldiring.
 3) Agar Direktor dollar kursini o'zgartirmoqchi bo'lsa (masalan: "Kursni 50.15 qil", "1 dollar 50 lira"):
@@ -2475,11 +2499,26 @@ async function processUserExpenseInput(params: {
     const amt = Number(wa.amount || 0);
     if (amt > 0) {
       const amtTl = wa.currency === "USD" ? Number((amt * liveUsdRate).toFixed(2)) : amt;
+      const asgDate =
+        wa.date && /^\d{4}-\d{2}-\d{2}$/.test(wa.date)
+          ? wa.date
+          : extractDateFromText(text, todayStr);
+      const yestStr = getIstanbulDateStr(1);
       const kb = new InlineKeyboard()
         .text(
-          `✅ Tasdiqlash (+₺${fmtNum(amtTl)} TL)`,
-          `dir:assign:do:${targetKey}:${amtTl}`
+          `✅ Tasdiqlash (${asgDate}, +₺${fmtNum(amtTl)})`,
+          `dir:assign:do:${targetKey}:${amtTl}:${asgDate}`
         )
+        .row()
+        .text(
+          `📅 Bugun (${todayStr.slice(5)})`,
+          `dir:assign:do:${targetKey}:${amtTl}:${todayStr}`
+        )
+        .text(
+          `📅 Kecha (${yestStr.slice(5)})`,
+          `dir:assign:do:${targetKey}:${amtTl}:${yestStr}`
+        )
+        .row()
         .text("❌ Bekor qilish", "dir:cancel");
 
       await bot.api.sendMessage(
@@ -2490,9 +2529,10 @@ async function processUserExpenseInput(params: {
           `🏦 Qabul qiluvchi hisob: *${targetInfo.label}*`,
           `💰 Summa: *₺${fmtNum(amtTl)} TL*` +
             (wa.currency === "USD" ? ` ($${fmtNum(amt)} USD @ ${liveUsdRate.toFixed(2)})` : ""),
+          `📅 Berilgan sana: *${asgDate}*` + (asgDate !== todayStr ? " _(Orqa sana)_" : ""),
           `📝 Izoh: ${wa.description || "Hamyon to'ldirildi"}`,
           "",
-          "👇 Tasdiqlasangiz, mablag' darhol hamyon balansiga qo'shiladi:",
+          "👇 Tasdiqlasangiz, mablag' ko'rsatilgan sana bilan hamyon balansiga qo'shiladi:",
         ].join("\n"),
         { parse_mode: "Markdown", reply_markup: kb }
       );
@@ -2750,6 +2790,7 @@ export function registerExpenseSandboxFlow(bot: Bot) {
       if (p1 === "do" && p2 && parts[3]) {
         const targetKey = p2;
         const amountTl = Number(parts[3]);
+        const asgDate = parts[4] || getIstanbulDateStr(0);
         if (!(amountTl > 0)) return;
         directorPendingByUser.delete(userId);
         const target = ACCOUNT_TARGETS[targetKey]!;
@@ -2758,7 +2799,8 @@ export function registerExpenseSandboxFlow(bot: Bot) {
           targetKey,
           amountTl,
           "Hamyonga mablag' ajratildi",
-          auth.personName
+          auth.personName,
+          asgDate
         );
         await ctx.answerCallbackQuery({ text: "✅ Mablag' hamyonga o'tkazildi!" });
         await ctx.editMessageText(
@@ -2767,6 +2809,7 @@ export function registerExpenseSandboxFlow(bot: Bot) {
             "────────────────────",
             `🏦 Hisob: *${target.label}*`,
             `➕ Ajratilgan summa: *+₺${fmtNum(amountTl)} TL*`,
+            `📅 Berilgan sana: *${res.occurredDate}*`,
             `📊 Avvalgi balans: ₺${fmtNum(res.balanceBefore)} TL`,
             `💳 Yangi balans: *₺${fmtNum(res.balanceAfter)} TL*`,
           ].join("\n"),
@@ -4100,12 +4143,14 @@ export function registerExpenseSandboxFlow(bot: Bot) {
             directorPendingByUser.delete(userId);
             const rate = await fetchLiveUsdRate();
             const amtTl = isUsd ? Number((num * rate).toFixed(2)) : num;
+            const asgDate = extractDateFromText(raw, getIstanbulDateStr(0));
             const res = await assignFundsToWallet(
               bot,
               pending.targetKey,
               amtTl,
               raw,
-              auth.personName
+              auth.personName,
+              asgDate
             );
             const target = ACCOUNT_TARGETS[pending.targetKey]!;
             await ctx.reply(
@@ -4115,6 +4160,7 @@ export function registerExpenseSandboxFlow(bot: Bot) {
                 `🏦 Hisob: *${target.label}*`,
                 `➕ Ajratilgan summa: *+₺${fmtNum(amtTl)} TL*` +
                   (isUsd ? ` ($${fmtNum(num)} USD)` : ""),
+                `📅 Berilgan sana: *${res.occurredDate}*`,
                 `💳 Yangi balans: *₺${fmtNum(res.balanceAfter)} TL*`,
               ].join("\n"),
               { parse_mode: "Markdown", reply_markup: buildReplyKeyboard(userId) }
