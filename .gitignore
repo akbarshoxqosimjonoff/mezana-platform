@@ -1,15 +1,79 @@
-node_modules/
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Build outputs
+dist
+build
+.next
+out
+
+# Turbo
+.turbo
+
+# Environment variables
 .env
-.env.*
-!.env.example
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env*.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 *.log
+
+# TypeScript
+*.tsbuildinfo
+
+# Testing
+coverage
+
+# IDE / Editor
+.vscode
+.idea
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Prisma
+prisma/migrations/.DS_Store
+
+# OS
+.DS_Store
+*.pem
+
+# Debug
+.cache
+
+# Vercel
+.vercel
+
+# Misc
+*.local
+.env.platform.local
+
+# Runtime & Sensitive / Binary exclusions
+.env*
+!.env.example
 *.bak*
+*.sessions.json
 .sessions.json
 .venv/
 __pycache__/
-*.onnx
-student_face_gallery.*
-apps/finance/dist/app.js
-apps/finance/dist/uploads/
-apps/telegram-bot/dist/
+*.pyc
 apps/telegram-bot/late-photos/
+apps/finance/dist/
+apps/finance-bff/*.onnx
+apps/finance-bff/student_face_gallery.*
+apps/crm/backend/uploads/
+apps/crm/backend/zkteco-users.json
+apps/crm/backend/*sheets*.json
+apps/vaqf/dist/
+apps/crm/frontend/dist.kirish-build/
+core.*

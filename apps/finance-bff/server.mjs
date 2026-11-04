@@ -9,7 +9,10 @@ import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+import { handleVaqfApi } from "./vaqf/routes.mjs";
+import { vaqfAccess } from "./vaqf/service.mjs";
 const STATIC_DIR = path.resolve(__dirname, "../finance/dist");
+const VAQF_STATIC_DIR = path.resolve(__dirname, "../vaqf/dist");
 const SESSIONS_FILE = path.resolve(__dirname, ".sessions.json");
 
 function parseEnvFile(filePath) {
@@ -32,11 +35,23 @@ function parseEnvFile(filePath) {
   return out;
 }
 
+const localBffEnv = parseEnvFile(path.resolve(__dirname, ".env"));
 const crmEnv = parseEnvFile("/srv/data/mezana-space/var/www/mezana-crm/backend/.env");
-const pgPool = createPsqlPool(crmEnv.DATABASE_URL || "");
 const erpEnv = parseEnvFile("/srv/data/apps/moliy/.env");
 const platformEnv = parseEnvFile("/srv/data/apps/mezana-platform/.env.platform.local");
 const botEnv = parseEnvFile("/srv/data/apps/mezana-platform/apps/telegram-bot/.env");
+
+const CRM_DB_URL = process.env.CRM_DB_URL || localBffEnv.CRM_DB_URL || platformEnv.CRM_DB_URL || crmEnv.DATABASE_URL || "";
+const ERP_DB_URL = process.env.ERP_DB_URL || localBffEnv.ERP_DB_URL || platformEnv.ERP_DB_URL || erpEnv.DATABASE_URL || "";
+if (!CRM_DB_URL) {
+  throw new Error("XATO: CRM_DB_URL muhit o'zgaruvchisi topilmadi! (.env faylni tekshiring)");
+}
+if (!ERP_DB_URL) {
+  throw new Error("XATO: ERP_DB_URL muhit o'zgaruvchisi topilmadi! (.env faylni tekshiring)");
+}
+crmEnv.DATABASE_URL = CRM_DB_URL;
+erpEnv.DATABASE_URL = ERP_DB_URL;
+const pgPool = createPsqlPool(CRM_DB_URL);
 
 const CRM_GRAPHQL = process.env.CRM_GRAPHQL_URL || "http://127.0.0.1:4000/graphql";
 const ERP_API = process.env.ERP_API_URL || "http://127.0.0.1:3004/api/v1";
@@ -295,6 +310,7 @@ function getSessionAccessContext(sess) {
       allowedTabs: [],
       allowedPages: [],
       readOnlyPages: [],
+      vaqf: { canView: false, canEdit: false, canApprove: false },
     };
   }
   const erpEmail = String(sess.erpUser?.email || "").toLowerCase();
@@ -386,6 +402,7 @@ function getSessionAccessContext(sess) {
     allowedTabs,
     allowedPages: admMeta?.allowedPages || [],
     readOnlyPages: isDirector ? [] : (admMeta?.readOnlyPages || []),
+    vaqf: vaqfAccess(sess, { isDirector }),
   };
 }
 
@@ -444,19 +461,45 @@ function getSession(req) {
     return null;
   }
   let dirty = false;
-  if (!sess.crmToken || isJwtExpired(sess.crmToken)) {
-    const mapped = sess.crmUser || (sess.erpUser?.email && ERP_TO_CRM_MAP[sess.erpUser.email.toLowerCase()]) || { id: 3, username: "mezana", fullname: "Mezana", role: "root", gender: null };
-    sess.crmToken = mintCrmToken(mapped);
-    sess.crmUser = mapped;
+  // Clean up any previously mis-mapped null CRM user
+  if (sess.crmUser && (!sess.crmUser.id || !sess.crmUser.username)) {
+    sess.crmUser = null;
+    sess.crmToken = null;
     dirty = true;
   }
+  if (!sess.crmToken || isJwtExpired(sess.crmToken)) {
+    const mapped =
+      (sess.crmUser && sess.crmUser.id && sess.crmUser.username ? sess.crmUser : null) ||
+      (sess.erpUser?.role === "DIRECTOR"
+        ? { id: 3, username: "mezana", fullname: "Mezana Rahbariyat", role: "root", gender: null }
+        : null) ||
+      (sess.erpUser?.email ? ERP_TO_CRM_MAP[sess.erpUser.email.toLowerCase()] : null);
+    if (mapped && mapped.id && mapped.username) {
+      sess.crmToken = mintCrmToken(mapped);
+      sess.crmUser = mapped;
+      dirty = true;
+    } else if (sess.crmToken || sess.crmUser) {
+      sess.crmToken = null;
+      sess.crmUser = null;
+      dirty = true;
+    }
+  }
   if (!sess.erpToken || isJwtExpired(sess.erpToken)) {
-    const mapped = sess.erpUser || (sess.crmUser?.username && CRM_TO_ERP_MAP[sess.crmUser.username.toLowerCase()]) || (sess.crmUser?.role === "root"
-      ? { id: "cmtlai0bg000ipir95hv9hfez", email: "director@moliy.org", role: "DIRECTOR" }
-      : { id: "cmtlai0il000npir9ydqrvy3s", email: "idora@moliya.org", role: "EMPLOYEE" });
-    sess.erpToken = mintErpToken(mapped);
-    sess.erpUser = mapped;
-    dirty = true;
+    const mapped =
+      (sess.erpUser && sess.erpUser.id && sess.erpUser.email ? sess.erpUser : null) ||
+      (sess.crmUser?.username ? CRM_TO_ERP_MAP[sess.crmUser.username.toLowerCase()] : null) ||
+      (sess.crmUser?.role === "root"
+        ? { id: "cmtlai0bg000ipir95hv9hfez", email: "director@moliy.org", role: "DIRECTOR" }
+        : null);
+    if (mapped && mapped.id && mapped.email) {
+      sess.erpToken = mintErpToken(mapped);
+      sess.erpUser = mapped;
+      dirty = true;
+    } else if (sess.erpToken || sess.erpUser) {
+      sess.erpToken = null;
+      sess.erpUser = null;
+      dirty = true;
+    }
   }
   if (dirty) saveSessions();
   return sess;
@@ -1382,9 +1425,12 @@ const MIME_TYPES = {
 };
 
 async function serveStatic(req, res, pathname) {
-  let relPath = pathname === "/" ? "/index.html" : pathname;
-  let filePath = path.join(STATIC_DIR, decodeURIComponent(relPath));
-  if (!filePath.startsWith(STATIC_DIR)) {
+  const isVaqf = pathname === "/vaqf" || pathname.startsWith("/vaqf/");
+  const baseDir = isVaqf ? VAQF_STATIC_DIR : STATIC_DIR;
+  let relPath = isVaqf ? (pathname.slice(5) || "/index.html") : (pathname === "/" ? "/index.html" : pathname);
+  if (relPath === "/") relPath = "/index.html";
+  let filePath = path.join(baseDir, decodeURIComponent(relPath));
+  if (!filePath.startsWith(baseDir)) {
     res.writeHead(403);
     res.end("Forbidden");
     return;
@@ -1403,7 +1449,7 @@ async function serveStatic(req, res, pathname) {
     res.end(content);
   } catch {
     try {
-      const indexHtml = await fsp.readFile(path.join(STATIC_DIR, "index.html"));
+      const indexHtml = await fsp.readFile(path.join(baseDir, "index.html"));
       res.writeHead(200, {
         "Content-Type": "text/html; charset=utf-8",
         "Cache-Control": "no-cache",
@@ -1807,6 +1853,7 @@ async function handleApi(req, res, url) {
     }
 
     if (pathname === "/fin-api/crm/students" && method === "GET") {
+      if (!sess.crmToken) return sendJson(res, 403, { error: "CRM tizimiga ulanilmagan" });
       const genderCond = (!access.isDirector && access.gender) ? `WHERE s.gender::text = ${sqlStr(access.gender)}` : "";
       const allStudents = (await queryPgJson(crmEnv.DATABASE_URL, `
         SELECT
@@ -3746,6 +3793,7 @@ MUHIM QOIDALAR:
       }
 
       if (actionType === "record_payment") {
+        if (!sess.crmToken) return sendJson(res, 403, { error: "CRM tizimiga ulanilmagan" });
         const studentId = String(payload.studentId || "");
         if (!studentId) return sendJson(res, 400, { error: "Talaba tanlanmagan." });
         const amount = Number(payload.amount || 0);
@@ -3891,6 +3939,7 @@ MUHIM QOIDALAR:
       }
 
       if (actionType === "create_group") {
+        if (!sess.crmToken) return sendJson(res, 403, { error: "CRM tizimiga ulanilmagan" });
         const input = {
           name: String(payload.name || "Yangi Guruh"),
           gender: payload.gender === "FEMALE" ? "FEMALE" : "MALE",
@@ -3911,6 +3960,7 @@ MUHIM QOIDALAR:
       }
 
       if (actionType === "create_task") {
+        if (!sess.crmToken) return sendJson(res, 403, { error: "CRM tizimiga ulanilmagan" });
         const floorMap = {
           "1": "FIRST_FLOOR",
           "2": "SECOND_FLOOR",
@@ -5186,6 +5236,7 @@ MUHIM QOIDALAR:
 
     // --- GOOGLE SHEETS SYNC (Google Jadval bilan sinxronlash) ---
     if (pathname === "/fin-api/system/sync-sheets" && method === "POST") {
+      if (!sess.crmToken) return sendJson(res, 403, { error: "CRM tizimiga ulanilmagan" });
       const body = await readJsonBody(req);
       const mode = body.mode || "all";
       let result = null;
@@ -5220,6 +5271,7 @@ MUHIM QOIDALAR:
 
 const requestListener = async (req, res) => {
   const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+  if (url.pathname.startsWith("/vaqf-api/")) return handleVaqfApi(req, res, url, { getSession, getSessionAccessContext });
   if (url.pathname.startsWith("/fin-api/")) {
     return handleApi(req, res, url);
   }

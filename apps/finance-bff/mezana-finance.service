@@ -1,0 +1,17 @@
+[Unit]
+Description=Mezana Unified Finance & Vaqf BFF Server
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=mezana
+Group=mezana
+WorkingDirectory=/srv/data/apps/mezana-platform/apps/finance-bff
+EnvironmentFile=/srv/data/apps/mezana-platform/.env.platform.local
+EnvironmentFile=-/srv/data/apps/mezana-platform/apps/finance-bff/.env
+ExecStart=/usr/bin/node /srv/data/apps/mezana-platform/apps/finance-bff/server.mjs
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

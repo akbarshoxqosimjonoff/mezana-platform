@@ -13,7 +13,30 @@ SFACE_PATH = os.path.join(BASE_DIR, "sface.onnx")
 GALLERY_NPZ = os.path.join(BASE_DIR, "student_face_gallery.npz")
 GALLERY_META = os.path.join(BASE_DIR, "student_face_gallery.json")
 UPLOADS_DIR = "/var/www/mezana-crm/backend/uploads/profile-pictures"
-DB_URL = "postgresql://akbar:WanE6Y3jcf6fXAMPWQ626n8ckDh6fRyA@127.0.0.1:5432/mezana"
+def _load_env_files():
+    for env_path in (
+        os.path.join(BASE_DIR, ".env"),
+        "/srv/data/apps/mezana-platform/.env.platform.local",
+        "/srv/data/mezana-space/var/www/mezana-crm/backend/.env",
+    ):
+        try:
+            with open(env_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    k, v = line.split("=", 1)
+                    k = k.strip()
+                    v = v.strip().strip('"').strip("'")
+                    if k and k not in os.environ and v:
+                        os.environ[k] = v
+        except Exception:
+            pass
+
+_load_env_files()
+DB_URL = (os.environ.get("CRM_DB_URL") or os.environ.get("CRM_DATABASE_URL") or "").split("?")[0]
+if not DB_URL:
+    raise RuntimeError("XATO: CRM_DB_URL muhit o'zgaruvchisi topilmadi! (.env faylni tekshiring)")
 
 # Doorway & corridor ROI on gate camera (excludes left glass booth and upper street lights)
 ROI_X1, ROI_Y1, ROI_X2, ROI_Y2 = 0.42, 0.14, 0.86, 0.88

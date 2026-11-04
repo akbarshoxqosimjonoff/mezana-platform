@@ -580,6 +580,13 @@ function App() {
   const checkAuth = useCallback(async () => {
     try {
       const d = await apiFetch("/fin-api/auth/me");
+      if (d?.authenticated) {
+        const nextUrl = new URLSearchParams(window.location.search).get("next");
+        if (nextUrl && nextUrl.startsWith("/vaqf")) {
+          window.location.href = nextUrl;
+          return;
+        }
+      }
       setAuth({ loading: false, ...d });
     } catch {
       setAuth({ loading: false, authenticated: false });
@@ -750,6 +757,11 @@ function App() {
         body: JSON.stringify({ identifier: loginForm.identifier, password: loginForm.password }),
       });
       setLoginForm((s) => ({ ...s, error: "", busy: false }));
+      const nextUrl = new URLSearchParams(window.location.search).get("next");
+      if (nextUrl && nextUrl.startsWith("/vaqf")) {
+        window.location.href = nextUrl;
+        return;
+      }
       setAuth({ loading: false, ...d });
       notify("Moliya markaziga muvaffaqiyatli kirdingiz!");
     } catch (err: any) {
@@ -1825,6 +1837,16 @@ function App() {
             <button className="btn btn-sm" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} title="Mavzuni o'zgartirish">
               {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
             </button>
+            {access.vaqf?.canView && (
+              <a
+                href="/vaqf/"
+                className="vaqf-switch-btn"
+                title="Ezan Vakf? ? Vaqf mulk va inventarizatsiya tizimi"
+              >
+                <img src="/ezan-logo.svg" alt="Ezan Vakf?" style={{ width: 18, height: 22, objectFit: "contain", display: "block" }} />
+                <span className="vaqf-switch-label">Vaqf</span>
+              </a>
+            )}
           </div>
         </header>
 

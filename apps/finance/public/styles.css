@@ -1308,3 +1308,38 @@ html.light .emp-chip.active {
     border: 1px solid #cbd5e1 !important;
   }
 }
+
+.vaqf-switch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(251, 204, 66, 0.45);
+  background: linear-gradient(135deg, rgba(251, 204, 66, 0.16), rgba(245, 158, 11, 0.08));
+  color: #fbcc42;
+  font-weight: 700;
+  font-size: 13px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  white-space: nowrap;
+}
+html.light .vaqf-switch-btn {
+  color: #b45309;
+  border-color: rgba(180, 83, 9, 0.35);
+  background: linear-gradient(135deg, rgba(251, 204, 66, 0.25), rgba(245, 158, 11, 0.12));
+}
+.vaqf-switch-btn:hover {
+  transform: translateY(-1px);
+  border-color: rgba(251, 204, 66, 0.8);
+  box-shadow: 0 4px 14px rgba(251, 204, 66, 0.22);
+}
+@media (max-width: 768px) {
+  .vaqf-switch-label {
+    display: none !important;
+  }
+  .vaqf-switch-btn {
+    padding: 6px 8px;
+  }
+}
