@@ -883,8 +883,8 @@ async function buildOverview(sess, { from, to } = {}) {
     crmEnv.DATABASE_URL,
     `SELECT
        id,
-       TO_CHAR("capturedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD HH24:MI') AS "istanbulTime",
-       TO_CHAR("capturedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD') AS "istanbulDate",
+       TO_CHAR("capturedAt", 'YYYY-MM-DD HH24:MI') AS "istanbulTime",
+       TO_CHAR("capturedAt", 'YYYY-MM-DD') AS "istanbulDate",
        status::text AS status,
        "studentId",
        "studentName",
@@ -892,8 +892,8 @@ async function buildOverview(sess, { from, to } = {}) {
        "confirmedBy",
        note
      FROM "GateLateIncident"
-     WHERE TO_CHAR("capturedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD') >= ${sqlStr(rangeFrom)}
-       AND TO_CHAR("capturedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD') <= ${sqlStr(rangeTo)}
+     WHERE TO_CHAR("capturedAt", 'YYYY-MM-DD') >= ${sqlStr(rangeFrom)}
+       AND TO_CHAR("capturedAt", 'YYYY-MM-DD') <= ${sqlStr(rangeTo)}
      ORDER BY "capturedAt" DESC`
   ));
 

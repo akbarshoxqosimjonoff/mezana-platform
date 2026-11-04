@@ -29,6 +29,71 @@ interface Props {
   initialSubTab?: "overview" | "canteen" | "mosque" | "gate";
 }
 
+function StudentAvatar({ student, size = 34 }: { student: any; size?: number }) {
+  const [imgErr, setImgErr] = useState(false);
+  const pic = student?.profilePicture || student?.photo || "";
+  const fullname = String(student?.fullname || student?.studentName || "T");
+  const initials = fullname
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w: string) => w[0]?.toUpperCase())
+    .join("");
+  const isFemale = student?.gender === "FEMALE";
+  const radius = Math.round(size * 0.28);
+
+  if (pic && !imgErr) {
+    return (
+      <img
+        src={pic}
+        alt={fullname}
+        title={`${fullname} — rasmni kattalashtirish uchun bosing`}
+        onError={() => setImgErr(true)}
+        onClick={(e) => {
+          e.stopPropagation();
+          window.dispatchEvent(
+            new CustomEvent("mezana:preview-student-photo", {
+              detail: {
+                url: pic,
+                fullname,
+                group: student?.group?.name || (typeof student?.group === "string" ? student.group : "") || student?.studentGroup || "",
+                room: student?.roomNumber || student?.room?.roomNumber || (typeof student?.room === "string" ? student.room : "") || "",
+                studyPlace: student?.studyPlace || "",
+              },
+            })
+          );
+        }}
+        style={{
+          width: size,
+          height: size,
+          borderRadius: radius,
+          objectFit: "cover",
+          flexShrink: 0,
+          border: "1px solid rgba(148, 163, 184, 0.28)",
+          background: "var(--bg-input)",
+          cursor: "zoom-in",
+        }}
+      />
+    );
+  }
+
+  return (
+    <div
+      className="stu-avatar"
+      style={{
+        width: size,
+        height: size,
+        borderRadius: radius,
+        fontSize: Math.max(11, Math.round(size * 0.36)),
+        background: isFemale ? "rgba(236,72,153,0.15)" : "rgba(6,182,212,0.15)",
+        color: isFemale ? "#f472b6" : "#06b6d4",
+      }}
+    >
+      {initials}
+    </div>
+  );
+}
+
 export function CampusSmartDashboard({ apiFetch, notify, initialSubTab = "overview" }: Props) {
   const [subTab, setSubTab] = useState<"overview" | "canteen" | "mosque" | "gate">(initialSubTab);
   useEffect(() => {
@@ -1631,8 +1696,13 @@ export function CampusSmartDashboard({ apiFetch, notify, initialSubTab = "overvi
                   {filteredMosqueStudents.map((st: any) => (
                     <tr key={st.id}>
                       <td>
-                        <div style={{ fontWeight: 700 }}>{st.fullname}</div>
-                        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{st.phone}</div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <StudentAvatar student={st} size={34} />
+                          <div>
+                            <div style={{ fontWeight: 700 }}>{st.fullname}</div>
+                            <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{st.phone}</div>
+                          </div>
+                        </div>
                       </td>
                       <td>
                         <span className="badge badge-slate">{st.group}</span> • Xona: {st.room}
@@ -1892,8 +1962,13 @@ export function CampusSmartDashboard({ apiFetch, notify, initialSubTab = "overvi
                         #{idx + 1}
                       </td>
                       <td>
-                        <div style={{ fontWeight: 800, fontSize: 14 }}>{item.studentName}</div>
-                        <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>{item.phone}</div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <StudentAvatar student={item} size={36} />
+                          <div>
+                            <div style={{ fontWeight: 800, fontSize: 14 }}>{item.studentName}</div>
+                            <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>{item.phone}</div>
+                          </div>
+                        </div>
                       </td>
                       <td>
                         <span className="badge badge-slate">{item.studentGroup}</span> • Xona: {item.room}

@@ -15,6 +15,18 @@ export const LATE = {
   responsibleWindowMin: 30,
 };
 
+export function dbWallToDate(dbVal?: Date | null): Date {
+  if (!dbVal) return new Date();
+  const y = dbVal.getUTCFullYear();
+  const m = String(dbVal.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(dbVal.getUTCDate()).padStart(2, "0");
+  const hh = String(dbVal.getUTCHours()).padStart(2, "0");
+  const mm = String(dbVal.getUTCMinutes()).padStart(2, "0");
+  const ss = String(dbVal.getUTCSeconds()).padStart(2, "0");
+  const ms = String(dbVal.getUTCMilliseconds()).padStart(3, "0");
+  return new Date(`${y}-${m}-${d}T${hh}:${mm}:${ss}.${ms}+03:00`);
+}
+
 export function isNightTime(at: Date): boolean {
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: LATE.tz,
@@ -28,14 +40,20 @@ export function isNightTime(at: Date): boolean {
 }
 
 export function fmtLocal(at: Date): string {
-  return new Intl.DateTimeFormat("uz-UZ", {
+  const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: LATE.tz,
-    day: "2-digit",
-    month: "2-digit",
     year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
     hour12: false,
-  }).format(at);
+  }).formatToParts(at);
+  const map: Record<string, string> = {};
+  for (const p of parts) {
+    if (p.type !== "literal") map[p.type] = p.value;
+  }
+  const hh = map.hour === "24" ? "00" : (map.hour || "00");
+  return `${map.year}-${map.month}-${map.day}, soat ${hh}:${map.minute}:${map.second}`;
 }

@@ -62,9 +62,18 @@ function _readLocalEnv(fp) {
   } catch {}
   return out;
 }
-const _localEnv = _readLocalEnv("/srv/data/apps/mezana-platform/.env.platform.local");
-const ACTIVE_BOT_TOKEN = process.env.GATE_TELEGRAM_BOT_TOKEN || _localEnv.GATE_TELEGRAM_BOT_TOKEN || "";
-const PLATFORM_DB_URL = process.env.PLATFORM_DB_URL || "postgresql://moliy_user:Moliy2026Secure2026@127.0.0.1:5432/mezana_platform";
+const _localEnv = {
+  ..._readLocalEnv("/srv/data/apps/mezana-platform/.env.platform.local"),
+  ..._readLocalEnv("/srv/data/apps/mezana-platform/apps/finance-bff/.env"),
+};
+for (const [k, v] of Object.entries(_localEnv)) {
+  if (!process.env[k] && v !== undefined && v !== "") process.env[k] = v;
+}
+const ACTIVE_BOT_TOKEN = process.env.GATE_TELEGRAM_BOT_TOKEN || "";
+const PLATFORM_DB_URL = process.env.PLATFORM_DB_URL || process.env.DATABASE_URL || "";
+if (!PLATFORM_DB_URL) {
+  throw new Error("XATO: PLATFORM_DB_URL (yoki DATABASE_URL) muhit o'zgaruvchisi topilmadi! (.env faylni tekshiring)");
+}
 
 export const platformPool = createPsqlPool(PLATFORM_DB_URL);
 
@@ -99,19 +108,23 @@ export function getIstanbulParts(date = new Date()) {
   }
   const hour = Number(map.hour === "24" ? "0" : map.hour);
   const minute = Number(map.minute);
+  const second = Number(map.second || 0);
   const dateStr = `${map.year}-${map.month}-${map.day}`;
   const monthStr = `${map.year}-${map.month}`;
   const timeStr = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  const timeSecStr = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:${String(second).padStart(2, "0")}`;
   return {
     year: Number(map.year),
     month: Number(map.month),
     day: Number(map.day),
     hour,
     minute,
+    second,
     timeInMinutes: hour * 60 + minute,
     dateStr,
     monthStr,
     timeStr,
+    timeSecStr,
     startOfDayUtc: new Date(`${dateStr}T00:00:00.000+03:00`),
     endOfDayUtc: new Date(`${dateStr}T23:59:59.999+03:00`),
   };
@@ -445,7 +458,7 @@ export async function sendGateIncidentToTelegram(pgPool, incident, lateId = null
     const pctStr = bestCand.similarityPct ? ` (${bestCand.similarityPct}%)` : "";
     caption =
       `${testPrefix}${headerLine}\n` +
-      `\u{1F552} Vaqti: ${ist.dateStr}, soat ${ist.timeStr}\n\n` +
+      `\u{1F552} Vaqti: ${ist.dateStr}, soat ${ist.timeSecStr} (Istanbul)\n\n` +
       `\u{1F916} Tizim aniqladi: ${bestCand.studentName}${pctStr}\n` +
       `\u{1F465} Guruh: ${bestCand.studentGroup || "Guruhsiz"}\n` +
       `\u{23F3} Holat: Tasdiqlash kutilmoqda\n` +
@@ -463,7 +476,7 @@ export async function sendGateIncidentToTelegram(pgPool, incident, lateId = null
   } else {
     caption =
       `${testPrefix}${headerLine}\n` +
-      `\u{1F552} Vaqti: ${ist.dateStr}, soat ${ist.timeStr}\n\n` +
+      `\u{1F552} Vaqti: ${ist.dateStr}, soat ${ist.timeSecStr} (Istanbul)\n\n` +
       `\u{1F916} Tizim yuzni aniq taniy olmadi.\n` +
       `\u{23F3} Holat: Tasdiqlash kutilmoqda\n\n` +
       `\u{1F447} Amal tanlang:\n` +
@@ -873,6 +886,7 @@ export async function buildCampusSmartAnalytics(pgPool, { date: reqDate, month: 
     return {
       id: st.id,
       fullname: st.fullname,
+      photo: st.photo || null,
       group: grp,
       room: st.room || "—",
       cardId: st.cardId || "—",
@@ -1054,6 +1068,7 @@ export async function buildCampusSmartAnalytics(pgPool, { date: reqDate, month: 
       return {
         id: st.id,
         fullname: st.fullname,
+        photo: st.photo || null,
         group: st.group || "Guruhsiz",
         room: st.room || "—",
         phone: st.phone || "—",
@@ -1109,7 +1124,7 @@ export async function buildCampusSmartAnalytics(pgPool, { date: reqDate, month: 
     `SELECT
        id,
        "capturedAt",
-       TO_CHAR("capturedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD HH24:MI:SS') AS "istanbulTime",
+       TO_CHAR("capturedAt", 'YYYY-MM-DD HH24:MI:SS') AS "istanbulTime",
        "status",
        "studentId",
        "studentName",
@@ -1148,6 +1163,7 @@ export async function buildCampusSmartAnalytics(pgPool, { date: reqDate, month: 
         key,
         studentId: inc.studentId || null,
         studentName: stObj?.fullname || inc.studentName || "Noma'lum talaba",
+        photo: stObj?.photo || null,
         studentGroup: stObj?.group || inc.studentGroup || "Guruhsiz",
         room: stObj?.room || "—",
         phone: stObj?.phone || "—",
@@ -1196,6 +1212,7 @@ export async function buildCampusSmartAnalytics(pgPool, { date: reqDate, month: 
     activeStudents: activeStudents.map((s) => ({
       id: s.id,
       fullname: s.fullname,
+      photo: s.photo || null,
       group: s.group || "Guruhsiz",
       room: s.room || "—",
       cardId: s.cardId || "",

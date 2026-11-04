@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { Bot, InlineKeyboard, InputFile } from "grammy";
 import { prisma, crmPrisma } from "../db/client.js";
-import { LATE, fmtLocal, isNightTime } from "./config.js";
+import { LATE, fmtLocal, isNightTime, dbWallToDate } from "./config.js";
 import { captureBurst } from "./capture.js";
 import { AUTHORIZED_USERS } from "../expense/sandboxFlow.js";
 
@@ -313,7 +313,7 @@ async function applyLateDecision(
   respLabel: string
 ) {
   const row = await prisma.lateArrival.findUnique({ where: { id: lateId } });
-  const occurredAt = row?.occurredAt || new Date();
+  const occurredAt = row?.occurredAt ? dbWallToDate(row.occurredAt) : new Date();
   const night = isNightTime(occurredAt);
   const prefix = night ? "" : "#sinov\n";
 
@@ -621,8 +621,8 @@ async function resolveLateArrivalFromReply(
       const [, datePart, timePart] = tsMatch;
       const byTimeRows = await prisma.$queryRawUnsafe<Array<{ id: string }>>(
         `SELECT id FROM devices.late_arrivals
-         WHERE TO_CHAR("occurredAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD') = $1
-           AND TO_CHAR("occurredAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'HH24:MI') = $2
+         WHERE TO_CHAR("occurredAt", 'YYYY-MM-DD') = $1
+           AND TO_CHAR("occurredAt", 'HH24:MI') = $2
          ORDER BY ABS(COALESCE("promptMessageId", $3) - $3) ASC, "occurredAt" DESC
          LIMIT 1`,
         datePart,
@@ -831,7 +831,7 @@ export function registerLateArrivalFlow(bot: Bot) {
       }
       // Only fall back to recent unconfirmed late arrival if no reply_to_message was used during night hours
       if (!repliedMsg && isNightTime(new Date())) {
-        const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+        const fiveMinAgo = new Date(Date.now() + 3 * 3600 * 1000 - 5 * 60 * 1000);
         row = await prisma.lateArrival.findFirst({
           where: {
             status: { in: ["AWAITING_NAME", "AWAITING_CONFIRM"] },
@@ -853,7 +853,7 @@ export function registerLateArrivalFlow(bot: Bot) {
       await applyLateDecision(bot, row.id, "SKIP", null, row.draftName, tgId, respLabel);
       await ctx.reply(
         `\u{23ED} O'tkazib yuborildi (kech qolgan deb qayd qilinmadi).\n` +
-          `\u{1F552} Vaqti: ${fmtLocal(row.occurredAt)} (Istanbul)\n` +
+          `\u{1F552} Vaqti: ${fmtLocal(dbWallToDate(row.occurredAt))} (Istanbul)\n` +
           `\u{1F46E} Belgiladi: ${respLabel}`,
         { reply_to_message_id: ctx.message.message_id }
       );
@@ -890,7 +890,7 @@ export function registerLateArrivalFlow(bot: Bot) {
         `\u{1F534} Kech qolgan sifatida tasdiqlandi va bazaga yozildi!\n\n` +
           `\u{1F464} Talaba: ${matchRes.best.fullname}${writtenDiff}\n` +
           `\u{1F465} Guruh: ${matchRes.best.group}\n` +
-          `\u{1F552} Kirgan vaqti: ${fmtLocal(row.occurredAt)} (Istanbul)\n` +
+          `\u{1F552} Kirgan vaqti: ${fmtLocal(dbWallToDate(row.occurredAt))} (Istanbul)\n` +
           `\u{2705} Tasdiqladi: ${respLabel}`,
         {
           reply_to_message_id: ctx.message.message_id,
@@ -987,7 +987,7 @@ export function registerLateArrivalFlow(bot: Bot) {
           `\u{1F534} Kech qolgan sifatida tasdiqlandi va bazaga yozildi!\n\n` +
             `\u{1F464} Talaba: ${st.fullname}\n` +
             `\u{1F465} Guruh: ${st.group}\n` +
-            `\u{1F552} Kirgan vaqti: ${fmtLocal(row.occurredAt)} (Istanbul)\n` +
+            `\u{1F552} Kirgan vaqti: ${fmtLocal(dbWallToDate(row.occurredAt))} (Istanbul)\n` +
             `\u{2705} Tasdiqladi: ${respLabel}`,
           res.kb ? { reply_markup: res.kb } : undefined
         );

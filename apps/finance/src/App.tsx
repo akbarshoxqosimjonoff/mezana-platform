@@ -73,7 +73,22 @@ function StudentAvatar({ student, size = 36 }: { student: any; size?: number }) 
       <img
         src={pic}
         alt={fullname}
+        title={`${fullname} — rasmni kattalashtirish uchun bosing`}
         onError={() => setImgErr(true)}
+        onClick={(e) => {
+          e.stopPropagation();
+          window.dispatchEvent(
+            new CustomEvent("mezana:preview-student-photo", {
+              detail: {
+                url: pic,
+                fullname,
+                group: student?.group?.name || (typeof student?.group === "string" ? student.group : "") || student?.studentGroup || "",
+                room: student?.roomNumber || student?.room?.roomNumber || (typeof student?.room === "string" ? student.room : "") || "",
+                studyPlace: student?.studyPlace || "",
+              },
+            })
+          );
+        }}
         style={{
           width: size,
           height: size,
@@ -82,6 +97,8 @@ function StudentAvatar({ student, size = 36 }: { student: any; size?: number }) 
           flexShrink: 0,
           border: "1px solid rgba(148, 163, 184, 0.28)",
           background: "var(--bg-input)",
+          cursor: "zoom-in",
+          transition: "transform 0.15s ease, box-shadow 0.15s ease",
         }}
       />
     );
@@ -427,6 +444,33 @@ function App() {
   const [voidPayModal, setVoidPayModal] = useState<{ payment: any; reason: string } | null>(null);
   const [studentHistoryModal, setStudentHistoryModal] = useState<any | null>(null);
   const [receiptPrintModal, setReceiptPrintModal] = useState<any | null>(null);
+  const [previewStudentPhoto, setPreviewStudentPhoto] = useState<{
+    url: string;
+    fullname: string;
+    group?: string;
+    room?: string;
+    studyPlace?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    const onPreview = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail;
+      if (detail?.url) {
+        setPreviewStudentPhoto(detail);
+      }
+    };
+    const onKeyDown = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") {
+        setPreviewStudentPhoto(null);
+      }
+    };
+    window.addEventListener("mezana:preview-student-photo", onPreview);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("mezana:preview-student-photo", onPreview);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, []);
 
   const [newExpenseModal, setNewExpenseModal] = useState<{
     employeeId?: string;
@@ -2344,8 +2388,13 @@ function App() {
                         {(overview?.recentStudentPayments || []).map((p: any) => (
                           <tr key={p.id}>
                             <td>
-                              <div style={{ fontWeight: 600 }}>{p.student?.fullname || `#${p.studentId}`}</div>
-                              <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>{p.student?.group?.name || ""}</div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                <StudentAvatar student={p.student || { fullname: `#${p.studentId}` }} size={32} />
+                                <div>
+                                  <div style={{ fontWeight: 600 }}>{p.student?.fullname || `#${p.studentId}`}</div>
+                                  <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>{p.student?.group?.name || ""}</div>
+                                </div>
+                              </div>
                             </td>
                             <td>{String(p.paidAt || "").slice(0, 10)}</td>
                             <td>
@@ -4435,11 +4484,14 @@ function App() {
         <div className="modal-backdrop" onClick={() => setStudentHistoryModal(null)}>
           <div className="modal-box wide animate-in" onClick={(e) => e.stopPropagation()}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-              <div>
-                <h3 style={{ fontSize: 17, fontWeight: 800 }}>{studentHistoryModal.fullname} — To'lovlar tarixi</h3>
-                <p style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>
-                  Shartnoma: {fmtUSD(studentHistoryModal.totalPayment)} • To'langan: {fmtUSD(studentHistoryModal.paidAmount)} • Qolgan qarz: {fmtUSD(studentHistoryModal.remainingAmount)}
-                </p>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <StudentAvatar student={studentHistoryModal} size={46} />
+                <div>
+                  <h3 style={{ fontSize: 17, fontWeight: 800, margin: 0 }}>{studentHistoryModal.fullname} — To'lovlar tarixi</h3>
+                  <p style={{ fontSize: 12.5, color: "var(--text-secondary)", margin: "4px 0 0 0" }}>
+                    Shartnoma: {fmtUSD(studentHistoryModal.totalPayment)} • To'langan: {fmtUSD(studentHistoryModal.paidAmount)} • Qolgan qarz: {fmtUSD(studentHistoryModal.remainingAmount)}
+                  </p>
+                </div>
               </div>
               <button className="btn btn-sm" onClick={() => setStudentHistoryModal(null)}><X size={15} /></button>
             </div>
@@ -5334,6 +5386,90 @@ function App() {
                   Natija topilmadi
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* GLOBAL STUDENT PHOTO LIGHTBOX MODAL */}
+      {previewStudentPhoto && (
+        <div
+          className="modal-backdrop"
+          style={{ zIndex: 10000 }}
+          onClick={() => setPreviewStudentPhoto(null)}
+        >
+          <div
+            className="modal-box animate-in"
+            style={{
+              maxWidth: 560,
+              padding: 20,
+              textAlign: "center",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 14,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, textAlign: "left" }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>
+                  {previewStudentPhoto.fullname}
+                </h3>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+                  {previewStudentPhoto.group && (
+                    <span className="badge badge-cyan">{previewStudentPhoto.group}</span>
+                  )}
+                  {previewStudentPhoto.studyPlace && (
+                    <span className="badge badge-emerald">{previewStudentPhoto.studyPlace}</span>
+                  )}
+                  {previewStudentPhoto.room && previewStudentPhoto.room !== "—" && (
+                    <span className="badge badge-slate">Xona: {previewStudentPhoto.room}</span>
+                  )}
+                </div>
+              </div>
+              <button className="btn btn-sm" onClick={() => setPreviewStudentPhoto(null)} title="Yopish (Esc)">
+                <X size={16} />
+              </button>
+            </div>
+
+            <div
+              style={{
+                width: "100%",
+                background: "#020617",
+                borderRadius: 14,
+                padding: 8,
+                border: "1px solid rgba(148,163,184,0.22)",
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+              }}
+            >
+              <img
+                src={previewStudentPhoto.url}
+                alt={previewStudentPhoto.fullname}
+                style={{
+                  maxWidth: "100%",
+                  maxHeight: "72vh",
+                  borderRadius: 10,
+                  objectFit: "contain",
+                  display: "block",
+                }}
+              />
+            </div>
+
+            <div style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <a
+                href={previewStudentPhoto.url}
+                target="_blank"
+                rel="noreferrer"
+                className="btn btn-sm"
+              >
+                Asl rasmni yangi oynada ochish ↗
+              </a>
+              <button className="btn btn-sm btn-primary" onClick={() => setPreviewStudentPhoto(null)}>
+                Yopish
+              </button>
             </div>
           </div>
         </div>

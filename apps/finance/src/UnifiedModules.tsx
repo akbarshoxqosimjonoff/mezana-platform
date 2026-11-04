@@ -90,7 +90,22 @@ function StudentAvatar({ student, size = 36 }: { student: any; size?: number }) 
       <img
         src={pic}
         alt={fullname}
+        title={`${fullname} — rasmni kattalashtirish uchun bosing`}
         onError={() => setImgErr(true)}
+        onClick={(e) => {
+          e.stopPropagation();
+          window.dispatchEvent(
+            new CustomEvent("mezana:preview-student-photo", {
+              detail: {
+                url: pic,
+                fullname,
+                group: student?.group?.name || (typeof student?.group === "string" ? student.group : "") || student?.studentGroup || "",
+                room: student?.roomNumber || student?.room?.roomNumber || (typeof student?.room === "string" ? student.room : "") || "",
+                studyPlace: student?.studyPlace || "",
+              },
+            })
+          );
+        }}
         style={{
           width: size,
           height: size,
@@ -99,6 +114,8 @@ function StudentAvatar({ student, size = 36 }: { student: any; size?: number }) 
           flexShrink: 0,
           border: "1px solid rgba(148, 163, 184, 0.28)",
           background: "var(--bg-input)",
+          cursor: "zoom-in",
+          transition: "transform 0.15s ease, box-shadow 0.15s ease",
         }}
       />
     );
