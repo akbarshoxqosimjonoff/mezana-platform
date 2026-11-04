@@ -65,7 +65,7 @@ export function httpError(status, message, details = null) {
  */
 export function vaqfAccess(sess, accessContext = null) {
   if (!sess) {
-    return { canView: false, canEdit: false, canApprove: false };
+    return { canView: false, canEdit: false, canApprove: false, canManageCounts: false, canCount: false };
   }
   const isDirector = Boolean(
     accessContext?.isDirector ??
@@ -74,9 +74,9 @@ export function vaqfAccess(sess, accessContext = null) {
         sess.crmUser?.role === "root")
   );
   if (isDirector) {
-    return { canView: true, canEdit: true, canApprove: true };
+    return { canView: true, canEdit: true, canApprove: true, canManageCounts: true, canCount: true };
   }
-  return { canView: false, canEdit: false, canApprove: false };
+  return { canView: false, canEdit: false, canApprove: false, canManageCounts: false, canCount: false };
 }
 
 export function getActor(sess, accessContext = null) {
@@ -1000,6 +1000,25 @@ export async function updateAsset(id, body, actor) {
     return getAssetDetail(assetId);
   }
 
+  // Block changing location or quantity while asset is part of an in_progress inventory count
+  if (newDiff.location_id !== undefined || newDiff.quantity !== undefined) {
+    const lockRes = await query(
+      `SELECT c.code, c.title
+       FROM vaqf.inventory_count_items i
+       JOIN vaqf.inventory_counts c ON c.id = i.count_id
+       WHERE i.asset_id = $1 AND c.status = 'in_progress'
+       LIMIT 1`,
+      [assetId]
+    );
+    if (lockRes.rowCount > 0) {
+      const lc = lockRes.rows[0];
+      throw httpError(
+        409,
+        `Ushbu buyum hozirda davom etayotgan inventarizatsiya (${lc.code} — "${lc.title}") qamrovida. Sanoq yopilgunga qadar buyumning joyi yoki miqdorini oddiy tahrirlab bo'lmaydi.`
+      );
+    }
+  }
+
   await withTransaction(async (tx) => {
     params.push(assetId);
     await tx.query(
@@ -1059,6 +1078,21 @@ export async function softDeleteAsset(id, actor, reason = null) {
   const curRes = await query(`SELECT id, inventory_no, name FROM vaqf.assets WHERE id = $1 AND deleted_at IS NULL`, [assetId]);
   const cur = curRes.rows[0];
   if (!cur) throw httpError(404, "Mulk kartochkasi topilmadi");
+
+  const lockRes = await query(
+    `SELECT c.code, c.title
+     FROM vaqf.inventory_count_items i
+     JOIN vaqf.inventory_counts c ON c.id = i.count_id
+     WHERE i.asset_id = $1 AND c.status = 'in_progress'
+     LIMIT 1`,
+    [assetId]
+  );
+  if (lockRes.rowCount > 0) {
+    throw httpError(
+      409,
+      `Ushbu buyum davom etayotgan inventarizatsiya (${lockRes.rows[0].code}) qamrovida bo'lgani uchun o'chirib bo'lmaydi.`
+    );
+  }
 
   await withTransaction(async (tx) => {
     await tx.query(`UPDATE vaqf.assets SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1`, [assetId]);
@@ -1823,6 +1857,7 @@ const mmToPt = (mm) => mm * 2.83464567;
 
 export async function generateQrLabelsPdfBuffer({
   ids = [],
+  mode = "assets",
   baseUrl = "http://192.168.1.10:3000",
   preset = "a4_3x8",
   cols: customCols,
@@ -1831,7 +1866,46 @@ export async function generateQrLabelsPdfBuffer({
   heightMm: customHeightMm,
 } = {}) {
   let assets = [];
-  if (ids.length > 0) {
+  if (mode === "locations") {
+    let locRows = [];
+    if (ids.length > 0) {
+      const cleanIds = ids.map((x) => Number(x)).filter((x) => Number.isInteger(x) && x > 0);
+      if (cleanIds.length === 0) throw httpError(400, "Yorliq chop etish uchun joy tanlanmagan");
+      const placeholders = cleanIds.map((_, i) => `$${i + 1}`).join(", ");
+      const res = await query(
+        `SELECT l.id, l.name, l.code, l.kind, i.code AS institution_code
+         FROM vaqf.locations l
+         JOIN vaqf.institutions i ON i.id = l.institution_id
+         WHERE l.id IN (${placeholders}) AND l.is_active = TRUE
+         ORDER BY l.sort_order ASC, l.id ASC`,
+        cleanIds
+      );
+      locRows = res.rows;
+    } else {
+      const res = await query(
+        `SELECT l.id, l.name, l.code, l.kind, i.code AS institution_code
+         FROM vaqf.locations l
+         JOIN vaqf.institutions i ON i.id = l.institution_id
+         WHERE l.is_active = TRUE AND l.kind IN ('room', 'storage', 'outdoor')
+         ORDER BY l.sort_order ASC, l.id ASC
+         LIMIT 48`
+      );
+      locRows = res.rows;
+    }
+    if (locRows.length === 0) {
+      throw httpError(404, "Yorliq chiqarish uchun joylar topilmadi");
+    }
+    assets = locRows.map((l) => ({
+      id: l.id,
+      is_location_label: true,
+      inventory_no: `LOC-${l.code || l.id}`,
+      qr_target_path: `/vaqf/loc/${l.id}`,
+      name: l.name,
+      institution_code: l.institution_code || "MZN",
+      location_code: l.kind === "room" ? "XONA" : l.kind === "storage" ? "OMBOR" : "JOY",
+      tracking: "individual",
+    }));
+  } else if (ids.length > 0) {
     const cleanIds = ids.map((x) => Number(x)).filter((x) => Number.isInteger(x) && x > 0);
     if (cleanIds.length === 0) throw httpError(400, "Yorliq chop etish uchun buyum tanlanmagan");
     const placeholders = cleanIds.map((_, i) => `$${i + 1}`).join(", ");
@@ -1941,7 +2015,9 @@ function drawSingleLabel(doc, asset, { x, y, w, h, cleanOrigin, hasLogo, drawBor
   const qrX = x + pad;
   const qrY = y + (h - qrSize) / 2;
 
-  const qrUrl = `${cleanOrigin}/vaqf/a/${encodeURIComponent(asset.inventory_no)}`;
+  const qrUrl = asset.qr_target_path
+    ? `${cleanOrigin}${asset.qr_target_path}`
+    : `${cleanOrigin}/vaqf/a/${encodeURIComponent(asset.inventory_no)}`;
   const qr = QrCode.encodeText(qrUrl, Ecc.MEDIUM);
   const modules = qr.size;
   const modSize = qrSize / (modules + 2);

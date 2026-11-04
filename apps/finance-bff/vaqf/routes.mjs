@@ -1,6 +1,5 @@
 import fsp from "node:fs/promises";
 import {
-  vaqfAccess,
   getActor,
   httpError,
   listInstitutions,
@@ -28,6 +27,29 @@ import {
   previewOrCommitAssetImport,
   generateQrLabelsPdfBuffer,
 } from "./service.mjs";
+
+import {
+  resolveVaqfAccessAsync,
+  resolveAssetsAndLocationsInScope,
+  createCount,
+  updateCount,
+  startCount,
+  listCounts,
+  getCountDetail,
+  getMyCountData,
+  processCountScans,
+  uploadCountItemPhoto,
+  getCountItemPhotoFile,
+  addExtraCountItem,
+  markCountLocationDone,
+  submitCountForReview,
+  getCountDiscrepancies,
+  setCountDecisions,
+  approveCount,
+  cancelCount,
+  generateCountReportPdfBuffer,
+  generateCountReportExcelBuffer,
+} from "./countsService.mjs";
 
 function sendJson(res, status, payload, extraHeaders = {}) {
   const body = JSON.stringify(payload);
@@ -68,13 +90,14 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
       return sendJson(res, 401, { error: "Sessiya muddati tugagan. Iltimos, tizimga kiring." });
     }
     const accessContext = getSessionAccessContext(sess);
-    const vAccess = vaqfAccess(sess, accessContext);
+    const vAccess = await resolveVaqfAccessAsync(sess, accessContext);
+    const actor = getActor(sess, accessContext);
 
     if (pathname === "/vaqf-api/me" && method === "GET") {
-      if (!vAccess.canView) {
+      if (!vAccess.canView && !vAccess.canCount) {
         return sendJson(res, 403, { error: "Vaqf tizimiga kirish huquqi yo'q", vaqfAccess: vAccess });
       }
-      const staff = await listResponsibleStaff();
+      const staff = vAccess.canView ? await listResponsibleStaff() : [];
       return sendJson(res, 200, {
         authenticated: true,
         user: {
@@ -88,6 +111,207 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
       });
     }
 
+    // ========================================================================
+    // INVENTORY COUNTS (/vaqf-api/counts/*)
+    // ========================================================================
+    if (pathname === "/vaqf-api/counts" || pathname.startsWith("/vaqf-api/counts/")) {
+      if (!vAccess.canView && !vAccess.canCount) {
+        return sendJson(res, 403, { error: "Inventarizatsiya bo'limiga kirish huquqi yo'q" });
+      }
+
+      // Scope preview before starting a count
+      if (pathname === "/vaqf-api/counts/preview-scope" && (method === "GET" || method === "POST")) {
+        if (!vAccess.canManageCounts) {
+          return sendJson(res, 403, { error: "Sanoq qamrovini ko'rish faqat Direktor uchun" });
+        }
+        const body = method === "POST" ? await readJsonBody(req) : {};
+        const institutionId = Number(body.institution_id || url.searchParams.get("institution_id") || 1);
+        const locIdsRaw = body.location_ids || (url.searchParams.get("location_ids") || "").split(",").filter(Boolean);
+        const catIdsRaw = body.category_ids || (url.searchParams.get("category_ids") || "").split(",").filter(Boolean);
+        const preview = await resolveAssetsAndLocationsInScope(institutionId, {
+          location_ids: locIdsRaw,
+          category_ids: catIdsRaw,
+        });
+        return sendJson(res, 200, preview);
+      }
+
+      // List counts
+      if (pathname === "/vaqf-api/counts" && method === "GET") {
+        const filters = Object.fromEntries(url.searchParams.entries());
+        const items = await listCounts(filters, vAccess);
+        return sendJson(res, 200, { items });
+      }
+
+      // Create draft count
+      if (pathname === "/vaqf-api/counts" && method === "POST") {
+        if (!vAccess.canManageCounts) {
+          return sendJson(res, 403, { error: "Yangi sanoq yaratish faqat Direktor uchun" });
+        }
+        const body = await readJsonBody(req);
+        const detail = await createCount(body, actor);
+        return sendJson(res, 201, detail);
+      }
+
+      // Count item photo upload / serve
+      const itemPhotoMatch = pathname.match(/^\/vaqf-api\/counts\/(\d+)\/items\/(\d+)\/photo$/);
+      if (itemPhotoMatch && method === "POST") {
+        if (!vAccess.canCount) {
+          return sendJson(res, 403, { error: "Sanoqda rasm yuklash huquqi yo'q" });
+        }
+        const body = await readJsonBody(req);
+        const item = await uploadCountItemPhoto(itemPhotoMatch[1], itemPhotoMatch[2], body, sess, accessContext, vAccess);
+        return sendJson(res, 200, { item });
+      }
+      if (itemPhotoMatch && method === "GET") {
+        const filePath = await getCountItemPhotoFile(itemPhotoMatch[1], itemPhotoMatch[2]);
+        const content = await fsp.readFile(filePath);
+        res.writeHead(200, {
+          "Content-Type": filePath.endsWith(".png") ? "image/png" : "image/jpeg",
+          "Cache-Control": "private, max-age=3600",
+        });
+        res.end(content);
+        return;
+      }
+
+      // Decision on single item or batch (`PATCH /vaqf-api/counts/:id/items/:itemId/decision` or `PATCH /vaqf-api/counts/:id/decisions`)
+      const itemDecisionMatch = pathname.match(/^\/vaqf-api\/counts\/(\d+)\/items\/([^/]+)\/decision$/);
+      const batchDecisionMatch = pathname.match(/^\/vaqf-api\/counts\/(\d+)\/decisions$/);
+      if ((itemDecisionMatch || batchDecisionMatch) && method === "PATCH") {
+        if (!vAccess.canManageCounts) {
+          return sendJson(res, 403, { error: "Farqlar bo'yicha qaror qabul qilish faqat Direktor uchun" });
+        }
+        const countId = itemDecisionMatch ? itemDecisionMatch[1] : batchDecisionMatch[1];
+        const itemIdOrBatch = itemDecisionMatch ? itemDecisionMatch[2] : "batch";
+        const body = await readJsonBody(req);
+        const result = await setCountDecisions(countId, itemIdOrBatch, body);
+        return sendJson(res, 200, result);
+      }
+
+      // Mark location done (`POST /vaqf-api/counts/:id/locations/:locId/done`)
+      const locDoneMatch = pathname.match(/^\/vaqf-api\/counts\/(\d+)\/locations\/(\d+)\/done$/);
+      if (locDoneMatch && method === "POST") {
+        if (!vAccess.canCount) {
+          return sendJson(res, 403, { error: "Sanoqda joyni yakunlash huquqi yo'q" });
+        }
+        const result = await markCountLocationDone(locDoneMatch[1], locDoneMatch[2], sess, accessContext, vAccess);
+        return sendJson(res, 200, result);
+      }
+
+      // Sub-actions on `/vaqf-api/counts/:id/<subaction>`
+      const countActionMatch = pathname.match(
+        /^\/vaqf-api\/counts\/(\d+)\/(start|my|scans|extra|submit|discrepancies|approve|cancel|report\.pdf|report\.xlsx)$/
+      );
+      if (countActionMatch) {
+        const [, countId, action] = countActionMatch;
+
+        if (action === "start" && method === "POST") {
+          if (!vAccess.canManageCounts) {
+            return sendJson(res, 403, { error: "Sanoqni boshlash faqat Direktor uchun" });
+          }
+          const detail = await startCount(countId, actor);
+          return sendJson(res, 200, detail);
+        }
+
+        if (action === "my" && method === "GET") {
+          const data = await getMyCountData(countId, sess, accessContext, vAccess);
+          return sendJson(res, 200, data);
+        }
+
+        if (action === "scans" && method === "POST") {
+          const body = await readJsonBody(req);
+          const result = await processCountScans(countId, body, sess, accessContext, vAccess);
+          return sendJson(res, 200, result);
+        }
+
+        if (action === "extra" && method === "POST") {
+          const body = await readJsonBody(req);
+          const item = await addExtraCountItem(countId, body, sess, accessContext, vAccess);
+          return sendJson(res, 201, { item });
+        }
+
+        if (action === "submit" && method === "POST") {
+          if (!vAccess.canManageCounts && !vAccess.canCount) {
+            return sendJson(res, 403, { error: "Sanoqni ko'rib chiqishga yuborish huquqi yo'q" });
+          }
+          const detail = await submitCountForReview(countId, actor);
+          return sendJson(res, 200, detail);
+        }
+
+        if (action === "discrepancies" && method === "GET") {
+          if (!vAccess.canManageCounts) {
+            return sendJson(res, 403, { error: "Farqlar ro'yxatini ko'rish faqat Direktor uchun" });
+          }
+          const data = await getCountDiscrepancies(countId);
+          return sendJson(res, 200, data);
+        }
+
+        if (action === "approve" && method === "POST") {
+          if (!vAccess.canManageCounts) {
+            return sendJson(res, 403, { error: "Sanoqni tasdiqlash faqat Direktor uchun" });
+          }
+          const body = await readJsonBody(req);
+          const detail = await approveCount(countId, body, actor);
+          return sendJson(res, 200, detail);
+        }
+
+        if (action === "cancel" && method === "POST") {
+          if (!vAccess.canManageCounts) {
+            return sendJson(res, 403, { error: "Sanoqni bekor qilish faqat Direktor uchun" });
+          }
+          const body = await readJsonBody(req);
+          const detail = await cancelCount(countId, body, actor);
+          return sendJson(res, 200, detail);
+        }
+
+        if (action === "report.pdf" && method === "GET") {
+          if (!vAccess.canManageCounts) {
+            return sendJson(res, 403, { error: "Dalolatnomani yuklab olish faqat Direktor uchun" });
+          }
+          const lang = url.searchParams.get("lang") || "tr";
+          const pdfBuf = await generateCountReportPdfBuffer(countId, { lang });
+          res.writeHead(200, {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": `inline; filename="ezan-vakfi-sayim-${countId}-${lang}.pdf"`,
+            "Cache-Control": "no-store",
+          });
+          res.end(pdfBuf);
+          return;
+        }
+
+        if (action === "report.xlsx" && method === "GET") {
+          if (!vAccess.canManageCounts) {
+            return sendJson(res, 403, { error: "Excel hisobotni yuklab olish faqat Direktor uchun" });
+          }
+          const xlsxBuf = await generateCountReportExcelBuffer(countId);
+          res.writeHead(200, {
+            "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "Content-Disposition": `attachment; filename="ezan-vakfi-sayim-${countId}.xlsx"`,
+            "Cache-Control": "no-store",
+          });
+          res.end(xlsxBuf);
+          return;
+        }
+      }
+
+      // Single count GET / PATCH (`/vaqf-api/counts/:id`)
+      const countItemMatch = pathname.match(/^\/vaqf-api\/counts\/(\d+)$/);
+      if (countItemMatch && method === "GET") {
+        const detail = await getCountDetail(countItemMatch[1], vAccess);
+        return sendJson(res, 200, detail);
+      }
+      if (countItemMatch && method === "PATCH") {
+        if (!vAccess.canManageCounts) {
+          return sendJson(res, 403, { error: "Sanoqni tahrirlash faqat Direktor uchun" });
+        }
+        const body = await readJsonBody(req);
+        const detail = await updateCount(countItemMatch[1], body, actor);
+        return sendJson(res, 200, detail);
+      }
+
+      return sendJson(res, 404, { error: `Sanoq API endpoint topilmadi: ${method} ${pathname}` });
+    }
+
+    // All non-count endpoints require full Vaqf view/edit permission
     if (!vAccess.canView) {
       return sendJson(res, 403, { error: "Vaqf tizimiga kirish huquqi yo'q" });
     }
@@ -96,8 +320,6 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
     if (isWriteMethod && !vAccess.canEdit) {
       return sendJson(res, 403, { error: "Vaqf ma'lumotlarini o'zgartirish huquqi yo'q" });
     }
-
-    const actor = getActor(sess, accessContext);
 
     // --- INSTITUTIONS ---
     if (pathname === "/vaqf-api/institutions" && method === "GET") {
@@ -263,12 +485,13 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
       return sendJson(res, 200, result);
     }
 
-    // --- QR LABELS PDF ---
+    // --- QR LABELS PDF (supports mode=assets & mode=locations) ---
     if (pathname === "/vaqf-api/labels" && method === "GET") {
-      const rawIds = String(url.searchParams.get("ids") || "")
+      const rawIds = String(url.searchParams.get("ids") || url.searchParams.get("location_ids") || "")
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean);
+      const mode = url.searchParams.get("mode") === "locations" ? "locations" : "assets";
       const proto = req.headers["x-forwarded-proto"] || "http";
       const host = req.headers["x-forwarded-host"] || req.headers.host || "192.168.1.10:3000";
       const baseUrl = url.searchParams.get("base_url") || `${proto}://${host}`;
@@ -280,6 +503,7 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
 
       const pdfBuf = await generateQrLabelsPdfBuffer({
         ids: rawIds,
+        mode,
         baseUrl,
         preset,
         cols,
@@ -289,7 +513,7 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
       });
       res.writeHead(200, {
         "Content-Type": "application/pdf",
-        "Content-Disposition": 'inline; filename="ezan-vaqf-qr-yorliqlar.pdf"',
+        "Content-Disposition": `inline; filename="ezan-vaqf-${mode}-qr-yorliqlar.pdf"`,
         "Cache-Control": "no-store",
       });
       res.end(pdfBuf);
