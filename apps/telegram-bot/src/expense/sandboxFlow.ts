@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import crypto from "node:crypto";
 import { Bot, InlineKeyboard, Keyboard } from "grammy";
-import { prisma, moliyPrisma } from "../db/client.js";
+import { prisma, moliyPrisma, crmPrisma } from "../db/client.js";
 
 function readPlatformEnvKey(key: string): string {
   if (process.env[key]) return process.env[key]!;
@@ -330,7 +330,34 @@ const activeDraftByUser = new Map<string, string>();
 const awaitingLaterReceiptByUser = new Map<string, string>();
 const directorPendingByUser = new Map<string, DirectorPendingAction>();
 const userRequestMode = new Set<string>();
+const studentPayMode = new Set<string>();
 let seqCounter = 1;
+
+export interface StudentPayDraft {
+  id: string;
+  userId: string;
+  chatId: number;
+  receivedByName: string;
+  studentId?: number;
+  studentName?: string;
+  groupName?: string;
+  studyPlace?: string;
+  totalPayment?: number;
+  paidAmount?: number;
+  remainingAmount?: number;
+  searchQuery: string;
+  amount: number;
+  method: "naqt" | "karta" | "otkazma";
+  paidAt: string;
+  nextDueDate: string | null;
+  note: string;
+  awaitingField?: "amount" | "date" | "due" | "note" | "search" | null;
+  status: "DRAFT" | "CONFIRMED" | "CANCELLED";
+  messageId?: number;
+}
+
+const studentPayDraftsById = new Map<string, StudentPayDraft>();
+const activeStudentPayByUser = new Map<string, string>();
 
 const RECEIPT_UPLOADS_DIR = "/srv/data/apps/mezana-platform/apps/finance/dist/uploads";
 
@@ -462,21 +489,25 @@ export function buildReplyKeyboard(userId: string): Keyboard {
       .text("🧾 Barcha xarajatlar")
       .row()
       .text("📋 Talabnomalar")
+      .text("💵 Talaba to'lovi")
+      .row()
       .text("🎯 Byudjet va 💱 Kurs")
-      .row()
       .text("👥 Xodimlar va Ruxsatlar")
-      .text("➕ Xarajat kiritish")
       .row()
+      .text("➕ Xarajat kiritish")
       .text("📝 Talabnoma yaratish")
+      .row()
       .text(`💼 Hisobim (${accLabel})`);
   } else {
     kb.text("➕ Xarajat kiritish")
+      .text("💵 Talaba to'lovi")
+      .row()
       .text("📝 Talabnoma yaratish")
-      .row()
       .text("📋 Talabnomalarim")
-      .text(`💼 Hisobim (${accLabel})`)
       .row()
+      .text(`💼 Hisobim (${accLabel})`)
       .text("📊 Oxirgi xarajatlar")
+      .row()
       .text("📂 Kategoriyalar");
   }
 
@@ -2036,6 +2067,433 @@ async function sendDirectorStaffMenu(bot: Bot, chatId: number, editMsgId?: numbe
   });
 }
 
+// ─── STUDENT PAYMENT (TALABA TO'LOVI) HELPERS ──────────────────────────────
+
+function normalizeSearchName(s: string): string {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/['`’ʻʼ]/g, "")
+    .replace(/o'/g, "o")
+    .replace(/g'/g, "g")
+    .replace(/sh/g, "s")
+    .replace(/ch/g, "c")
+    .replace(/x/g, "h")
+    .replace(/q/g, "k")
+    .replace(/kh/g, "h")
+    .replace(/[^a-z0-9\u0400-\u04ff\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function editDistance(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  if (!m) return n;
+  if (!n) return m;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) dp[i]![0] = i;
+  for (let j = 0; j <= n; j++) dp[0]![j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[i]![j] = Math.min(
+        dp[i - 1]![j]! + 1,
+        dp[i]![j - 1]! + 1,
+        dp[i - 1]![j - 1]! + cost
+      );
+    }
+  }
+  return dp[m]![n]!;
+}
+
+async function searchStudentsInCrm(queryText: string): Promise<any[]> {
+  const rows: any[] = await crmPrisma.$queryRawUnsafe(
+    `SELECT
+       s.id,
+       s.fullname,
+       s."studyPlace",
+       s."isActive",
+       COALESCE(s."totalPayment", 0)::int AS "totalPayment",
+       COALESCE(s."paidAmount", 0)::int AS "paidAmount",
+       COALESCE(s."remainingAmount", 0)::int AS "remainingAmount",
+       COALESCE(g.name, '') AS "groupName"
+     FROM "Student" s
+     LEFT JOIN "Group" g ON g.id = s."groupId"
+     WHERE s."isDeleted" = false
+     ORDER BY s."isActive" DESC, s.fullname ASC`
+  );
+
+  const qNorm = normalizeSearchName(queryText);
+  if (!qNorm) return rows.slice(0, 8);
+  const qTokens = qNorm.split(" ").filter((t) => t.length >= 2);
+
+  const scored = rows
+    .map((r) => {
+      const nameNorm = normalizeSearchName(r.fullname);
+      const nameTokens = nameNorm.split(" ").filter(Boolean);
+      let score = 0;
+      if (nameNorm === qNorm) score += 100;
+      else if (nameNorm.includes(qNorm)) score += 75;
+      for (const qt of qTokens) {
+        let bestTokenScore = 0;
+        for (const nt of nameTokens) {
+          if (nt === qt) bestTokenScore = Math.max(bestTokenScore, 40);
+          else if (nt.startsWith(qt) || qt.startsWith(nt)) bestTokenScore = Math.max(bestTokenScore, 30);
+          else {
+            const dist = editDistance(qt, nt);
+            const maxLen = Math.max(qt.length, nt.length);
+            if (maxLen >= 4 && dist <= 2) {
+              bestTokenScore = Math.max(bestTokenScore, 24 - dist * 6);
+            }
+          }
+        }
+        score += bestTokenScore;
+      }
+      if (r.isActive) score += 2;
+      return { r, score };
+    })
+    .filter((x) => x.score >= 15)
+    .sort((a, b) => b.score - a.score);
+
+  return scored.slice(0, 8).map((x) => x.r);
+}
+
+function formatPayMethodLabel(m: "naqt" | "karta" | "otkazma"): string {
+  if (m === "karta") return "💳 Karta (karta)";
+  if (m === "otkazma") return "🏦 O'tkazma (otkazma)";
+  return "💵 Naqd (naqt)";
+}
+
+function buildStudentPayDraftText(draft: StudentPayDraft, banner?: string): string {
+  const lines: string[] = [];
+  if (banner) {
+    lines.push(banner, "");
+  }
+  lines.push("🎓 *TALABA TO'LOVI QORALAMASI*", "────────────────────");
+  if (draft.studentId && draft.studentName) {
+    lines.push(`👤 Talaba: *${draft.studentName}* (ID: #${draft.studentId})`);
+    if (draft.groupName || draft.studyPlace) {
+      lines.push(`🏫 Guruh / O'quv joyi: *${[draft.groupName, draft.studyPlace].filter(Boolean).join(" • ")}*`);
+    }
+    const tot = Number(draft.totalPayment || 0);
+    const paid = Number(draft.paidAmount || 0);
+    const rem = Number(draft.remainingAmount || 0);
+    const afterRem = Math.max(0, rem - Number(draft.amount || 0));
+    lines.push(`📊 Shartnoma: *$${tot.toLocaleString("en-US")}* | To'langan: *$${paid.toLocaleString("en-US")}*`);
+    lines.push(`📉 Joriy qarz: *$${rem.toLocaleString("en-US")}* ➡️ To'lovdan keyin: *$${afterRem.toLocaleString("en-US")}*`);
+  } else {
+    lines.push(`👤 Talaba: ⚠️ *Tanlanmagan* (Qidiruv: _"${draft.searchQuery || "—"}"_)`);
+  }
+  lines.push("────────────────────");
+  lines.push(
+    `💵 To'lov summasi: *${draft.amount > 0 ? `$${draft.amount.toLocaleString("en-US")} USD` : "⚠️ Kiritilmagan"}*`
+  );
+  lines.push(`💳 To'lov usuli: *${formatPayMethodLabel(draft.method)}*`);
+  lines.push(`📅 To'lov sanasi: *${draft.paidAt}*`);
+  lines.push(`🗓 Keyingi to'lov muddati: *${draft.nextDueDate || "Belgilanmagan"}*`);
+  lines.push(`📝 Izoh: *${draft.note || "—"}*`);
+  lines.push(`✍️ Qabul qiluvchi: *${draft.receivedByName}*`);
+  lines.push("────────────────────");
+  if (!draft.studentId) {
+    lines.push("👇 _Quyidagi ro'yxatdan talabani tanlang yoki talaba ism-familiyasini yozib yuboring:_");
+  } else if (!(draft.amount > 0)) {
+    lines.push("👇 _To'lov summasini tugmalardan tanlang yoki summani yozib yuboring (masalan: `500`):_");
+  } else {
+    lines.push("👇 _Ma'lumotlar to'g'ri bo'lsa, «✅ Tasdiqlash va saqlash» tugmasini bosing:_");
+  }
+  return lines.join("\n");
+}
+
+function buildStudentPayDraftKeyboard(draft: StudentPayDraft, candidateStudents?: any[]): InlineKeyboard {
+  const kb = new InlineKeyboard();
+
+  if (candidateStudents && candidateStudents.length > 0 && !draft.studentId) {
+    for (const st of candidateStudents) {
+      const grp = st.groupName ? ` (${st.groupName})` : "";
+      const rem = Number(st.remainingAmount || 0);
+      kb.text(
+        `👤 ${st.fullname}${grp} • Qarz: $${rem}`,
+        `spay:pick:${draft.id}:${st.id}`
+      ).row();
+    }
+  }
+
+  if (draft.studentId && draft.amount > 0) {
+    kb.text(`✅ Tasdiqlash va saqlash ($${draft.amount.toLocaleString("en-US")})`, `spay:ok:${draft.id}`).row();
+  }
+
+  if (draft.studentId && !(draft.amount > 0)) {
+    kb.text("+$100", `spay:setamt:${draft.id}:100`)
+      .text("+$200", `spay:setamt:${draft.id}:200`)
+      .text("+$300", `spay:setamt:${draft.id}:300`)
+      .row()
+      .text("+$500", `spay:setamt:${draft.id}:500`)
+      .text("+$1,000", `spay:setamt:${draft.id}:1000`);
+    if (draft.remainingAmount && draft.remainingAmount > 0) {
+      kb.text(`To'liq ($${draft.remainingAmount})`, `spay:setamt:${draft.id}:${draft.remainingAmount}`);
+    }
+    kb.row();
+  }
+
+  kb.text(`💵 Summa (${draft.amount > 0 ? "$" + draft.amount : "Kiritish"})`, `spay:field:amount:${draft.id}`)
+    .text(`💳 Usul: ${draft.method.toUpperCase()}`, `spay:cyclemethod:${draft.id}`)
+    .row()
+    .text(`📅 Sana: ${draft.paidAt.slice(5)}`, `spay:field:date:${draft.id}`)
+    .text(`🗓 Muddat: ${draft.nextDueDate ? draft.nextDueDate.slice(5) : "Yo'q"}`, `spay:field:due:${draft.id}`)
+    .row()
+    .text("📝 Izoh", `spay:field:note:${draft.id}`)
+    .text("🔄 Boshqa talaba", `spay:field:search:${draft.id}`)
+    .row()
+    .text("❌ Bekor qilish", `spay:cancel:${draft.id}`);
+
+  return kb;
+}
+
+async function saveStudentPaymentToCrmDb(bot: Bot, draft: StudentPayDraft) {
+  if (!draft.studentId) throw new Error("Talaba tanlanmagan");
+  const amt = Math.round(Number(draft.amount || 0));
+  if (!(amt > 0)) throw new Error("To'lov summasi 0 dan katta butun son bo'lishi kerak");
+
+  const paidAtIso = `${draft.paidAt}T09:00:00.000Z`;
+  const noteVal = draft.note ? `${draft.note} [Bot: ${draft.receivedByName}]` : `Telegram bot orqali kiritildi (${draft.receivedByName})`;
+
+  const result = await crmPrisma.$transaction(async (tx) => {
+    const stRows: any[] = await tx.$queryRawUnsafe(
+      `SELECT id, fullname, COALESCE("totalPayment", 0)::int AS "totalPayment", COALESCE("paymentParts", 1)::int AS "paymentParts"
+       FROM "Student" WHERE id = $1 FOR UPDATE`,
+      draft.studentId
+    );
+    const st = stRows?.[0];
+    if (!st) throw new Error("Talaba bazadan topilmadi");
+
+    const insRows: any[] = await tx.$queryRawUnsafe(
+      `INSERT INTO "StudentPayment" ("studentId", amount, method, "paidAt", note, source, "receivedByName", "createdAt")
+       VALUES ($1, $2, $3, $4::timestamptz, $5, 'platform', $6, NOW())
+       RETURNING id`,
+      draft.studentId,
+      amt,
+      draft.method,
+      paidAtIso,
+      noteVal,
+      draft.receivedByName
+    );
+    const paymentId = insRows?.[0]?.id;
+
+    const activePayments: any[] = await tx.$queryRawUnsafe(
+      `SELECT id, amount::int AS amount, method, "paidAt"
+       FROM "StudentPayment"
+       WHERE "studentId" = $1 AND "voidedAt" IS NULL
+       ORDER BY "paidAt" ASC, id ASC`,
+      draft.studentId
+    );
+
+    const paidMonthsObj: Record<string, any> = {};
+    let newPaidAmount = 0;
+    activePayments.forEach((p, idx) => {
+      const pAmt = Number(p.amount || 0);
+      newPaidAmount += pAmt;
+      const dStr = p.paidAt ? new Date(p.paidAt).toISOString().slice(0, 10) : draft.paidAt;
+      paidMonthsObj[`part_${idx + 1}`] = {
+        amount: pAmt,
+        date: dStr,
+        method: p.method || "naqt",
+        id: p.id,
+      };
+    });
+
+    const totalPayment = Number(st.totalPayment || 0);
+    const parts = Math.max(1, Number(st.paymentParts || 1));
+    const newRemaining = Math.max(0, totalPayment - newPaidAmount);
+    const partAmount = Math.ceil(newRemaining / parts);
+    const paidMonthsJson = JSON.stringify(paidMonthsObj);
+
+    if (newRemaining === 0) {
+      await tx.$executeRawUnsafe(
+        `UPDATE "Student"
+         SET "paidAmount" = $1,
+             "remainingAmount" = 0,
+             "partAmount" = 0,
+             "paidMonths" = $2,
+             "paidUntilDate" = NULL,
+             "plannedPayment" = NULL,
+             "updatedAt" = NOW()
+         WHERE id = $3`,
+        newPaidAmount,
+        paidMonthsJson,
+        draft.studentId
+      );
+    } else if (draft.nextDueDate) {
+      await tx.$executeRawUnsafe(
+        `UPDATE "Student"
+         SET "paidAmount" = $1,
+             "remainingAmount" = $2,
+             "partAmount" = $3,
+             "paidMonths" = $4,
+             "paidUntilDate" = $5::timestamptz,
+             "updatedAt" = NOW()
+         WHERE id = $6`,
+        newPaidAmount,
+        newRemaining,
+        partAmount,
+        paidMonthsJson,
+        `${draft.nextDueDate}T00:00:00.000Z`,
+        draft.studentId
+      );
+    } else {
+      await tx.$executeRawUnsafe(
+        `UPDATE "Student"
+         SET "paidAmount" = $1,
+             "remainingAmount" = $2,
+             "partAmount" = $3,
+             "paidMonths" = $4,
+             "updatedAt" = NOW()
+         WHERE id = $5`,
+        newPaidAmount,
+        newRemaining,
+        partAmount,
+        paidMonthsJson,
+        draft.studentId
+      );
+    }
+
+    return {
+      paymentId,
+      studentName: st.fullname,
+      totalPayment,
+      paidAmount: newPaidAmount,
+      remainingAmount: newRemaining,
+    };
+  });
+
+  // Notify Director(s) on Telegram
+  for (const dirTgId of getDirectorTelegramIds()) {
+    if (String(dirTgId) === String(draft.userId)) continue;
+    try {
+      await bot.api.sendMessage(
+        Number(dirTgId),
+        [
+          `🎓 *TALABA TO'LOVI QABUL QILINDI (#P-${result.paymentId})*`,
+          "────────────────────",
+          `👤 Talaba: *${result.studentName}*`,
+          `💵 To'lov summasi: *+$${amt.toLocaleString("en-US")} USD*`,
+          `💳 To'lov usuli: *${formatPayMethodLabel(draft.method)}*`,
+          `📅 To'lov sanasi: *${draft.paidAt}*`,
+          `📊 Jami shartnoma: *$${result.totalPayment.toLocaleString("en-US")}*`,
+          `✅ Jami to'langan: *$${result.paidAmount.toLocaleString("en-US")}*`,
+          `📉 Qolgan qarz: *$${result.remainingAmount.toLocaleString("en-US")}*`,
+          draft.note ? `📝 Izoh: _${draft.note}_` : "",
+          `✍️ Qabul qildi: *${draft.receivedByName}*`,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        { parse_mode: "Markdown" }
+      );
+    } catch {}
+  }
+
+  return result;
+}
+
+async function startStudentPaymentDraft(params: {
+  bot: Bot;
+  chatId: number;
+  userId: string;
+  receivedByName: string;
+  studentNameQuery: string;
+  amount?: number;
+  method?: "naqt" | "karta" | "otkazma";
+  paidAt?: string;
+  nextDueDate?: string | null;
+  note?: string;
+}) {
+  const {
+    bot,
+    chatId,
+    userId,
+    receivedByName,
+    studentNameQuery,
+    amount = 0,
+    method = "naqt",
+    paidAt = getIstanbulDateStr(0),
+    nextDueDate = null,
+    note = "",
+  } = params;
+
+  const candidates = await searchStudentsInCrm(studentNameQuery);
+  const draftId = "sp_" + String(seqCounter++);
+  const draft: StudentPayDraft = {
+    id: draftId,
+    userId,
+    chatId,
+    receivedByName,
+    searchQuery: studentNameQuery,
+    amount: Math.max(0, Math.round(Number(amount || 0))),
+    method,
+    paidAt,
+    nextDueDate,
+    note,
+    status: "DRAFT",
+  };
+
+  if (candidates.length === 1) {
+    const st = candidates[0]!;
+    draft.studentId = Number(st.id);
+    draft.studentName = st.fullname;
+    draft.groupName = st.groupName;
+    draft.studyPlace = st.studyPlace;
+    draft.totalPayment = Number(st.totalPayment || 0);
+    draft.paidAmount = Number(st.paidAmount || 0);
+    draft.remainingAmount = Number(st.remainingAmount || 0);
+  }
+
+  studentPayDraftsById.set(draftId, draft);
+  activeStudentPayByUser.set(userId, draftId);
+
+  const banner =
+    candidates.length === 0
+      ? `⚠️ *"${studentNameQuery}"* bo'yicha talaba topilmadi. Iltimos, ismni qaytadan yozing:`
+      : candidates.length > 1
+      ? `🔍 *"${studentNameQuery}"* bo'yicha *${candidates.length} ta* talaba topildi. Kerakli talabani tanlang:`
+      : undefined;
+
+  const sent = await bot.api.sendMessage(chatId, buildStudentPayDraftText(draft, banner), {
+    parse_mode: "Markdown",
+    reply_markup: buildStudentPayDraftKeyboard(draft, candidates),
+  });
+  draft.messageId = sent.message_id;
+}
+
+function parseRawStudentPaymentText(raw: string): {
+  studentNameQuery: string;
+  amount: number;
+  method: "naqt" | "karta" | "otkazma";
+  paidAt: string;
+} {
+  const todayStr = getIstanbulDateStr(0);
+  const paidAt = extractDateFromText(raw, todayStr);
+  let method: "naqt" | "karta" | "otkazma" = "naqt";
+  if (/\b(karta|plastik|card)\b/i.test(raw)) method = "karta";
+  else if (/\b(o['`’]?tkazma|transfer|bank|perevod)\b/i.test(raw)) method = "otkazma";
+
+  const withoutDates = raw
+    .replace(/\b20\d{2}-\d{2}-\d{2}\b/g, " ")
+    .replace(/\b\d{2}[./-]\d{2}[./-]20\d{2}\b/g, " ");
+  const numMatch = withoutDates.match(/\b([0-9]{2,6})\b/);
+  const amount = numMatch ? parseInt(numMatch[1]!, 10) : 0;
+
+  const studentNameQuery = withoutDates
+    .replace(/\b([0-9]+)\b/g, " ")
+    .replace(/\$/g, " ")
+    .replace(
+      /\b(talaba|o['`’]?quvchi|to['`’]?lov\w*|kontrakt\w*|uchun|dollar\w*|usd|lira|tl|naqd|naqt|karta|orqali|o['`’]?tkazma|kecha|bugun|berdi|qildi|oldim|to['`’]?ladi)\b/gi,
+      " "
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return { studentNameQuery, amount, method, paidAt };
+}
+
 interface AiParsedResult {
   intent:
     | "new_expense"
@@ -2043,8 +2501,17 @@ interface AiParsedResult {
     | "assign_wallet"
     | "treasury_income"
     | "set_rate"
+    | "student_payment"
     | "not_expense";
   replyMessage?: string;
+  studentPayment?: {
+    studentName: string;
+    amount: number;
+    method: "naqt" | "karta" | "otkazma";
+    paidAt?: string;
+    nextDueDate?: string;
+    note?: string;
+  };
   walletAssign?: {
     targetAccount: string;
     amount: number;
@@ -2144,7 +2611,9 @@ MAVJUD HISOBLAR (HAMYONLAR):
 ${EMPLOYEES.join(", ")}
 MUHIM QOIDA: Foydalanuvchining o'ziga biriktirilgan asosiy hisobi "${defaultEmployee}". Oddiy xarajatda yoki talabnomada "employee" maydoniga DOIM "${defaultEmployee}" qo'ying (faqatgina foydalanuvchi hisobni ochiq aytgan holat bundan mustasno).
 
-XARAJAT vs TALABNOMA (isRequest):
+XARAJAT vs TALABNOMA vs TALABA TO'LOVI:
+- Agar xabarda TALABA (o'quvchi) kontrakt to'lovi yoki o'quv to'lovini to'lagani haqida gap ketsa (masalan: "Talaba Abdulaziz Mirzoahmedov 500 dollar to'lov qildi", "O'quvchi Hojiakbardan 1000$ kontrakt oldim", "Talaba to'lovi: Ashrof Muhammadxon 300 dollar naqd"):
+  intent="student_payment" qaytaring va "studentPayment": { "studentName": "Ism Familiya", "amount": 500, "method": "naqt"|"karta"|"otkazma", "paidAt": "${todayStr}", "note": "..." } to'ldiring!
 - Agar xarajat ALLAQACHON QILINGAN bo'lsa ("oldim", "ketdi", "ishlatdim", "berdim", "to'ladim" yoki chek rasmi bo'lsa): "isRequest": false.
 - Agar foydalanuvchi HALI XARID QILMAGAN bo'lib, ruxsat/mablag' so'rayotgan yoki kelajakda olishni rejalashtirayotgan bo'lsa ("olish kerak", "kerak", "olmoqchimiz", "ruxsat bering", "talabnoma", "so'rov", "zarur", "ertaga olamiz"): "isRequest": true!
 - Agar "shoshilinch", "tezda", "zudlik bilan" deyilsa: "urgency": "URGENT", aks holda "NORMAL".
@@ -2490,6 +2959,26 @@ async function processUserExpenseInput(params: {
     currentDraft: openDraft,
     imageBase64Url,
   });
+
+  if (result.intent === "student_payment" && result.studentPayment?.studentName) {
+    const sp = result.studentPayment;
+    await startStudentPaymentDraft({
+      bot,
+      chatId,
+      userId,
+      receivedByName: auth.personName,
+      studentNameQuery: sp.studentName,
+      amount: Number(sp.amount || 0),
+      method: sp.method === "karta" || sp.method === "otkazma" ? sp.method : "naqt",
+      paidAt:
+        sp.paidAt && /^\d{4}-\d{2}-\d{2}$/.test(sp.paidAt)
+          ? sp.paidAt
+          : extractDateFromText(text, todayStr),
+      nextDueDate: sp.nextDueDate || null,
+      note: sp.note || "",
+    });
+    return;
+  }
 
   // Director AI intents: Wallet Assignment, Treasury Income, or Exchange Rate update
   if (auth.isDirector && result.intent === "assign_wallet" && result.walletAssign) {
@@ -3641,6 +4130,228 @@ export function registerExpenseSandboxFlow(bot: Bot) {
     }
   });
 
+  // Student Payment Callbacks (spay:...)
+  bot.callbackQuery(/^spay:/, async (ctx) => {
+    const userId = String(ctx.from.id);
+    const auth = AUTHORIZED_USERS[userId];
+    if (!auth) {
+      await ctx.answerCallbackQuery({ text: "Ruxsat yo'q", show_alert: true });
+      return;
+    }
+
+    const parts = ctx.callbackQuery.data.split(":");
+    const action = parts[1];
+
+    if (action === "pick") {
+      const draftId = parts[2] || "";
+      const studentId = Number(parts[3] || 0);
+      const draft = studentPayDraftsById.get(draftId);
+      if (!draft || draft.status !== "DRAFT") {
+        await ctx.answerCallbackQuery({ text: "Bu qoralama yopilgan", show_alert: true });
+        return;
+      }
+      const rows: any[] = await crmPrisma.$queryRawUnsafe(
+        `SELECT s.id, s.fullname, s."studyPlace",
+                COALESCE(s."totalPayment", 0)::int AS "totalPayment",
+                COALESCE(s."paidAmount", 0)::int AS "paidAmount",
+                COALESCE(s."remainingAmount", 0)::int AS "remainingAmount",
+                COALESCE(g.name, '') AS "groupName"
+         FROM "Student" s
+         LEFT JOIN "Group" g ON g.id = s."groupId"
+         WHERE s.id = $1 LIMIT 1`,
+        studentId
+      );
+      const st = rows?.[0];
+      if (!st) {
+        await ctx.answerCallbackQuery({ text: "Talaba topilmadi", show_alert: true });
+        return;
+      }
+      draft.studentId = Number(st.id);
+      draft.studentName = st.fullname;
+      draft.groupName = st.groupName;
+      draft.studyPlace = st.studyPlace;
+      draft.totalPayment = Number(st.totalPayment || 0);
+      draft.paidAmount = Number(st.paidAmount || 0);
+      draft.remainingAmount = Number(st.remainingAmount || 0);
+      draft.awaitingField = draft.amount > 0 ? null : "amount";
+      activeStudentPayByUser.set(userId, draft.id);
+
+      await ctx.answerCallbackQuery({ text: `👤 ${st.fullname} tanlandi` });
+      await ctx.editMessageText(
+        buildStudentPayDraftText(draft, `✅ Talaba tanlandi: *${st.fullname}*`),
+        { parse_mode: "Markdown", reply_markup: buildStudentPayDraftKeyboard(draft) }
+      );
+      return;
+    }
+
+    if (action === "setamt") {
+      const draftId = parts[2] || "";
+      const amt = Math.round(Number(parts[3] || 0));
+      const draft = studentPayDraftsById.get(draftId);
+      if (!draft || draft.status !== "DRAFT") return;
+      if (amt > 0) {
+        draft.amount = amt;
+        draft.awaitingField = null;
+        await ctx.answerCallbackQuery({ text: `💵 Summa: $${amt}` });
+        await ctx.editMessageText(buildStudentPayDraftText(draft), {
+          parse_mode: "Markdown",
+          reply_markup: buildStudentPayDraftKeyboard(draft),
+        });
+      }
+      return;
+    }
+
+    if (action === "cyclemethod") {
+      const draftId = parts[2] || "";
+      const draft = studentPayDraftsById.get(draftId);
+      if (!draft || draft.status !== "DRAFT") return;
+      draft.method =
+        draft.method === "naqt" ? "karta" : draft.method === "karta" ? "otkazma" : "naqt";
+      await ctx.answerCallbackQuery({ text: `To'lov usuli: ${draft.method.toUpperCase()}` });
+      await ctx.editMessageText(buildStudentPayDraftText(draft), {
+        parse_mode: "Markdown",
+        reply_markup: buildStudentPayDraftKeyboard(draft),
+      });
+      return;
+    }
+
+    if (action === "setdate") {
+      const draftId = parts[2] || "";
+      const dStr = parts[3] || getIstanbulDateStr(0);
+      const draft = studentPayDraftsById.get(draftId);
+      if (!draft || draft.status !== "DRAFT") return;
+      draft.paidAt = dStr;
+      draft.awaitingField = null;
+      await ctx.answerCallbackQuery({ text: `📅 Sana: ${dStr}` });
+      await ctx.editMessageText(buildStudentPayDraftText(draft), {
+        parse_mode: "Markdown",
+        reply_markup: buildStudentPayDraftKeyboard(draft),
+      });
+      return;
+    }
+
+    if (action === "field") {
+      const field = parts[2] as "amount" | "date" | "due" | "note" | "search";
+      const draftId = parts[3] || "";
+      const draft = studentPayDraftsById.get(draftId);
+      if (!draft || draft.status !== "DRAFT") return;
+      draft.awaitingField = field;
+      activeStudentPayByUser.set(userId, draft.id);
+
+      if (field === "search") {
+        draft.studentId = undefined;
+        draft.studentName = undefined;
+      }
+
+      const kb = new InlineKeyboard();
+      if (field === "date") {
+        const d0 = getIstanbulDateStr(0);
+        const d1 = getIstanbulDateStr(1);
+        const d2 = getIstanbulDateStr(2);
+        kb.text(`📅 Bugun (${d0.slice(5)})`, `spay:setdate:${draft.id}:${d0}`)
+          .text(`📅 Kecha (${d1.slice(5)})`, `spay:setdate:${draft.id}:${d1}`)
+          .text(`📅 2 kun oldin (${d2.slice(5)})`, `spay:setdate:${draft.id}:${d2}`)
+          .row();
+      }
+      kb.text("⬅️ Qoralamaga qaytish", `spay:back:${draft.id}`);
+
+      const prompts: Record<string, string> = {
+        amount: "💵 *To'lov summasini (USD $) yozib yuboring* (masalan: `500` yoki `1000`):",
+        date: "📅 *To'lov qilingan sanani tanlang yoki yozib yuboring* (masalan: `2026-10-25` yoki `25.10.2026`):",
+        due: "🗓 *Keyingi to'lov muddatini yozib yuboring* (masalan: `2026-12-01` yoki `01.12.2026`):",
+        note: "📝 *To'lov uchun izoh yozib yuboring*:",
+        search: "🔍 *Talabaning Ism yoki Familiyasini yozib yuboring*:",
+      };
+
+      await ctx.answerCallbackQuery();
+      await ctx.editMessageText(prompts[field] || "Yangi qiymatni yozing:", {
+        parse_mode: "Markdown",
+        reply_markup: kb,
+      });
+      return;
+    }
+
+    if (action === "back") {
+      const draftId = parts[2] || "";
+      const draft = studentPayDraftsById.get(draftId);
+      if (!draft || draft.status !== "DRAFT") return;
+      draft.awaitingField = null;
+      await ctx.answerCallbackQuery();
+      await ctx.editMessageText(buildStudentPayDraftText(draft), {
+        parse_mode: "Markdown",
+        reply_markup: buildStudentPayDraftKeyboard(draft),
+      });
+      return;
+    }
+
+    if (action === "cancel") {
+      const draftId = parts[2] || "";
+      const draft = studentPayDraftsById.get(draftId);
+      if (draft) {
+        draft.status = "CANCELLED";
+        activeStudentPayByUser.delete(userId);
+      }
+      studentPayMode.delete(userId);
+      await ctx.answerCallbackQuery({ text: "To'lov qoralamasi bekor qilindi" });
+      await ctx.editMessageText("❌ *Talaba to'lovi qoralamasi bekor qilindi.*", {
+        parse_mode: "Markdown",
+      });
+      return;
+    }
+
+    if (action === "ok") {
+      const draftId = parts[2] || "";
+      const draft = studentPayDraftsById.get(draftId);
+      if (!draft || draft.status !== "DRAFT") {
+        await ctx.answerCallbackQuery({ text: "Bu to'lov allaqachon saqlangan yoki bekor qilingan", show_alert: true });
+        return;
+      }
+      if (!draft.studentId) {
+        await ctx.answerCallbackQuery({ text: "Avval talabani tanlang!", show_alert: true });
+        return;
+      }
+      if (!(draft.amount > 0)) {
+        await ctx.answerCallbackQuery({ text: "To'lov summasini kiriting!", show_alert: true });
+        return;
+      }
+
+      try {
+        const saved = await saveStudentPaymentToCrmDb(bot, draft);
+        draft.status = "CONFIRMED";
+        activeStudentPayByUser.delete(userId);
+        studentPayMode.delete(userId);
+
+        await ctx.answerCallbackQuery({ text: "✅ Talaba to'lovi saqlandi!" });
+        await ctx.editMessageText(
+          [
+            `✅ *TALABA TO'LOVI MUVAFFAQIYATLI SAQLANDI! (#P-${saved.paymentId})*`,
+            "────────────────────",
+            `👤 Talaba: *${saved.studentName}*`,
+            `💵 Qabul qilingan summa: *+$${draft.amount.toLocaleString("en-US")} USD*`,
+            `💳 To'lov usuli: *${formatPayMethodLabel(draft.method)}*`,
+            `📅 To'lov sanasi: *${draft.paidAt}*`,
+            draft.nextDueDate ? `🗓 Keyingi muddat: *${draft.nextDueDate}*` : "",
+            draft.note ? `📝 Izoh: _${draft.note}_` : "",
+            "────────────────────",
+            `📊 Jami shartnoma: *$${saved.totalPayment.toLocaleString("en-US")}*`,
+            `✅ Jami to'langan: *$${saved.paidAmount.toLocaleString("en-US")}*`,
+            `📉 Qolgan qarz: *$${saved.remainingAmount.toLocaleString("en-US")}*`,
+            `✍️ Qabul qildi: *${draft.receivedByName}*`,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+          { parse_mode: "Markdown" }
+        );
+      } catch (e: any) {
+        await ctx.answerCallbackQuery({
+          text: "Xatolik: " + (e?.message || "Noma'lum"),
+          show_alert: true,
+        });
+      }
+      return;
+    }
+  });
+
   bot.callbackQuery("idora_cam_unblock", async (ctx) => {
     const userId = String(ctx.from.id);
     if (!CAMERA_OWNER_IDS.has(userId)) {
@@ -4241,7 +4952,27 @@ export function registerExpenseSandboxFlow(bot: Bot) {
       }
     }
 
+    if (raw === "💵 Talaba to'lovi") {
+      userRequestMode.delete(userId);
+      studentPayMode.add(userId);
+      await ctx.reply(
+        [
+          "🎓 *TALABA TO'LOVINI KIRITISH*",
+          "────────────────────",
+          "Talabaning *Ism-Familiyasini* va *to'lov summasini (USD $)* yozing (yoki shunchaki talaba ismini yozib qidiring):",
+          "",
+          "• 💬 _\"Abdulaziz Mirzoahmedov 500 dollar naqd\"_",
+          "• 💬 _\"Hojiakbar Rasulov 1000$ karta kecha\"_",
+          "• 💬 _\"Abdulaziz\"_ (talabani qidirib topish va tugma orqali summani tanlash)",
+          "• 🎙 *Ovozli xabar* yuboring",
+        ].join("\n"),
+        { parse_mode: "Markdown", reply_markup: buildReplyKeyboard(userId) }
+      );
+      return;
+    }
+
     if (raw === "📝 Talabnoma yaratish") {
+      studentPayMode.delete(userId);
       userRequestMode.add(userId);
       await ctx.reply(
         [
@@ -4267,6 +4998,8 @@ export function registerExpenseSandboxFlow(bot: Bot) {
 
     if (raw === "➕ Xarajat kiritish") {
       userRequestMode.delete(userId);
+      studentPayMode.delete(userId);
+      activeStudentPayByUser.delete(userId);
       await ctx.reply(
         [
           `➕ *Yangi xarajat kiritish (${auth.accountLabel} hisobiga)*`,
@@ -4307,6 +5040,106 @@ export function registerExpenseSandboxFlow(bot: Bot) {
         ].join("\n"),
         { parse_mode: "Markdown", reply_markup: buildReplyKeyboard(userId) }
       );
+      return;
+    }
+
+    // Handle active StudentPayDraft field editing or studentPayMode input
+    const activeSpayId = activeStudentPayByUser.get(userId);
+    const activeSpay = activeSpayId ? studentPayDraftsById.get(activeSpayId) : null;
+    if (activeSpay && activeSpay.status === "DRAFT") {
+      if (activeSpay.awaitingField === "amount" || (!activeSpay.awaitingField && activeSpay.studentId && /^\s*\$?[0-9]{2,6}\s*(dollar|usd|\$)?\s*$/i.test(raw))) {
+        const num = parseInt(raw.replace(/[^0-9]/g, ""), 10);
+        if (num > 0) {
+          activeSpay.amount = num;
+          activeSpay.awaitingField = null;
+          const sent = await ctx.reply(buildStudentPayDraftText(activeSpay, `✅ Summa yangilandi: *$${num.toLocaleString("en-US")} USD*`), {
+            parse_mode: "Markdown",
+            reply_markup: buildStudentPayDraftKeyboard(activeSpay),
+          });
+          activeSpay.messageId = sent.message_id;
+          return;
+        }
+      }
+      if (activeSpay.awaitingField === "date") {
+        const dStr = extractDateFromText(raw, "");
+        if (dStr) {
+          activeSpay.paidAt = dStr;
+          activeSpay.awaitingField = null;
+          const sent = await ctx.reply(buildStudentPayDraftText(activeSpay, `✅ To'lov sanasi: *${dStr}*`), {
+            parse_mode: "Markdown",
+            reply_markup: buildStudentPayDraftKeyboard(activeSpay),
+          });
+          activeSpay.messageId = sent.message_id;
+          return;
+        }
+      }
+      if (activeSpay.awaitingField === "due") {
+        const dStr = extractDateFromText(raw, "");
+        if (dStr) {
+          activeSpay.nextDueDate = dStr;
+          activeSpay.awaitingField = null;
+          const sent = await ctx.reply(buildStudentPayDraftText(activeSpay, `✅ Keyingi to'lov muddati: *${dStr}*`), {
+            parse_mode: "Markdown",
+            reply_markup: buildStudentPayDraftKeyboard(activeSpay),
+          });
+          activeSpay.messageId = sent.message_id;
+          return;
+        }
+      }
+      if (activeSpay.awaitingField === "note") {
+        activeSpay.note = raw;
+        activeSpay.awaitingField = null;
+        const sent = await ctx.reply(buildStudentPayDraftText(activeSpay, `✅ Izoh saqlandi`), {
+          parse_mode: "Markdown",
+          reply_markup: buildStudentPayDraftKeyboard(activeSpay),
+        });
+        activeSpay.messageId = sent.message_id;
+        return;
+      }
+      if (activeSpay.awaitingField === "search" || !activeSpay.studentId) {
+        const parsed = parseRawStudentPaymentText(raw);
+        const q = parsed.studentNameQuery || raw;
+        const candidates = await searchStudentsInCrm(q);
+        activeSpay.searchQuery = q;
+        if (parsed.amount > 0 && !(activeSpay.amount > 0)) activeSpay.amount = parsed.amount;
+        if (candidates.length === 1) {
+          const st = candidates[0]!;
+          activeSpay.studentId = Number(st.id);
+          activeSpay.studentName = st.fullname;
+          activeSpay.groupName = st.groupName;
+          activeSpay.studyPlace = st.studyPlace;
+          activeSpay.totalPayment = Number(st.totalPayment || 0);
+          activeSpay.paidAmount = Number(st.paidAmount || 0);
+          activeSpay.remainingAmount = Number(st.remainingAmount || 0);
+          activeSpay.awaitingField = null;
+        }
+        const banner =
+          candidates.length === 0
+            ? `⚠️ *"${q}"* bo'yicha talaba topilmadi. Iltimos, boshqacha yozib ko'ring:`
+            : candidates.length > 1
+            ? `🔍 *"${q}"* bo'yicha *${candidates.length} ta* talaba topildi. Tanlang:`
+            : `✅ Talaba topildi: *${activeSpay.studentName}*`;
+        const sent = await ctx.reply(buildStudentPayDraftText(activeSpay, banner), {
+          parse_mode: "Markdown",
+          reply_markup: buildStudentPayDraftKeyboard(activeSpay, candidates),
+        });
+        activeSpay.messageId = sent.message_id;
+        return;
+      }
+    }
+
+    if (studentPayMode.has(userId)) {
+      const parsed = parseRawStudentPaymentText(raw);
+      await startStudentPaymentDraft({
+        bot,
+        chatId: ctx.chat.id,
+        userId,
+        receivedByName: auth.personName,
+        studentNameQuery: parsed.studentNameQuery || raw,
+        amount: parsed.amount,
+        method: parsed.method,
+        paidAt: parsed.paidAt,
+      });
       return;
     }
 
