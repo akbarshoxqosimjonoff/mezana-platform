@@ -764,8 +764,10 @@ async function buildOverview(sess, { from, to } = {}) {
        json_build_object(
          'id', s.id::text,
          'fullname', s.fullname,
+         'profilePicture', s."profilePicture",
          'gender', s.gender::text,
          'phone', s.phone,
+         'remainingAmount', COALESCE(s."remainingAmount", 0)::float,
          'group', CASE WHEN g.id IS NOT NULL THEN json_build_object('id', g.id::text, 'name', g.name) ELSE NULL END
        ) AS student
      FROM "StudentPayment" sp
@@ -1561,77 +1563,119 @@ async function handleApi(req, res, url) {
     }
 
     if (pathname === "/fin-api/crm/payments" && method === "GET") {
-      if (!sess.crmToken) return sendJson(res, 403, { error: "CRM hisobi ulanmagan" });
-      const filter = {};
-      if (url.searchParams.get("studentId")) filter.studentId = url.searchParams.get("studentId");
-      if (url.searchParams.get("from")) filter.from = url.searchParams.get("from");
-      if (url.searchParams.get("to")) filter.to = url.searchParams.get("to");
-      if (url.searchParams.get("method")) filter.method = url.searchParams.get("method");
-      if (url.searchParams.get("gender")) filter.gender = url.searchParams.get("gender");
-      if (!access.isDirector && access.gender) filter.gender = access.gender;
-      if (url.searchParams.get("groupId")) filter.groupId = Number(url.searchParams.get("groupId"));
-      if (url.searchParams.get("search")) filter.search = url.searchParams.get("search");
-      if (url.searchParams.get("includeVoided") === "true") filter.includeVoided = true;
+      const studentIdFilter = (url.searchParams.get("studentId") || "").trim();
+      const fromFilter = (url.searchParams.get("from") || "").trim();
+      const toFilter = (url.searchParams.get("to") || "").trim();
+      const methodFilter = (url.searchParams.get("method") || "").trim();
+      const genderFilter = (!access.isDirector && access.gender)
+        ? access.gender
+        : (url.searchParams.get("gender") || "").trim();
+      const groupIdFilter = (url.searchParams.get("groupId") || "").trim();
+      const searchFilter = (url.searchParams.get("search") || "").trim();
+      const includeVoided = url.searchParams.get("includeVoided") === "true";
       const yearFilter = (url.searchParams.get("year") || "").trim();
 
-      const limit = Number(url.searchParams.get("limit") || 100);
-      const offset = Number(url.searchParams.get("offset") || 0);
+      const limit = Math.min(Math.max(Number(url.searchParams.get("limit") || 100), 1), 1000);
+      const offset = Math.max(Number(url.searchParams.get("offset") || 0), 0);
 
-      const data = await crmRequest(
-        `query GetPayments($filter: StudentPaymentFilter, $limit: Int, $offset: Int) {
-          studentPayments(filter: $filter, limit: $limit, offset: $offset) {
-            total
-            totalAmount
-            byMethod { method amount count }
-            items {
-              id studentId amount method paidAt note source receivedByName voidedAt voidReason voidedByName createdAt
-              student {
-                id fullname profilePicture gender phone isActive studyPlace totalPayment paidAmount remainingAmount overpaidAmount paidUntilDate
-                group { id name }
-              }
-            }
-          }
-          getGroups { id name gender }
-        }`,
-        { filter, limit: yearFilter ? 500 : limit, offset: yearFilter ? 0 : offset },
-        sess.crmToken
-      );
-
-      let rawItems = data.studentPayments?.items || [];
-      if (yearFilter === "2025-2026" || yearFilter === "2026-2027") {
-        rawItems = rawItems.filter((it) => {
-          const st = it.student;
-          const is2025 = st && (st.isActive === false || String(st.studyPlace || "").startsWith("2025-2026"));
-          const stYear = is2025 ? "2025-2026" : "2026-2027";
-          return stYear === yearFilter;
-        });
+      const conds = [];
+      if (!includeVoided) conds.push(`sp."voidedAt" IS NULL`);
+      if (studentIdFilter && /^\d+$/.test(studentIdFilter)) {
+        conds.push(`sp."studentId" = ${Number(studentIdFilter)}`);
+      }
+      if (fromFilter) conds.push(`sp."paidAt"::date >= ${sqlStr(fromFilter)}::date`);
+      if (toFilter) conds.push(`sp."paidAt"::date <= ${sqlStr(toFilter)}::date`);
+      if (methodFilter) conds.push(`sp.method = ${sqlStr(methodFilter)}`);
+      if (genderFilter) conds.push(`s.gender::text = ${sqlStr(genderFilter)}`);
+      if (groupIdFilter && /^\d+$/.test(groupIdFilter)) {
+        conds.push(`s."groupId" = ${Number(groupIdFilter)}`);
+      }
+      if (searchFilter) {
+        const qLike = sqlStr(`%${searchFilter}%`);
+        conds.push(`(
+          s.fullname ILIKE ${qLike}
+          OR COALESCE(s.username, '') ILIKE ${qLike}
+          OR COALESCE(s.phone, '') ILIKE ${qLike}
+          OR COALESCE(sp.note, '') ILIKE ${qLike}
+          OR COALESCE(sp."receivedByName", '') ILIKE ${qLike}
+          OR sp.id::text = ${sqlStr(searchFilter.replace(/^#/, ""))}
+        )`);
+      }
+      if (yearFilter === "2025-2026") {
+        conds.push(`(s."isActive" = false OR COALESCE(s."studyPlace", '') LIKE '2025-2026%')`);
+      } else if (yearFilter === "2026-2027") {
+        conds.push(`(s."isActive" = true AND COALESCE(s."studyPlace", '') NOT LIKE '2025-2026%')`);
       }
 
-      const activeItems = rawItems.filter((it) => !it.voidedAt);
-      const filteredGroups = (!access.isDirector && access.gender)
-        ? (data.getGroups || []).filter((g) => g.gender === access.gender)
-        : (data.getGroups || []);
+      const whereSql = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
 
-      if (yearFilter === "2025-2026" || yearFilter === "2026-2027") {
-        const byMap = new Map();
-        for (const it of activeItems) {
-          const m = it.method || "naqt";
-          const cur = byMap.get(m) || { method: m, amount: 0, count: 0 };
-          cur.amount += Number(it.amount || 0);
-          cur.count += 1;
-          byMap.set(m, cur);
-        }
-        return sendJson(res, 200, {
-          total: rawItems.length,
-          totalAmount: activeItems.reduce((s, it) => s + Number(it.amount || 0), 0),
-          byMethod: Array.from(byMap.values()),
-          items: rawItems.slice(offset, offset + limit),
-          groups: filteredGroups,
-        });
+      const allMatching = (await queryPgJson(
+        crmEnv.DATABASE_URL,
+        `SELECT
+           sp.id::text AS id,
+           sp."studentId"::text AS "studentId",
+           sp.amount::float AS amount,
+           sp.method,
+           sp."paidAt",
+           sp.note,
+           sp.source,
+           sp."receivedByName",
+           sp."voidedAt",
+           sp."voidReason",
+           sp."voidedByName",
+           sp."createdAt",
+           CASE WHEN s.id IS NOT NULL THEN json_build_object(
+             'id', s.id::text,
+             'fullname', s.fullname,
+             'profilePicture', s."profilePicture",
+             'gender', s.gender::text,
+             'phone', s.phone,
+             'isActive', s."isActive",
+             'studyPlace', s."studyPlace",
+             'totalPayment', COALESCE(s."totalPayment", 0)::float,
+             'paidAmount', COALESCE(s."paidAmount", 0)::float,
+             'remainingAmount', COALESCE(s."remainingAmount", 0)::float,
+             'overpaidAmount', GREATEST(0, COALESCE(s."paidAmount", 0) - COALESCE(s."totalPayment", 0))::float,
+             'paidUntilDate', s."paidUntilDate",
+             'group', CASE WHEN g.id IS NOT NULL THEN json_build_object('id', g.id::text, 'name', g.name) ELSE NULL END
+           ) ELSE NULL END AS student
+         FROM "StudentPayment" sp
+         LEFT JOIN "Student" s ON s.id = sp."studentId"
+         LEFT JOIN "Group" g ON g.id = s."groupId"
+         ${whereSql}
+         ORDER BY sp."paidAt" DESC, sp.id DESC`
+      ));
+
+      const groupGenderCond = (!access.isDirector && access.gender)
+        ? `AND gender::text = ${sqlStr(access.gender)}`
+        : "";
+      const filteredGroups = (await queryPgJson(
+        crmEnv.DATABASE_URL,
+        `SELECT id::text AS id, name, gender::text AS gender
+         FROM "Group"
+         WHERE "isDeleted" = false ${groupGenderCond}
+         ORDER BY name ASC`
+      ));
+
+      const activeItems = allMatching.filter((it) => !it.voidedAt);
+      const byMap = new Map([
+        ["naqt", { method: "naqt", amount: 0, count: 0 }],
+        ["karta", { method: "karta", amount: 0, count: 0 }],
+        ["otkazma", { method: "otkazma", amount: 0, count: 0 }],
+      ]);
+      for (const it of activeItems) {
+        const m = it.method || "naqt";
+        const cur = byMap.get(m) || { method: m, amount: 0, count: 0 };
+        cur.amount = Number((cur.amount + Number(it.amount || 0)).toFixed(2));
+        cur.count += 1;
+        byMap.set(m, cur);
       }
 
       return sendJson(res, 200, {
-        ...data.studentPayments,
+        total: allMatching.length,
+        totalAmount: Number(activeItems.reduce((s, it) => s + Number(it.amount || 0), 0).toFixed(2)),
+        byMethod: Array.from(byMap.values()),
+        items: allMatching.slice(offset, offset + limit),
         groups: filteredGroups,
       });
     }
