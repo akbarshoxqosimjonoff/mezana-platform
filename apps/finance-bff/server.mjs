@@ -1066,7 +1066,7 @@ async function buildOverview(sess, { from, to } = {}) {
   }));
 
   let crmSummaryBase = crmData?.financeSummary || {};
-  if (access.gender) {
+  {
     const soonDate = new Date(Date.now() + 7 * 86400 * 1000).toISOString().slice(0, 10);
     const genderStatsRow = (await queryPgJson(
       crmEnv.DATABASE_URL,
@@ -1777,9 +1777,31 @@ async function handleApi(req, res, url) {
           return dYear === yearFilter;
         });
       }
+      const istanbulToday = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Istanbul" }).format(new Date());
+      const soonDate = new Date(Date.now() + 7 * 86400 * 1000).toISOString().slice(0, 10);
+      const genderCondPlain = (!access.isDirector && access.gender) ? ` AND gender = ${sqlStr(access.gender)}::"Gender"` : "";
+      const exactSummary = (await queryPgJson(
+        crmEnv.DATABASE_URL,
+        `SELECT
+           COUNT(*) FILTER (WHERE COALESCE("totalPayment", 0) > 0)::int AS "contractCount",
+           COALESCE(SUM("totalPayment"), 0)::float AS "totalContract",
+           COALESCE(SUM("paidAmount"), 0)::float AS "totalPaid",
+           COALESCE(SUM("remainingAmount"), 0)::float AS "totalDebt",
+           COALESCE(SUM(GREATEST(0, COALESCE("paidAmount", 0) - COALESCE("totalPayment", 0))), 0)::float AS "totalOverpaid",
+           COUNT(*) FILTER (WHERE COALESCE("remainingAmount", 0) > 0)::int AS "debtorCount",
+           COUNT(*) FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND "isActive" = true AND "isArchived" = false AND "paidUntilDate" IS NOT NULL AND SUBSTRING("paidUntilDate"::text, 1, 10) < ${sqlStr(istanbulToday)})::int AS "overdueCount",
+           COALESCE(SUM("remainingAmount") FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND "isActive" = true AND "isArchived" = false AND "paidUntilDate" IS NOT NULL AND SUBSTRING("paidUntilDate"::text, 1, 10) < ${sqlStr(istanbulToday)}), 0)::float AS "overdueAmount",
+           COUNT(*) FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND "isActive" = true AND "isArchived" = false AND "paidUntilDate" IS NOT NULL AND SUBSTRING("paidUntilDate"::text, 1, 10) >= ${sqlStr(istanbulToday)} AND SUBSTRING("paidUntilDate"::text, 1, 10) <= ${sqlStr(soonDate)})::int AS "dueSoonCount",
+           COALESCE(SUM("remainingAmount") FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND "isActive" = true AND "isArchived" = false AND "paidUntilDate" IS NOT NULL AND SUBSTRING("paidUntilDate"::text, 1, 10) >= ${sqlStr(istanbulToday)} AND SUBSTRING("paidUntilDate"::text, 1, 10) <= ${sqlStr(soonDate)}), 0)::float AS "dueSoonAmount",
+           COUNT(*) FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND "paidUntilDate" IS NULL)::int AS "noDeadlineCount",
+           COUNT(*) FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND ("isActive" = false OR "isArchived" = true))::int AS "archivedDebtorCount",
+           COALESCE(SUM("remainingAmount") FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND ("isActive" = false OR "isArchived" = true)), 0)::float AS "archivedDebtAmount"
+         FROM "Student"
+         WHERE "isDeleted" = false${genderCondPlain}`
+      ))[0] || {};
       return sendJson(res, 200, {
         debtors,
-        summary: data.financeSummary,
+        summary: { ...(data.financeSummary || {}), ...exactSummary },
         groups,
       });
     }
