@@ -616,7 +616,7 @@ export async function getVaqfSystemHealth({ runAlerts = false } = {}) {
     query(
       `SELECT
          COUNT(*) FILTER (WHERE status = 'pending')::int AS pending_count,
-         COALESCE(MAX(EXTRACT(EPOCH FROM (NOW() - created_at)) / 60) FILTER (WHERE status = 'pending'), 0)::float AS oldest_pending_minutes,
+         COALESCE(MAX(EXTRACT(EPOCH FROM (NOW() - created_at)) / 60) FILTER (WHERE status = 'pending' AND next_attempt_at <= NOW()), 0)::float AS oldest_pending_minutes,
          COUNT(*) FILTER (WHERE status = 'failed')::int AS failed_count,
          COUNT(*) FILTER (WHERE status = 'sent' AND sent_at > NOW() - INTERVAL '24 hours')::int AS sent_24h_count,
          COUNT(*) FILTER (WHERE status = 'skipped')::int AS skipped_count

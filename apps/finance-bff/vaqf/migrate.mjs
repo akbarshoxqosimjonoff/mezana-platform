@@ -65,7 +65,9 @@ export async function syncCrmRoomsToLocations(pool = platformPool, crmDbUrl = pr
 
   let imported = 0;
   for (const r of roomsRes.rows) {
-    const floorNum = Number(r.floor || 1);
+    const roomNum = String(r.roomNumber || "").trim();
+    const derivedFloor = /^[1-9][0-9]{2}$/.test(roomNum) ? Math.floor(Number(roomNum) / 100) : null;
+    const floorNum = derivedFloor || Number(r.floor || 1);
     const floorExtRef = `mzn:floor:${floorNum}`;
     let floorRes = await pool.query(`SELECT id FROM vaqf.locations WHERE external_ref = $1 LIMIT 1`, [floorExtRef]);
     let floorId = floorRes.rows[0]?.id;
@@ -81,7 +83,6 @@ export async function syncCrmRoomsToLocations(pool = platformPool, crmDbUrl = pr
     }
 
     const roomExtRef = `crm:room:${r.id}`;
-    const roomNum = String(r.roomNumber || "").trim();
     const roomName = r.description
       ? `${roomNum}-xona (${r.description})`
       : `${roomNum}-xona`;
@@ -91,7 +92,7 @@ export async function syncCrmRoomsToLocations(pool = platformPool, crmDbUrl = pr
       `INSERT INTO vaqf.locations (institution_id, parent_id, kind, name, code, external_ref, notes, sort_order)
        VALUES ($1, $2, 'room', $3, $4, $5, $6, $7)
        ON CONFLICT (external_ref) DO UPDATE SET
-         parent_id = COALESCE(vaqf.locations.parent_id, EXCLUDED.parent_id),
+         parent_id = EXCLUDED.parent_id,
          name = EXCLUDED.name,
          code = EXCLUDED.code,
          updated_at = NOW()`,

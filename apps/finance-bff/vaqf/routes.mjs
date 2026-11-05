@@ -113,6 +113,7 @@ import {
   deleteSchedule,
   getDirectorDashboardData,
   processOutboxBatch,
+  startVaqfBackgroundWorkers,
 } from "./automationService.mjs";
 
 import {
@@ -174,6 +175,10 @@ function sendJson(res, status, payload, extraHeaders = {}) {
     ...extraHeaders,
   });
   res.end(body);
+}
+
+if (!process.execArgv.includes("--test") && !process.argv.some((a) => a.endsWith(".test.mjs"))) {
+  startVaqfBackgroundWorkers();
 }
 
 async function readJsonBody(req) {
@@ -1192,7 +1197,8 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
       const institutionId = url.searchParams.get("institution_id") || null;
       const kind = url.searchParams.get("kind") || null;
       const restricted = url.searchParams.get("restricted");
-      const items = await listDonations({ institutionId, kind, restricted, vAccess });
+      const source = url.searchParams.get("source") || null;
+      const items = await listDonations({ institutionId, kind, restricted, source, vAccess });
       return sendJson(res, 200, { items });
     }
     if (pathname === "/vaqf-api/donations" && method === "POST") {
