@@ -1279,6 +1279,29 @@ export async function buildCampusSmartAnalytics(pgPool, { date: reqDate, month: 
         .sort((a, b) => a.hour.localeCompare(b.hour)),
       studentMatrix,
       alerts: canteenAlertsRes.rows,
+      recentLiveScans: (
+        await pgPool.query(
+          `SELECT
+             m.id,
+             'CANTEEN' AS "deviceType",
+             m."studentId",
+             COALESCE(s.fullname, m."studentName") AS "studentName",
+             s.photo,
+             COALESCE(g.name, 'Guruhsiz') AS "group",
+             COALESCE(r.name, '-') AS "room",
+             m."cardId",
+             m."mealType"::text AS "eventType",
+             TO_CHAR(m."timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD') AS "date",
+             TO_CHAR(m."timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'HH24:MI:SS') AS "time",
+             m."timestamp"
+           FROM "MealRecord" m
+           LEFT JOIN "Student" s ON s.id = m."studentId"
+           LEFT JOIN "Group" g ON g.id = s."groupId"
+           LEFT JOIN "Room" r ON r.id = s."roomId"
+           ORDER BY m."timestamp" DESC
+           LIMIT 35`
+        )
+      ).rows,
     },
     mosque: {
       selectedDate,
@@ -1290,6 +1313,29 @@ export async function buildCampusSmartAnalytics(pgPool, { date: reqDate, month: 
       prayers: prayersSummary,
       studentRows: mosqueStudentRows,
       alerts: mosqueAlertsRes.rows,
+      recentLiveScans: (
+        await pgPool.query(
+          `SELECT
+             p.id,
+             'MOSQUE' AS "deviceType",
+             p."studentId",
+             COALESCE(s.fullname, p."studentName") AS "studentName",
+             s.photo,
+             COALESCE(g.name, 'Guruhsiz') AS "group",
+             COALESCE(r.name, '-') AS "room",
+             p."cardId",
+             p."prayerType"::text AS "eventType",
+             TO_CHAR(p."timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD') AS "date",
+             TO_CHAR(p."timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'HH24:MI:SS') AS "time",
+             p."timestamp"
+           FROM "PrayerRecord" p
+           LEFT JOIN "Student" s ON s.id = p."studentId"
+           LEFT JOIN "Group" g ON g.id = s."groupId"
+           LEFT JOIN "Room" r ON r.id = s."roomId"
+           ORDER BY p."timestamp" DESC
+           LIMIT 35`
+        )
+      ).rows,
     },
     gate: {
       cameraName: "Kirish eshigi",
@@ -1446,9 +1492,49 @@ export async function simulateSmartTurnstileScan(pgPool, { deviceType = "CANTEEN
 }
 
 const ZKTECO_DEVICES = [
-  { id: "canteen", name: "Oshxona (192.168.1.52:8081)", ip: "192.168.1.52", port: 8081 },
-  { id: "gate", name: "Kirish (192.168.1.53:4370)", ip: "192.168.1.53", port: 4370 },
+  { id: "canteen", name: "Oshxona (192.168.1.52:8081)", ip: "192.168.1.52", port: 8081, commKey: 2026 },
+  { id: "gate", name: "Kirish (192.168.1.53:4370)", ip: "192.168.1.53", port: 4370, commKey: 0 },
+  { id: "mosque", name: "Masjid (192.168.1.172:8082)", ip: "192.168.1.172", port: 8082, commKey: 2026 },
 ];
+
+function makeCommKey(key, sessionId, ticks = 50) {
+  let k = 0;
+  for (let i = 0; i < 32; i++) {
+    if (key & (1 << i)) {
+      k = ((k << 1) | 1) >>> 0;
+    } else {
+      k = (k << 1) >>> 0;
+    }
+  }
+  k = (k + sessionId) >>> 0;
+  const buf = Buffer.alloc(4);
+  buf.writeUInt32LE(k, 0);
+  buf[0] ^= "Z".charCodeAt(0);
+  buf[1] ^= "K".charCodeAt(0);
+  buf[2] ^= "S".charCodeAt(0);
+  buf[3] ^= "O".charCodeAt(0);
+  const h0 = buf.readUInt16LE(0);
+  const h1 = buf.readUInt16LE(2);
+  buf.writeUInt16LE(h1, 0);
+  buf.writeUInt16LE(h0, 2);
+  const B = ticks & 0xff;
+  buf[0] ^= B;
+  buf[1] ^= B;
+  buf[2] = B;
+  buf[3] ^= B;
+  return buf;
+}
+
+async function connectZkWithAuth(zk, commKey = 2026) {
+  await zk.createSocket(() => {}, () => {});
+  const reply = await zk.executeCmd(1000, ""); // CMD_CONNECT = 1000
+  const cmdCode = reply && reply.length >= 2 ? reply.readUInt16LE(0) : 0;
+  if (cmdCode === 2005 || commKey > 0) {
+    // CMD_ACK_UNAUTH = 2005 -> send CMD_AUTH = 1102
+    const authBuf = makeCommKey(commKey || 2026, zk.sessionId);
+    await zk.executeCmd(1102, authBuf);
+  }
+}
 
 function buildZkUserBuffer72({ uid, userId, name, cardno = 0, role = 0, password = "" }) {
   const buf = Buffer.alloc(72, 0);
@@ -1501,8 +1587,7 @@ export async function syncStudentCardToZkteco({ studentId, studentName, cardId, 
     const zk = new ZKLibTCP(dev.ip, dev.port, 2500);
     try {
       await withZkTimeout((async () => {
-        await zk.createSocket(() => {}, () => {});
-        await zk.executeCmd(1000, "");   // CMD_CONNECT = 1000
+        await connectZkWithAuth(zk, dev.commKey);
         await zk.executeCmd(8, userBuf); // CMD_USER_WRQ = 8
         await zk.executeCmd(1013, "");   // CMD_REFRESHDATA = 1013
         await zk.disconnect();
@@ -1530,8 +1615,7 @@ export async function syncAllCardsToZkteco(pgPool) {
     let synced = 0;
     try {
       await withZkTimeout((async () => {
-        await zk.createSocket(() => {}, () => {});
-        await zk.executeCmd(1000, "");
+        await connectZkWithAuth(zk, dev.commKey);
         for (const c of cards) {
           const rawCard = String(c.cardNumber || c.cardId || "").replace(/\D/g, "");
           const userBuf = buildZkUserBuffer72({
@@ -1575,11 +1659,10 @@ export async function fetchRecentZktecoCards(pgPool) {
 
   await Promise.all(
     ZKTECO_DEVICES.map(async (dev) => {
-      const zk = new ZKLibTCP(dev.ip, dev.port, 2500);
+      const zk = new ZKLibTCP(dev.ip, dev.port, 3000);
       try {
         await withZkTimeout((async () => {
-          await zk.createSocket(() => {}, () => {});
-          await zk.executeCmd(1000, "");
+          await connectZkWithAuth(zk, dev.commKey);
           const info = await zk.getInfo();
           const userById = new Map();
           if (info?.userCounts > 0) {
@@ -1607,9 +1690,9 @@ export async function fetchRecentZktecoCards(pgPool) {
               }
             }
           }
-          if (info?.logCounts > 0 && info.logCounts <= 500) {
+          if (info?.logCounts > 0) {
             const attResp = await zk.getAttendances();
-            const logs = (attResp?.data || []).slice(-15).reverse();
+            const logs = (attResp?.data || []).slice(-25).reverse();
             for (const l of logs) {
               const u = userById.get(String(l.deviceUserId));
               const cardStr = u?.cardno ? String(u.cardno) : String(l.deviceUserId);
@@ -1629,7 +1712,7 @@ export async function fetchRecentZktecoCards(pgPool) {
             }
           }
           await zk.disconnect();
-        })(), 3500, zk);
+        })(), 5000, zk);
       } catch {
         try { zk?.socket?.destroy(); } catch {}
       }
@@ -1638,11 +1721,11 @@ export async function fetchRecentZktecoCards(pgPool) {
 
   const unassigned = deviceUsers.filter((u) => !u.studentId);
   const assigned = deviceUsers.filter((u) => u.studentId);
-  const items = [...recentLogs, ...unassigned, ...assigned].slice(0, 30);
+  const items = [...recentLogs, ...unassigned, ...assigned].slice(0, 40);
 
   return {
     items,
-    recentLogs: recentLogs.slice(0, 20),
+    recentLogs: recentLogs.slice(0, 25),
     unassignedDeviceCards: unassigned,
     allDeviceCards: deviceUsers,
   };
@@ -1656,8 +1739,7 @@ export async function pollKirishTurnstileLive(pgPool) {
   _kirishPollBusy = true;
   const zk = new ZKLibTCP("192.168.1.53", 4370, 3000);
   try {
-    await zk.createSocket(() => {}, () => {});
-    await zk.executeCmd(1000, "");
+    await connectZkWithAuth(zk, 0);
     const size = await zk.getAttendanceSize();
     await zk.disconnect();
 
@@ -1681,5 +1763,135 @@ export async function pollKirishTurnstileLive(pgPool) {
     try { await zk.disconnect(); } catch {}
   } finally {
     _kirishPollBusy = false;
+  }
+}
+
+let _canteenMasjidBusy = false;
+const _lastLogCountByDevice = new Map();
+
+export async function pollOshxonaAndMasjidTurnstilesLive(pgPool, { forceFullScan = false } = {}) {
+  if (_canteenMasjidBusy) return;
+  _canteenMasjidBusy = true;
+
+  try {
+    const devicesToPoll = [
+      { id: "canteen", type: "CANTEEN", ip: "192.168.1.52", port: 8081, commKey: 2026, clockOffsetHours: -5 },
+      { id: "mosque", type: "MOSQUE", ip: "192.168.1.172", port: 8082, commKey: 2026, clockOffsetHours: 0 },
+    ];
+
+    // Load student cards mapping once
+    const cardsRes = await pgPool.query(
+      `SELECT sc."cardId", sc."cardNumber", sc."studentId", s.fullname
+       FROM "StudentCard" sc
+       JOIN "Student" s ON s.id = sc."studentId"
+       WHERE sc."isActive" = true`
+    );
+    const mapByKey = new Map();
+    for (const r of cardsRes.rows || []) {
+      if (r.cardId) mapByKey.set(String(r.cardId), r);
+      if (r.cardNumber) mapByKey.set(String(r.cardNumber), r);
+      if (r.studentId) mapByKey.set(String(r.studentId), r);
+    }
+
+    for (const dev of devicesToPoll) {
+      const zk = new ZKLibTCP(dev.ip, dev.port, 3500);
+      try {
+        await withZkTimeout((async () => {
+          await connectZkWithAuth(zk, dev.commKey);
+          const info = await zk.getInfo();
+          const currentCount = Number(info?.logCounts || 0);
+          const prevCount = _lastLogCountByDevice.get(dev.id);
+
+          if (!forceFullScan && prevCount !== undefined && currentCount <= prevCount) {
+            await zk.disconnect();
+            return;
+          }
+
+          const newCount = prevCount !== undefined ? Math.max(5, currentCount - prevCount + 5) : 30;
+          const attResp = await zk.getAttendances();
+          await zk.disconnect();
+          _lastLogCountByDevice.set(dev.id, currentCount);
+
+          const logs = (attResp?.data || []).slice(-newCount);
+          for (const log of logs) {
+            const devUserId = String(log.deviceUserId || "").trim();
+            const stMatch = mapByKey.get(devUserId);
+            if (!stMatch || !stMatch.studentId) continue;
+
+            const rawDate = new Date(log.recordTime);
+            if (isNaN(rawDate.getTime())) continue;
+
+            // Apply device clock offset (Oshxona 192.168.1.52 is 5 hours ahead of Istanbul time)
+            const adjustedUtc = new Date(rawDate.getTime() + (dev.clockOffsetHours || 0) * 3600 * 1000);
+            const ist = getIstanbulParts(adjustedUtc);
+            const mins = ist.hour * 60 + ist.minute;
+
+            if (dev.type === "CANTEEN") {
+              let mealType = null;
+              if (mins >= 5 * 60 && mins <= 10 * 60 + 30) mealType = "BREAKFAST";
+              else if (mins >= 11 * 60 + 30 && mins <= 15 * 60 + 30) mealType = "LUNCH";
+              else if (mins >= 17 * 60 && mins <= 22 * 60) mealType = "DINNER";
+
+              if (!mealType) continue;
+
+              const existsRes = await pgPool.query(
+                `SELECT id FROM "MealRecord"
+                 WHERE "studentId" = $1
+                   AND "mealType"::text = $2
+                   AND TO_CHAR("timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD') = $3
+                 LIMIT 1`,
+                [stMatch.studentId, mealType, ist.dateStr]
+              );
+              if (existsRes.rows.length === 0) {
+                await pgPool.query(
+                  `INSERT INTO "MealRecord" ("studentId", "studentName", "cardId", "mealType", "timestamp")
+                   VALUES ($1, $2, $3, $4::"MealType", $5)`,
+                  [stMatch.studentId, stMatch.fullname, stMatch.cardId || devUserId, mealType, adjustedUtc]
+                );
+                console.log(`[Live Turnstile Oshxona] ${stMatch.fullname} (${devUserId}) -> ${mealType} (${ist.dateStr} ${ist.timeSecStr})`);
+              }
+            } else if (dev.type === "MOSQUE") {
+              const cfgRes = await pgPool.query(
+                `SELECT "prayerType"::text AS "prayerType", "startTime", "endTime"
+                 FROM "PrayerTimeConfig" WHERE "isActive" = true`
+              );
+              let matchedPrayer = null;
+              for (const c of cfgRes.rows) {
+                const [sh, sm] = String(c.startTime).split(":").map(Number);
+                const [eh, em] = String(c.endTime).split(":").map(Number);
+                if (mins >= sh * 60 + sm && mins <= eh * 60 + em) {
+                  matchedPrayer = c.prayerType;
+                  break;
+                }
+              }
+              if (!matchedPrayer) continue;
+
+              const existsPrayer = await pgPool.query(
+                `SELECT id FROM "PrayerRecord"
+                 WHERE "studentId" = $1
+                   AND "prayerType"::text = $2
+                   AND TO_CHAR("timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD') = $3
+                 LIMIT 1`,
+                [stMatch.studentId, matchedPrayer, ist.dateStr]
+              );
+              if (existsPrayer.rows.length === 0) {
+                await pgPool.query(
+                  `INSERT INTO "PrayerRecord" ("studentId", "studentName", "cardId", "prayerType", "timestamp")
+                   VALUES ($1, $2, $3, $4::"PrayerType", $5)`,
+                  [stMatch.studentId, stMatch.fullname, stMatch.cardId || devUserId, matchedPrayer, adjustedUtc]
+                );
+                console.log(`[Live Turnstile Masjid] ${stMatch.fullname} (${devUserId}) -> ${matchedPrayer} (${ist.dateStr} ${ist.timeSecStr})`);
+              }
+            }
+          }
+        })(), 6000, zk);
+      } catch {
+        try { zk?.socket?.destroy(); } catch {}
+      }
+    }
+  } catch (err) {
+    console.error("[pollOshxonaAndMasjidTurnstilesLive] error:", err?.message);
+  } finally {
+    _canteenMasjidBusy = false;
   }
 }

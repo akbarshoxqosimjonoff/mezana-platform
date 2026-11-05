@@ -1066,6 +1066,25 @@ export function UnifiedModules({
                           <button className="btn btn-sm btn-primary" onClick={() => openPaymentModal(s)}>
                             + To'lov
                           </button>
+                          <button
+                            className="btn btn-sm"
+                            title={s.isArchived || !s.isActive ? "Arxivdan chiqarish (Faollashtirish)" : "Arxivga olish"}
+                            onClick={async () => {
+                              const nextArch = !(s.isArchived || !s.isActive);
+                              try {
+                                await apiFetch(`/fin-api/crm/students/${s.id}/archive`, {
+                                  method: "POST",
+                                  body: JSON.stringify({ archived: nextArch }),
+                                });
+                                notify(nextArch ? `${s.fullname} arxivga olindi` : `${s.fullname} faollashtirildi!`);
+                                loadDomain();
+                              } catch (err: any) {
+                                notify(err.message || "Xatolik", "err");
+                              }
+                            }}
+                          >
+                            {s.isArchived || !s.isActive ? "♻️" : "📦"}
+                          </button>
                         </div>
                       </td>
                     </tr>

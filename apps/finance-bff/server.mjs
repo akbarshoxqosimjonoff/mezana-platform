@@ -1,6 +1,7 @@
 import dns from "node:dns";
 dns.setDefaultResultOrder("ipv4first");
-import { createPsqlPool, platformPool, buildCampusSmartAnalytics, captureSixGatePhotos, simulateSmartTurnstileScan, pollGateTelegramReplies, pollKirishTurnstileLive, toggleBotRecipient, cleanupOldGatePhotos, syncStudentCardToZkteco, syncAllCardsToZkteco, fetchRecentZktecoCards } from "./campusSmartService.mjs";
+import { createPsqlPool, platformPool, buildCampusSmartAnalytics, captureSixGatePhotos, simulateSmartTurnstileScan, pollGateTelegramReplies, pollKirishTurnstileLive, pollOshxonaAndMasjidTurnstilesLive, toggleBotRecipient, cleanupOldGatePhotos, syncStudentCardToZkteco, syncAllCardsToZkteco, fetchRecentZktecoCards } from "./campusSmartService.mjs";
+import { createFullBackup, listBackups, restoreFromBackup, startMidnightBackupScheduler } from "./backupService.mjs";
 import http from "node:http";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
@@ -12,11 +13,6 @@ import bcrypt from "/srv/data/mezana-space/var/www/mezana-crm/backend/node_modul
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { handleVaqfApi } from "./vaqf/routes.mjs";
 import { vaqfAccess } from "./vaqf/service.mjs";
-import {
-  captureApprovedFinanceExpenseSafe,
-  getInventoryLinksByExpenseIds,
-  startVaqfBackgroundWorkers,
-} from "./vaqf/automationService.mjs";
 const STATIC_DIR = path.resolve(__dirname, "../finance/dist");
 const VAQF_STATIC_DIR = path.resolve(__dirname, "../vaqf/dist");
 const SESSIONS_FILE = path.resolve(__dirname, ".sessions.json");
@@ -1114,7 +1110,7 @@ async function buildOverview(sess, { from, to } = {}) {
 
   const [crmData, erpBudgetsRes] = await Promise.all([crmPromise, erpBudgetsPromise]);
 
-  // Direct exact StudentPayment queries from CRM DB (in USD $)
+  // Direct exact StudentPayment queries from CRM DB (in USD $) — ONLY ACTIVE NON-ARCHIVED STUDENTS
   const studentPayStatsArr = (await queryPgJson(
     crmEnv.DATABASE_URL,
     `SELECT
@@ -1124,7 +1120,7 @@ async function buildOverview(sess, { from, to } = {}) {
        COALESCE(SUM(sp.amount) FILTER (WHERE sp."paidAt"::date >= ${sqlStr(rangeFrom)}::date AND sp."paidAt"::date <= ${sqlStr(rangeTo)}::date), 0)::float AS period_amount
      FROM "StudentPayment" sp
      JOIN "Student" s ON s.id = sp."studentId"
-     WHERE sp."voidedAt" IS NULL AND s."isDeleted" = false${genderCondS}`
+     WHERE sp."voidedAt" IS NULL AND s."isDeleted" = false AND s."isActive" = true AND COALESCE(s."isArchived", false) = false${genderCondS}`
   ));
   const stPayStats = studentPayStatsArr[0] || { all_count: 0, all_amount: 0, period_count: 0, period_amount: 0 };
 
@@ -1136,7 +1132,7 @@ async function buildOverview(sess, { from, to } = {}) {
        COALESCE(SUM(sp.amount), 0)::float AS amount
      FROM "StudentPayment" sp
      JOIN "Student" s ON s.id = sp."studentId"
-     WHERE sp."voidedAt" IS NULL AND s."isDeleted" = false
+     WHERE sp."voidedAt" IS NULL AND s."isDeleted" = false AND s."isActive" = true AND COALESCE(s."isArchived", false) = false
        AND sp."paidAt"::date >= ${sqlStr(rangeFrom)}::date
        AND sp."paidAt"::date <= ${sqlStr(rangeTo)}::date${genderCondS}
      GROUP BY sp.method
@@ -1167,7 +1163,7 @@ async function buildOverview(sess, { from, to } = {}) {
      FROM "StudentPayment" sp
      JOIN "Student" s ON s.id = sp."studentId"
      LEFT JOIN "Group" g ON g.id = s."groupId"
-     WHERE sp."voidedAt" IS NULL AND s."isDeleted" = false
+     WHERE sp."voidedAt" IS NULL AND s."isDeleted" = false AND s."isActive" = true AND COALESCE(s."isArchived", false) = false
        AND sp."paidAt"::date >= ${sqlStr(rangeFrom)}::date
        AND sp."paidAt"::date <= ${sqlStr(rangeTo)}::date${genderCondS}
      ORDER BY sp."paidAt" DESC, sp.id DESC
@@ -1182,7 +1178,7 @@ async function buildOverview(sess, { from, to } = {}) {
        COALESCE(SUM(sp.amount), 0)::float AS amount
      FROM "StudentPayment" sp
      JOIN "Student" s ON s.id = sp."studentId"
-     WHERE sp."voidedAt" IS NULL AND s."isDeleted" = false${genderCondS}
+     WHERE sp."voidedAt" IS NULL AND s."isDeleted" = false AND s."isActive" = true AND COALESCE(s."isArchived", false) = false${genderCondS}
      GROUP BY 1
      ORDER BY 1 ASC`
   ));
@@ -1465,18 +1461,18 @@ async function buildOverview(sess, { from, to } = {}) {
     const genderStatsRow = (await queryPgJson(
       crmEnv.DATABASE_URL,
       `SELECT
-         COUNT(*) FILTER (WHERE COALESCE("totalPayment", 0) > 0)::int AS "contractCount",
-         COALESCE(SUM("totalPayment"), 0)::float AS "totalContract",
-         COALESCE(SUM("paidAmount"), 0)::float AS "totalPaid",
-         COALESCE(SUM("remainingAmount"), 0)::float AS "totalDebt",
-         COALESCE(SUM(GREATEST(0, COALESCE("paidAmount", 0) - COALESCE("totalPayment", 0))), 0)::float AS "totalOverpaid",
-         COUNT(*) FILTER (WHERE COALESCE("remainingAmount", 0) > 0)::int AS "debtorCount",
-         COUNT(*) FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND "isActive" = true AND "isArchived" = false AND "paidUntilDate" IS NOT NULL AND SUBSTRING("paidUntilDate"::text, 1, 10) < ${sqlStr(istanbulToday)})::int AS "overdueCount",
-         COALESCE(SUM("remainingAmount") FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND "isActive" = true AND "isArchived" = false AND "paidUntilDate" IS NOT NULL AND SUBSTRING("paidUntilDate"::text, 1, 10) < ${sqlStr(istanbulToday)}), 0)::float AS "overdueAmount",
-         COUNT(*) FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND "isActive" = true AND "isArchived" = false AND "paidUntilDate" IS NOT NULL AND SUBSTRING("paidUntilDate"::text, 1, 10) >= ${sqlStr(istanbulToday)} AND SUBSTRING("paidUntilDate"::text, 1, 10) <= ${sqlStr(soonDate)})::int AS "dueSoonCount",
-         COALESCE(SUM("remainingAmount") FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND "isActive" = true AND "isArchived" = false AND "paidUntilDate" IS NOT NULL AND SUBSTRING("paidUntilDate"::text, 1, 10) >= ${sqlStr(istanbulToday)} AND SUBSTRING("paidUntilDate"::text, 1, 10) <= ${sqlStr(soonDate)}), 0)::float AS "dueSoonAmount",
-         COUNT(*) FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND ("isActive" = false OR "isArchived" = true))::int AS "archivedDebtorCount",
-         COALESCE(SUM("remainingAmount") FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND ("isActive" = false OR "isArchived" = true)), 0)::float AS "archivedDebtAmount"
+         COUNT(*) FILTER (WHERE "isActive" = true AND COALESCE("isArchived", false) = false AND COALESCE("totalPayment", 0) > 0)::int AS "contractCount",
+         COALESCE(SUM("totalPayment") FILTER (WHERE "isActive" = true AND COALESCE("isArchived", false) = false), 0)::float AS "totalContract",
+         COALESCE(SUM("paidAmount") FILTER (WHERE "isActive" = true AND COALESCE("isArchived", false) = false), 0)::float AS "totalPaid",
+         COALESCE(SUM("remainingAmount") FILTER (WHERE "isActive" = true AND COALESCE("isArchived", false) = false), 0)::float AS "totalDebt",
+         COALESCE(SUM(GREATEST(0, COALESCE("paidAmount", 0) - COALESCE("totalPayment", 0))) FILTER (WHERE "isActive" = true AND COALESCE("isArchived", false) = false), 0)::float AS "totalOverpaid",
+         COUNT(*) FILTER (WHERE "isActive" = true AND COALESCE("isArchived", false) = false AND COALESCE("remainingAmount", 0) > 0)::int AS "debtorCount",
+         COUNT(*) FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND "isActive" = true AND COALESCE("isArchived", false) = false AND "paidUntilDate" IS NOT NULL AND SUBSTRING("paidUntilDate"::text, 1, 10) < ${sqlStr(istanbulToday)})::int AS "overdueCount",
+         COALESCE(SUM("remainingAmount") FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND "isActive" = true AND COALESCE("isArchived", false) = false AND "paidUntilDate" IS NOT NULL AND SUBSTRING("paidUntilDate"::text, 1, 10) < ${sqlStr(istanbulToday)}), 0)::float AS "overdueAmount",
+         COUNT(*) FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND "isActive" = true AND COALESCE("isArchived", false) = false AND "paidUntilDate" IS NOT NULL AND SUBSTRING("paidUntilDate"::text, 1, 10) >= ${sqlStr(istanbulToday)} AND SUBSTRING("paidUntilDate"::text, 1, 10) <= ${sqlStr(soonDate)})::int AS "dueSoonCount",
+         COALESCE(SUM("remainingAmount") FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND "isActive" = true AND COALESCE("isArchived", false) = false AND "paidUntilDate" IS NOT NULL AND SUBSTRING("paidUntilDate"::text, 1, 10) >= ${sqlStr(istanbulToday)} AND SUBSTRING("paidUntilDate"::text, 1, 10) <= ${sqlStr(soonDate)}), 0)::float AS "dueSoonAmount",
+         COUNT(*) FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND ("isActive" = false OR COALESCE("isArchived", false) = true))::int AS "archivedDebtorCount",
+         COALESCE(SUM("remainingAmount") FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND ("isActive" = false OR COALESCE("isArchived", false) = true)), 0)::float AS "archivedDebtAmount"
        FROM "Student"
        WHERE "isDeleted" = false${genderCondPlain}`
     ))[0] || {};
@@ -1833,6 +1829,31 @@ async function handleApi(req, res, url) {
       return sendJson(res, 200, { success: true, incident });
     }
 
+    if (pathname.startsWith("/fin-api/internal/backup/")) {
+      const remoteIp = req.socket?.remoteAddress || "";
+      if (!remoteIp.includes("127.0.0.1") && !remoteIp.includes("::1")) {
+        return sendJson(res, 403, { error: "Faqat ichki tizim uchun" });
+      }
+      if (pathname === "/fin-api/internal/backup/list" && method === "GET") {
+        return sendJson(res, 200, { backups: listBackups() });
+      }
+      if (pathname === "/fin-api/internal/backup/create" && method === "POST") {
+        const body = await readJsonBody(req);
+        const result = await createFullBackup({
+          sendToTelegram: body.sendToTelegram !== false,
+          reason: body.reason || "telegram_bot_manual",
+        });
+        return sendJson(res, result.ok ? 200 : 500, result);
+      }
+      if (pathname === "/fin-api/internal/backup/restore" && method === "POST") {
+        const body = await readJsonBody(req);
+        const result = await restoreFromBackup(body.fileName, {
+          restoreCode: Boolean(body.restoreCode),
+        });
+        return sendJson(res, 200, result);
+      }
+    }
+
     if (pathname === "/fin-api/auth/me" && method === "GET") {
       const sess = getSession(req);
       return sendJson(res, 200, publicSessionView(sess));
@@ -2139,9 +2160,12 @@ async function handleApi(req, res, url) {
         )`);
       }
       if (yearFilter === "2025-2026") {
-        conds.push(`(s."isActive" = false OR COALESCE(s."studyPlace", '') LIKE '2025-2026%')`);
-      } else if (yearFilter === "2026-2027") {
-        conds.push(`(s."isActive" = true AND COALESCE(s."studyPlace", '') NOT LIKE '2025-2026%')`);
+        conds.push(`(s."isActive" = false OR COALESCE(s."isArchived", false) = true OR COALESCE(s."studyPlace", '') LIKE '2025-2026%')`);
+      } else if (yearFilter === "ALL") {
+        // Barcha yillar (shu jumladan arxiv)
+      } else {
+        // Default va 2026-2027: faqat faol (arxivda bo'lmagan) talabalar
+        conds.push(`(s."isDeleted" = false AND s."isActive" = true AND COALESCE(s."isArchived", false) = false AND COALESCE(s."studyPlace", '') NOT LIKE '2025-2026%')`);
       }
 
       const whereSql = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
@@ -2320,19 +2344,19 @@ async function handleApi(req, res, url) {
       const exactSummary = (await queryPgJson(
         crmEnv.DATABASE_URL,
         `SELECT
-           COUNT(*) FILTER (WHERE COALESCE("totalPayment", 0) > 0)::int AS "contractCount",
-           COALESCE(SUM("totalPayment"), 0)::float AS "totalContract",
-           COALESCE(SUM("paidAmount"), 0)::float AS "totalPaid",
-           COALESCE(SUM("remainingAmount"), 0)::float AS "totalDebt",
-           COALESCE(SUM(GREATEST(0, COALESCE("paidAmount", 0) - COALESCE("totalPayment", 0))), 0)::float AS "totalOverpaid",
-           COUNT(*) FILTER (WHERE COALESCE("remainingAmount", 0) > 0)::int AS "debtorCount",
-           COUNT(*) FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND "isActive" = true AND "isArchived" = false AND "paidUntilDate" IS NOT NULL AND SUBSTRING("paidUntilDate"::text, 1, 10) < ${sqlStr(istanbulToday)})::int AS "overdueCount",
-           COALESCE(SUM("remainingAmount") FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND "isActive" = true AND "isArchived" = false AND "paidUntilDate" IS NOT NULL AND SUBSTRING("paidUntilDate"::text, 1, 10) < ${sqlStr(istanbulToday)}), 0)::float AS "overdueAmount",
-           COUNT(*) FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND "isActive" = true AND "isArchived" = false AND "paidUntilDate" IS NOT NULL AND SUBSTRING("paidUntilDate"::text, 1, 10) >= ${sqlStr(istanbulToday)} AND SUBSTRING("paidUntilDate"::text, 1, 10) <= ${sqlStr(soonDate)})::int AS "dueSoonCount",
-           COALESCE(SUM("remainingAmount") FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND "isActive" = true AND "isArchived" = false AND "paidUntilDate" IS NOT NULL AND SUBSTRING("paidUntilDate"::text, 1, 10) >= ${sqlStr(istanbulToday)} AND SUBSTRING("paidUntilDate"::text, 1, 10) <= ${sqlStr(soonDate)}), 0)::float AS "dueSoonAmount",
-           COUNT(*) FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND "paidUntilDate" IS NULL)::int AS "noDeadlineCount",
-           COUNT(*) FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND ("isActive" = false OR "isArchived" = true))::int AS "archivedDebtorCount",
-           COALESCE(SUM("remainingAmount") FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND ("isActive" = false OR "isArchived" = true)), 0)::float AS "archivedDebtAmount"
+           COUNT(*) FILTER (WHERE "isActive" = true AND COALESCE("isArchived", false) = false AND COALESCE("totalPayment", 0) > 0)::int AS "contractCount",
+           COALESCE(SUM("totalPayment") FILTER (WHERE "isActive" = true AND COALESCE("isArchived", false) = false), 0)::float AS "totalContract",
+           COALESCE(SUM("paidAmount") FILTER (WHERE "isActive" = true AND COALESCE("isArchived", false) = false), 0)::float AS "totalPaid",
+           COALESCE(SUM("remainingAmount") FILTER (WHERE "isActive" = true AND COALESCE("isArchived", false) = false), 0)::float AS "totalDebt",
+           COALESCE(SUM(GREATEST(0, COALESCE("paidAmount", 0) - COALESCE("totalPayment", 0))) FILTER (WHERE "isActive" = true AND COALESCE("isArchived", false) = false), 0)::float AS "totalOverpaid",
+           COUNT(*) FILTER (WHERE "isActive" = true AND COALESCE("isArchived", false) = false AND COALESCE("remainingAmount", 0) > 0)::int AS "debtorCount",
+           COUNT(*) FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND "isActive" = true AND COALESCE("isArchived", false) = false AND "paidUntilDate" IS NOT NULL AND SUBSTRING("paidUntilDate"::text, 1, 10) < ${sqlStr(istanbulToday)})::int AS "overdueCount",
+           COALESCE(SUM("remainingAmount") FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND "isActive" = true AND COALESCE("isArchived", false) = false AND "paidUntilDate" IS NOT NULL AND SUBSTRING("paidUntilDate"::text, 1, 10) < ${sqlStr(istanbulToday)}), 0)::float AS "overdueAmount",
+           COUNT(*) FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND "isActive" = true AND COALESCE("isArchived", false) = false AND "paidUntilDate" IS NOT NULL AND SUBSTRING("paidUntilDate"::text, 1, 10) >= ${sqlStr(istanbulToday)} AND SUBSTRING("paidUntilDate"::text, 1, 10) <= ${sqlStr(soonDate)})::int AS "dueSoonCount",
+           COALESCE(SUM("remainingAmount") FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND "isActive" = true AND COALESCE("isArchived", false) = false AND "paidUntilDate" IS NOT NULL AND SUBSTRING("paidUntilDate"::text, 1, 10) >= ${sqlStr(istanbulToday)} AND SUBSTRING("paidUntilDate"::text, 1, 10) <= ${sqlStr(soonDate)}), 0)::float AS "dueSoonAmount",
+           COUNT(*) FILTER (WHERE "isActive" = true AND COALESCE("isArchived", false) = false AND COALESCE("remainingAmount", 0) > 0 AND "paidUntilDate" IS NULL)::int AS "noDeadlineCount",
+           COUNT(*) FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND ("isActive" = false OR COALESCE("isArchived", false) = true))::int AS "archivedDebtorCount",
+           COALESCE(SUM("remainingAmount") FILTER (WHERE COALESCE("remainingAmount", 0) > 0 AND ("isActive" = false OR COALESCE("isArchived", false) = true)), 0)::float AS "archivedDebtAmount"
          FROM "Student"
          WHERE "isDeleted" = false${genderCondPlain}`
       ))[0] || {};
@@ -2344,7 +2368,15 @@ async function handleApi(req, res, url) {
     }
 
     if (pathname === "/fin-api/crm/students" && method === "GET") {
-      const genderCond = (!access.isDirector && access.gender) ? `WHERE s.gender::text = ${sqlStr(access.gender)}` : "";
+      const includeArchived = url.searchParams.get("includeArchived") === "true";
+      const whereParts = [];
+      if (!access.isDirector && access.gender) {
+        whereParts.push(`s.gender::text = ${sqlStr(access.gender)}`);
+      }
+      if (!includeArchived) {
+        whereParts.push(`s."isDeleted" = false AND s."isActive" = true AND COALESCE(s."isArchived", false) = false AND COALESCE(s."studyPlace", '') NOT LIKE '2025-2026%'`);
+      }
+      const whereClause = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
       const allStudents = (await queryPgJson(crmEnv.DATABASE_URL, `
         SELECT
           s.id::text AS id,
@@ -2355,6 +2387,7 @@ async function handleApi(req, res, url) {
           s.gender::text AS gender,
           s."isActive",
           s."isDeleted",
+          COALESCE(s."isArchived", false) AS "isArchived",
           s."studyPlace",
           COALESCE(s."totalPayment", 0)::float AS "totalPayment",
           COALESCE(s."paidAmount", 0)::float AS "paidAmount",
@@ -2363,16 +2396,16 @@ async function handleApi(req, res, url) {
           s."paidUntilDate",
           s."plannedPayment",
           s."groupId"::text AS "groupId",
-          CASE WHEN COALESCE(s."studyPlace", '') LIKE '2025-2026%' OR s."isActive" = false THEN '2025-2026' ELSE '2026-2027' END AS "academicYearName",
+          CASE WHEN COALESCE(s."studyPlace", '') LIKE '2025-2026%' OR s."isActive" = false OR COALESCE(s."isArchived", false) = true THEN '2025-2026' ELSE '2026-2027' END AS "academicYearName",
           CASE
             WHEN s."isDeleted" = true THEN 'DELETED'
-            WHEN s."isActive" = false OR COALESCE(s."studyPlace", '') LIKE '2025-2026%' THEN 'ARCHIVED_YEAR'
+            WHEN s."isActive" = false OR COALESCE(s."isArchived", false) = true OR COALESCE(s."studyPlace", '') LIKE '2025-2026%' THEN 'ARCHIVED_YEAR'
             ELSE 'ACTIVE'
           END AS "archiveStatus",
           CASE WHEN g.id IS NOT NULL THEN json_build_object('id', g.id::text, 'name', g.name, 'gender', g.gender::text) ELSE NULL END AS "group"
         FROM "Student" s
         LEFT JOIN "Group" g ON g.id = s."groupId"
-        ${genderCond}
+        ${whereClause}
         ORDER BY s."isDeleted" ASC, s."isActive" DESC, s.fullname ASC
       `));
       return sendJson(res, 200, { students: allStudents });
@@ -2442,11 +2475,9 @@ async function handleApi(req, res, url) {
         receiptsByExp.get(r.expenseId).push(r);
       }
 
-      const vaqfLinks = await getInventoryLinksByExpenseIds().catch(() => ({}));
       const allItems = rawItems.map((it) => ({
         ...it,
         receipts: receiptsByExp.get(it.id) || [],
-        vaqfInventory: vaqfLinks[it.id] || [],
       }));
 
       const filterStatus = (url.searchParams.get("status") || "").trim().toUpperCase();
@@ -2601,25 +2632,16 @@ async function handleApi(req, res, url) {
           `📅 Asl xarajat sanasi: <b>${expDate}</b>\n` +
           `🕒 Tizimga kiritilgan vaqti: <b>${nowIstStr}</b>\n` +
           `${flaggedLowBalance ? `⚠️ <b>Hamyon balansi yetarli emas!</b>\n` : ""}` +
-          `\n<i>Botdagi «👑 Direktor Paneli -> ⏳ Kutilayotgan xarajatlar» yoki Web tizim orqali tasdiqlashingiz mumkin.</i>`
+          `\n<i>Pastdagi tugmalar yoki Web tizim orqali tasdiqlashingiz / rad etishingiz mumkin:</i>`,
+          {
+            inline_keyboard: [
+              [
+                { text: "✅ Tasdiqlash (To'lash)", callback_data: `exp:app:${expId}` },
+                { text: "❌ Rad etish", callback_data: `exp:rej:${expId}` },
+              ],
+            ],
+          }
         ).catch(() => {});
-      }
-
-      if (status === "PAID") {
-        await captureApprovedFinanceExpenseSafe({
-          id: expId,
-          title,
-          description: desc,
-          categoryId,
-          categoryName: catName,
-          amount: amt,
-          currency: cur,
-          amountInDefault,
-          date: expDate,
-          employeeId,
-          buyerName: empName,
-          _simulateVaqfHookError: body._simulateVaqfHookError,
-        });
       }
 
       return sendJson(res, 201, { id: expId, title, description: desc, amount: amt, currency: cur, amountInDefault, amountUsd, usdRate: currentUsdRate, status, flaggedLowBalance });
@@ -2628,45 +2650,224 @@ async function handleApi(req, res, url) {
     const expActionMatch = pathname.match(/^\/fin-api\/erp\/expenses\/([^/]+)\/(approve|reject|pay|adjust|void)$/);
     if (expActionMatch && method === "POST") {
       if (!access.isDirector) {
-        return sendJson(res, 403, { error: "Xarajatni tasdiqlash, to'lash yoki bekor qilish faqat Direktor uchun ruxsat etilgan" });
+        return sendJson(res, 403, { error: "Xarajatni tasdiqlash, rad etish, to'lash yoki bekor qilish faqat Direktor uchun ruxsat etilgan" });
       }
-      if (!sess.erpToken) return sendJson(res, 403, { error: "ERP hisobi ulanmagan" });
       const [, id, action] = expActionMatch;
       const body = await readJsonBody(req);
-      const r = await erpRequest("POST", `/expenses/${id}/${action}`, { body, token: sess.erpToken });
-      if (action === "approve") {
-        await execPgSql(
-          erpEnv.DATABASE_URL,
-          `UPDATE "Expense" SET "approvedAt" = COALESCE("approvedAt", NOW()), "updatedAt" = NOW() WHERE id = ${sqlStr(id)};`
-        ).catch(() => {});
-      } else if (action === "pay") {
-        await execPgSql(
-          erpEnv.DATABASE_URL,
-          `UPDATE "Expense" SET "paidAt" = COALESCE("paidAt", NOW()), "approvedAt" = COALESCE("approvedAt", NOW()), "updatedAt" = NOW() WHERE id = ${sqlStr(id)};`
-        ).catch(() => {});
+
+      const expRows = await queryPgJson(
+        erpEnv.DATABASE_URL,
+        `SELECT e.id, e."employeeId", e."categoryId", e.title, e.description,
+                e.amount::float AS amount, e.currency, e."amountInDefault"::float AS "amountInDefault",
+                e."amountUsd"::float AS "amountUsd", e.status::text AS status,
+                COALESCE(c.name, 'Xarajat') AS "categoryName",
+                COALESCE(u."fullName", u.username, 'Xodim') AS "employeeName"
+         FROM "Expense" e
+         LEFT JOIN "ExpenseCategory" c ON c.id = e."categoryId"
+         LEFT JOIN "User" u ON u.id = e."employeeId"
+         WHERE e.id = ${sqlStr(id)} AND e."deletedAt" IS NULL
+         LIMIT 1`
+      );
+      const exp = expRows[0];
+      if (!exp) {
+        return sendJson(res, 404, { error: "Xarajat topilmadi" });
       }
-      if (action === "approve" || action === "pay") {
-        try {
-          const expRows = await queryPgJson(
-            erpEnv.DATABASE_URL,
-            `SELECT e.id, e.title, e.description, e."categoryId", c.name AS "categoryName",
-                    e.amount::float AS amount, e.currency, e."amountInDefault"::float AS "amountInDefault",
-                    TO_CHAR(e.date, 'YYYY-MM-DD') AS "expenseDate", e."employeeId", emp."fullName" AS "buyerName"
-             FROM "Expense" e
-             LEFT JOIN "Category" c ON c.id = e."categoryId"
-             LEFT JOIN "Employee" emp ON emp.id = e."employeeId"
-             WHERE e.id = ${sqlStr(id)} LIMIT 1`
+
+      const amtTl = Number(exp.amountInDefault || exp.amount || 0);
+      const empId = exp.employeeId;
+
+      if (action === "reject") {
+        const reason = String(body.rejectionReason || body.reason || "Direktor tomonidan rad etildi").trim() || "Direktor tomonidan rad etildi";
+        const sqlParts = [
+          `UPDATE "Expense"
+           SET status = 'REJECTED'::"ExpenseStatus",
+               "rejectionReason" = ${sqlStr(reason)},
+               "updatedAt" = NOW()
+           WHERE id = ${sqlStr(id)};`,
+        ];
+        if (exp.status === "PENDING" || exp.status === "APPROVED") {
+          sqlParts.push(
+            `UPDATE "Wallet"
+             SET "pendingAmount" = GREATEST(0, "pendingAmount" - ${amtTl}),
+                 "updatedAt" = NOW()
+             WHERE "employeeId" = ${sqlStr(empId)};`
           );
-          if (expRows[0]) {
-            await captureApprovedFinanceExpenseSafe({
-              ...expRows[0],
-              date: expRows[0].expenseDate,
-              _simulateVaqfHookError: body._simulateVaqfHookError,
-            });
-          }
-        } catch {}
+        } else if (exp.status === "PAID") {
+          sqlParts.push(
+            `UPDATE "Wallet"
+             SET balance = balance + ${amtTl},
+                 "totalSpent" = GREATEST(0, "totalSpent" - ${amtTl}),
+                 "updatedAt" = NOW()
+             WHERE "employeeId" = ${sqlStr(empId)};`
+          );
+        }
+        await execPgSql(erpEnv.DATABASE_URL, sqlParts.join("\n"));
+
+        const empChatIds = getEmployeeTelegramIds(empId, exp.description, null);
+        for (const cid of empChatIds) {
+          sendTelegramHtml(
+            cid,
+            `❌ <b>Xarajatingiz rad etildi</b>\n\n` +
+            `📂 Toifa: <b>${exp.categoryName}</b>\n` +
+            `📝 Izoh: <b>${exp.description || exp.title || "-"}</b>\n` +
+            `💰 Summa: <b>₺${amtTl.toLocaleString("tr-TR")}</b>\n` +
+            `📌 Sabab: <b>${reason}</b>`
+          ).catch(() => {});
+        }
+
+        return sendJson(res, 200, { success: true, id, status: "REJECTED", rejectionReason: reason });
       }
-      return sendJson(res, 200, r.data);
+
+      if (action === "approve" || action === "pay") {
+        // Default approve in web dashboard marks as APPROVED or PAID; let's support both cleanly
+        const targetStatus = action === "pay" ? "PAID" : "APPROVED";
+        const wRows = await queryPgJson(
+          erpEnv.DATABASE_URL,
+          `SELECT id, balance::float AS balance FROM "Wallet" WHERE "employeeId" = ${sqlStr(empId)} LIMIT 1`
+        );
+        const walletId = wRows[0]?.id || null;
+        const sqlParts = [];
+
+        if (targetStatus === "APPROVED" && exp.status === "PENDING") {
+          sqlParts.push(
+            `UPDATE "Expense"
+             SET status = 'APPROVED'::"ExpenseStatus",
+                 "approvedAt" = COALESCE("approvedAt", NOW()),
+                 "updatedAt" = NOW()
+             WHERE id = ${sqlStr(id)};`
+          );
+        } else if (targetStatus === "PAID" && exp.status !== "PAID") {
+          sqlParts.push(
+            `UPDATE "Expense"
+             SET status = 'PAID'::"ExpenseStatus",
+                 "approvedAt" = COALESCE("approvedAt", NOW()),
+                 "paidAt" = COALESCE("paidAt", NOW()),
+                 "updatedAt" = NOW()
+             WHERE id = ${sqlStr(id)};`
+          );
+          if (walletId) {
+            const wasPending = exp.status === "PENDING" || exp.status === "APPROVED";
+            sqlParts.push(
+              `UPDATE "Wallet"
+               SET balance = balance - ${amtTl},
+                   "totalSpent" = "totalSpent" + ${amtTl},
+                   ${wasPending ? `"pendingAmount" = GREATEST(0, "pendingAmount" - ${amtTl}),` : ""}
+                   "updatedAt" = NOW()
+               WHERE id = ${sqlStr(walletId)};`
+            );
+            const txId = "wtx_" + crypto.randomBytes(10).toString("hex");
+            sqlParts.push(
+              `INSERT INTO "WalletTransaction" (id, "walletId", type, amount, "balanceBefore", "balanceAfter", "expenseId", description, "createdBy", "createdAt")
+               SELECT ${sqlStr(txId)}, id, 'EXPENSE'::"TransactionType", ${amtTl}, balance + ${amtTl}, balance, ${sqlStr(id)}, ${sqlStr(exp.description || exp.title || "Xarajat")}, 'cmtlai0bg000ipir95hv9hfez', NOW()
+               FROM "Wallet" WHERE id = ${sqlStr(walletId)};`
+            );
+          }
+          sqlParts.push(
+            `UPDATE "Budget"
+             SET spent = spent + ${amtTl}, "updatedAt" = NOW()
+             WHERE "categoryId" = ${sqlStr(exp.categoryId)}
+               AND month = EXTRACT(MONTH FROM NOW())::int
+               AND year = EXTRACT(YEAR FROM NOW())::int;`
+          );
+        }
+
+        if (sqlParts.length > 0) {
+          await execPgSql(erpEnv.DATABASE_URL, sqlParts.join("\n"));
+        }
+
+        const empChatIds = getEmployeeTelegramIds(empId, exp.description, null);
+        for (const cid of empChatIds) {
+          sendTelegramHtml(
+            cid,
+            `✅ <b>Xarajatingiz ${targetStatus === "PAID" ? "to'landi (tasdiqlandi)" : "tasdiqlandi"}!</b>\n\n` +
+            `📂 Toifa: <b>${exp.categoryName}</b>\n` +
+            `📝 Izoh: <b>${exp.description || exp.title || "-"}</b>\n` +
+            `💰 Summa: <b>₺${amtTl.toLocaleString("tr-TR")}</b>`
+          ).catch(() => {});
+        }
+
+        return sendJson(res, 200, { success: true, id, status: targetStatus });
+      }
+
+      if (action === "void") {
+        const reason = String(body.reason || body.rejectionReason || "Direktor tomonidan bekor qilindi").trim();
+        if (!reason) return sendJson(res, 400, { error: "Bekor qilish sababini kiriting" });
+        const sqlParts = [
+          `UPDATE "Expense"
+           SET status = 'REJECTED'::"ExpenseStatus",
+               "rejectionReason" = ${sqlStr(`[BEKOR QILINDI] ${reason}`)},
+               "deletedAt" = NOW(),
+               "updatedAt" = NOW()
+           WHERE id = ${sqlStr(id)};`,
+        ];
+        if (exp.status === "PENDING" || exp.status === "APPROVED") {
+          sqlParts.push(
+            `UPDATE "Wallet"
+             SET "pendingAmount" = GREATEST(0, "pendingAmount" - ${amtTl}),
+                 "updatedAt" = NOW()
+             WHERE "employeeId" = ${sqlStr(empId)};`
+          );
+        } else if (exp.status === "PAID") {
+          sqlParts.push(
+            `UPDATE "Wallet"
+             SET balance = balance + ${amtTl},
+                 "totalSpent" = GREATEST(0, "totalSpent" - ${amtTl}),
+                 "updatedAt" = NOW()
+             WHERE "employeeId" = ${sqlStr(empId)};`
+          );
+          sqlParts.push(
+            `UPDATE "Budget"
+             SET spent = GREATEST(0, spent - ${amtTl}), "updatedAt" = NOW()
+             WHERE "categoryId" = ${sqlStr(exp.categoryId)}
+               AND month = EXTRACT(MONTH FROM NOW())::int
+               AND year = EXTRACT(YEAR FROM NOW())::int;`
+          );
+        }
+        await execPgSql(erpEnv.DATABASE_URL, sqlParts.join("\n"));
+        return sendJson(res, 200, { success: true, id, status: "REJECTED" });
+      }
+
+      if (action === "adjust") {
+        const reason = String(body.reason || "Direktor tahriri").trim();
+        const newAmt = body.amount !== undefined ? Number(body.amount) : Number(exp.amount);
+        if (!(newAmt > 0)) return sendJson(res, 400, { error: "Summa 0 dan katta bo'lishi kerak" });
+        const rateRow = await queryPgJson(
+          erpEnv.DATABASE_URL,
+          `SELECT rate::float AS rate FROM "ExchangeRate" WHERE "fromCurrency" = 'USD' ORDER BY "effectiveAt" DESC, "createdAt" DESC LIMIT 1`
+        );
+        const currentUsdRate = Number(rateRow[0]?.rate || 49.628);
+        const cur = String(exp.currency || "TL").toUpperCase() === "USD" ? "USD" : "TL";
+        const newAmtTl = cur === "USD" ? Number((newAmt * currentUsdRate).toFixed(2)) : newAmt;
+        const newAmtUsd = cur === "USD" ? newAmt : Number((newAmt / currentUsdRate).toFixed(2));
+        const deltaTl = Number((newAmtTl - amtTl).toFixed(2));
+        const newDesc = body.description !== undefined ? String(body.description).trim() : exp.description;
+        const newCatId = body.categoryId || exp.categoryId;
+
+        const sqlParts = [
+          `UPDATE "Expense"
+           SET amount = ${newAmt},
+               "amountInDefault" = ${newAmtTl},
+               "amountUsd" = ${newAmtUsd},
+               description = ${sqlStr(newDesc)},
+               title = ${sqlStr(String(newDesc || "").slice(0, 100))},
+               "categoryId" = ${sqlStr(newCatId)},
+               "updatedAt" = NOW()
+           WHERE id = ${sqlStr(id)};`,
+        ];
+        if (deltaTl !== 0) {
+          if (exp.status === "PENDING" || exp.status === "APPROVED") {
+            sqlParts.push(
+              `UPDATE "Wallet" SET "pendingAmount" = GREATEST(0, "pendingAmount" + (${deltaTl})), "updatedAt" = NOW() WHERE "employeeId" = ${sqlStr(empId)};`
+            );
+          } else if (exp.status === "PAID") {
+            sqlParts.push(
+              `UPDATE "Wallet" SET balance = balance - (${deltaTl}), "totalSpent" = GREATEST(0, "totalSpent" + (${deltaTl})), "updatedAt" = NOW() WHERE "employeeId" = ${sqlStr(empId)};`
+            );
+          }
+        }
+        await execPgSql(erpEnv.DATABASE_URL, sqlParts.join("\n"));
+        return sendJson(res, 200, { success: true, id, amount: newAmt, amountInDefault: newAmtTl, reason });
+      }
     }
 
     const expItemMatch = pathname.match(/^\/fin-api\/erp\/expenses\/([^/]+)$/);
@@ -2753,28 +2954,148 @@ async function handleApi(req, res, url) {
 
     if (expItemMatch && method === "DELETE") {
       const expId = expItemMatch[1];
+      const rows = await queryPgJson(
+        erpEnv.DATABASE_URL,
+        `SELECT id, "employeeId", "categoryId", status::text AS status, "amountInDefault"::float AS "amountInDefault"
+         FROM "Expense" WHERE id = ${sqlStr(expId)} AND "deletedAt" IS NULL LIMIT 1`
+      );
+      const exp = rows[0];
+      if (!exp) return sendJson(res, 404, { error: "Xarajat topilmadi" });
+
       if (!access.isDirector) {
-        const rows = await queryPgJson(
-          erpEnv.DATABASE_URL,
-          `SELECT id, "employeeId", status::text AS status, "amountInDefault"::float AS "amountInDefault" FROM "Expense" WHERE id = ${sqlStr(expId)} AND "deletedAt" IS NULL LIMIT 1`
-        );
-        const exp = rows[0];
-        if (!exp || exp.employeeId !== access.employeeId) {
+        if (exp.employeeId !== access.employeeId) {
           return sendJson(res, 403, { error: "Faqat o'zingiz kiritgan xarajatni o'chira olasiz" });
         }
         if (exp.status !== "PENDING" && exp.status !== "REJECTED") {
           return sendJson(res, 403, { error: "Tasdiqlangan yoki to'langan xarajatni faqat Direktor bekor qila oladi" });
         }
-        await execPgSql(
-          erpEnv.DATABASE_URL,
-          `UPDATE "Expense" SET "deletedAt" = NOW(), "updatedAt" = NOW() WHERE id = ${sqlStr(expId)};
-           ${exp.status === "PENDING" ? `UPDATE "Wallet" SET "pendingAmount" = GREATEST(0, "pendingAmount" - ${Number(exp.amountInDefault || 0)}), "updatedAt" = NOW() WHERE "employeeId" = ${sqlStr(access.employeeId)};` : ""}`
-        );
-        return sendJson(res, 200, { success: true, message: "Xarajat o'chirildi" });
       }
-      if (!sess.erpToken) return sendJson(res, 403, { error: "ERP hisobi ulanmagan" });
-      const r = await erpRequest("DELETE", `/expenses/${expId}`, { token: sess.erpToken });
-      return sendJson(res, 200, r.data);
+
+      const amtTl = Number(exp.amountInDefault || 0);
+      const sqlParts = [
+        `UPDATE "Expense" SET "deletedAt" = NOW(), "updatedAt" = NOW() WHERE id = ${sqlStr(expId)};`,
+      ];
+      if (exp.status === "PENDING" || exp.status === "APPROVED") {
+        sqlParts.push(
+          `UPDATE "Wallet" SET "pendingAmount" = GREATEST(0, "pendingAmount" - ${amtTl}), "updatedAt" = NOW() WHERE "employeeId" = ${sqlStr(exp.employeeId)};`
+        );
+      } else if (exp.status === "PAID") {
+        sqlParts.push(
+          `UPDATE "Wallet" SET balance = balance + ${amtTl}, "totalSpent" = GREATEST(0, "totalSpent" - ${amtTl}), "updatedAt" = NOW() WHERE "employeeId" = ${sqlStr(exp.employeeId)};`
+        );
+        sqlParts.push(
+          `UPDATE "Budget" SET spent = GREATEST(0, spent - ${amtTl}), "updatedAt" = NOW()
+           WHERE "categoryId" = ${sqlStr(exp.categoryId)}
+             AND month = EXTRACT(MONTH FROM NOW())::int
+             AND year = EXTRACT(YEAR FROM NOW())::int;`
+        );
+      }
+      await execPgSql(erpEnv.DATABASE_URL, sqlParts.join("\n"));
+      return sendJson(res, 200, { success: true, message: "Xarajat o'chirildi" });
+    }
+
+    // =========================================================================
+    // XARAJAT KATEGORIYALARI (EXPENSE CATEGORIES CRUD) ENDPOINTS
+    // =========================================================================
+    if (pathname === "/fin-api/erp/categories" && method === "GET") {
+      const cats = await queryPgJson(
+        erpEnv.DATABASE_URL,
+        `SELECT
+           c.id,
+           c.name,
+           c.icon,
+           c.color,
+           c."isDefault",
+           (SELECT COUNT(*)::int FROM "Expense" e WHERE e."categoryId" = c.id AND e."deletedAt" IS NULL) AS "expenseCount",
+           (SELECT COUNT(*)::int FROM "ExpenseRequest" r WHERE r."categoryId" = c.id AND r."deletedAt" IS NULL) AS "requestCount"
+         FROM "ExpenseCategory" c
+         ORDER BY c."isDefault" DESC, c.name ASC`
+      );
+      return sendJson(res, 200, { categories: cats });
+    }
+
+    if (pathname === "/fin-api/erp/categories" && method === "POST") {
+      const body = await readJsonBody(req);
+      const name = String(body.name || "").trim();
+      if (!name) return sendJson(res, 400, { error: "Kategoriya nomini kiriting" });
+      const icon = String(body.icon || "📁").trim() || "📁";
+      const color = String(body.color || "#3B82F6").trim() || "#3B82F6";
+
+      const dup = await queryPgJson(
+        erpEnv.DATABASE_URL,
+        `SELECT id FROM "ExpenseCategory" WHERE LOWER(name) = LOWER(${sqlStr(name)}) LIMIT 1`
+      );
+      if (dup.length > 0) {
+        return sendJson(res, 400, { error: "Bunday nomli kategoriya allaqachon mavjud" });
+      }
+
+      const id = "cat_" + crypto.randomBytes(10).toString("hex");
+      await execPgSql(
+        erpEnv.DATABASE_URL,
+        `INSERT INTO "ExpenseCategory" (id, name, icon, color, "isDefault", "createdAt", "updatedAt")
+         VALUES (${sqlStr(id)}, ${sqlStr(name)}, ${sqlStr(icon)}, ${sqlStr(color)}, false, NOW(), NOW());`
+      );
+      return sendJson(res, 201, { id, name, icon, color, isDefault: false, expenseCount: 0, requestCount: 0 });
+    }
+
+    const catItemMatch = pathname.match(/^\/fin-api\/erp\/categories\/([^/]+)$/);
+    if (catItemMatch && (method === "PUT" || method === "PATCH")) {
+      const catId = catItemMatch[1];
+      const body = await readJsonBody(req);
+      const name = String(body.name || "").trim();
+      if (!name) return sendJson(res, 400, { error: "Kategoriya nomini kiriting" });
+      const icon = String(body.icon || "📁").trim() || "📁";
+      const color = String(body.color || "#3B82F6").trim() || "#3B82F6";
+
+      const dup = await queryPgJson(
+        erpEnv.DATABASE_URL,
+        `SELECT id FROM "ExpenseCategory" WHERE LOWER(name) = LOWER(${sqlStr(name)}) AND id <> ${sqlStr(catId)} LIMIT 1`
+      );
+      if (dup.length > 0) {
+        return sendJson(res, 400, { error: "Bunday nomli kategoriya allaqachon mavjud" });
+      }
+
+      await execPgSql(
+        erpEnv.DATABASE_URL,
+        `UPDATE "ExpenseCategory"
+         SET name = ${sqlStr(name)},
+             icon = ${sqlStr(icon)},
+             color = ${sqlStr(color)},
+             "updatedAt" = NOW()
+         WHERE id = ${sqlStr(catId)};`
+      );
+      return sendJson(res, 200, { success: true, id: catId, name, icon, color });
+    }
+
+    if (catItemMatch && method === "DELETE") {
+      const catId = catItemMatch[1];
+      const allCats = await queryPgJson(
+        erpEnv.DATABASE_URL,
+        `SELECT id, name FROM "ExpenseCategory" ORDER BY "isDefault" DESC, "createdAt" ASC`
+      );
+      if (allCats.length <= 1) {
+        return sendJson(res, 400, { error: "Oxirgi kategoriyani o'chirib bo'lmaydi" });
+      }
+      const targetCat = allCats.find((c) => c.id === catId);
+      if (!targetCat) {
+        return sendJson(res, 404, { error: "Kategoriya topilmadi" });
+      }
+      const fallbackCat =
+        allCats.find((c) => c.id !== catId && c.name.toLowerCase() === "boshqa") ||
+        allCats.find((c) => c.id !== catId);
+
+      await execPgSql(
+        erpEnv.DATABASE_URL,
+        `UPDATE "Expense" SET "categoryId" = ${sqlStr(fallbackCat.id)}, "updatedAt" = NOW() WHERE "categoryId" = ${sqlStr(catId)};
+         UPDATE "ExpenseRequest" SET "categoryId" = ${sqlStr(fallbackCat.id)}, "updatedAt" = NOW() WHERE "categoryId" = ${sqlStr(catId)};
+         DELETE FROM "Budget" WHERE "categoryId" = ${sqlStr(catId)};
+         DELETE FROM "ExpenseCategory" WHERE id = ${sqlStr(catId)};`
+      );
+      return sendJson(res, 200, {
+        success: true,
+        deletedId: catId,
+        reassignedTo: fallbackCat.name,
+      });
     }
 
     // =========================================================================
@@ -3233,23 +3554,6 @@ async function handleApi(req, res, url) {
                "updatedAt" = NOW()
            WHERE id = ${sqlStr(reqId)};`
         );
-
-        await captureApprovedFinanceExpenseSafe({
-          id: expId,
-          source_type: "expense_request",
-          title: descWithTag.slice(0, 100),
-          description: descWithTag,
-          categoryId,
-          categoryName: reqRow.categoryName,
-          amount: spentTry,
-          currency: "TRY",
-          amountInDefault: spentTry,
-          date: expDate,
-          employeeId,
-          buyerName: reqRow.sourceLabel || reqRow.requesterName || "Xodim",
-          receiptUrl: savedReceiptUrl,
-          _simulateVaqfHookError: body._simulateVaqfHookError,
-        });
 
         notifyDirectorsOnTelegram(
           `💸 <b>Talabnoma bo'yicha xarid bajarildi (${reqCode})</b>\n\n` +
@@ -3751,7 +4055,7 @@ async function handleApi(req, res, url) {
          FROM "StudentPayment" sp
          JOIN "Student" s ON s.id = sp."studentId"
          LEFT JOIN "Group" g ON g.id = s."groupId"
-         WHERE sp."voidedAt" IS NULL AND s."isDeleted" = false
+         WHERE sp."voidedAt" IS NULL AND s."isDeleted" = false AND s."isActive" = true AND COALESCE(s."isArchived", false) = false
            AND sp."paidAt"::date >= ${sqlStr(from)}::date
            AND sp."paidAt"::date <= ${sqlStr(to)}::date
          ORDER BY sp."paidAt" DESC`
@@ -3913,19 +4217,23 @@ async function handleApi(req, res, url) {
       const q = qRaw.toLowerCase().replace(/'/g, "''");
       if (!q) return sendJson(res, 200, { results: [] });
 
+      const includeArchived = url.searchParams.get("includeArchived") === "true";
       const matchedStudents = (await queryPgJson(
         crmEnv.DATABASE_URL,
         `SELECT s.id::text AS id, s.fullname, s.username, s.phone, s."studyPlace",
-                s."remainingAmount", s."isActive", s."isDeleted", s."roomNumber",
+                s."remainingAmount", s."isActive", s."isDeleted", COALESCE(s."isArchived", false) AS "isArchived", s."roomNumber",
                 g.name AS "groupName"
          FROM "Student" s
          LEFT JOIN "Group" g ON g.id = s."groupId"
-         WHERE LOWER(COALESCE(s.fullname, '')) LIKE '%${q}%'
-            OR LOWER(COALESCE(s.username, '')) LIKE '%${q}%'
-            OR LOWER(COALESCE(s.phone, '')) LIKE '%${q}%'
-            OR LOWER(COALESCE(s."passportNumber", '')) LIKE '%${q}%'
-            OR LOWER(COALESCE(s."iqomaNumber", '')) LIKE '%${q}%'
-            OR LOWER(COALESCE(s."studyPlace", '')) LIKE '%${q}%'
+         WHERE (${includeArchived ? "TRUE" : `s."isDeleted" = false AND s."isActive" = true AND COALESCE(s."isArchived", false) = false`})
+           AND (
+             LOWER(COALESCE(s.fullname, '')) LIKE '%${q}%'
+             OR LOWER(COALESCE(s.username, '')) LIKE '%${q}%'
+             OR LOWER(COALESCE(s.phone, '')) LIKE '%${q}%'
+             OR LOWER(COALESCE(s."passportNumber", '')) LIKE '%${q}%'
+             OR LOWER(COALESCE(s."iqomaNumber", '')) LIKE '%${q}%'
+             OR LOWER(COALESCE(s."studyPlace", '')) LIKE '%${q}%'
+           )
          ORDER BY s."isDeleted" ASC, s."isActive" DESC
          LIMIT 10`
       ));
@@ -6129,6 +6437,62 @@ MUHIM QOIDALAR:
       });
     }
 
+    // --- STUDENT ARCHIVE / UNARCHIVE ENDPOINT ---
+    const archiveStMatch = pathname.match(/^\/fin-api\/crm\/students\/(\d+)\/archive$/);
+    if (archiveStMatch && method === "POST") {
+      const studentId = Number(archiveStMatch[1]);
+      const body = await readJsonBody(req);
+      const archived = body.archived !== false;
+      await pgPool.query(
+        `UPDATE "Student"
+         SET "isArchived" = $1,
+             "isActive" = $2,
+             "updatedAt" = NOW()
+         WHERE id = $3`,
+        [archived, !archived, studentId]
+      );
+      return sendJson(res, 200, {
+        success: true,
+        studentId,
+        isArchived: archived,
+        isActive: !archived,
+      });
+    }
+
+    // --- SYSTEM BACKUPS & 1-CLICK RESTORE (ZAHIRA NUSXA VA QAYTA TIKLASH) ---
+    if (pathname === "/fin-api/system/backups" && method === "GET") {
+      return sendJson(res, 200, { backups: listBackups() });
+    }
+
+    if (pathname === "/fin-api/system/backups/create" && method === "POST") {
+      if (!access.isDirector) {
+        return sendJson(res, 403, { error: "Faqat Direktor zahira nusxa oladi" });
+      }
+      const body = await readJsonBody(req);
+      const result = await createFullBackup({
+        sendToTelegram: body.sendToTelegram !== false,
+        reason: body.reason || "web_manual",
+      });
+      if (!result.ok) {
+        return sendJson(res, 500, { error: result.error || "Zahira olishda xatolik" });
+      }
+      return sendJson(res, 200, result);
+    }
+
+    if (pathname === "/fin-api/system/backups/restore" && method === "POST") {
+      if (!access.isDirector) {
+        return sendJson(res, 403, { error: "Faqat Direktor zahiradan qayta tiklay oladi" });
+      }
+      const body = await readJsonBody(req);
+      if (!body.fileName) {
+        return sendJson(res, 400, { error: "Zahira fayli nomini kiriting" });
+      }
+      const result = await restoreFromBackup(body.fileName, {
+        restoreCode: Boolean(body.restoreCode),
+      });
+      return sendJson(res, 200, result);
+    }
+
     return sendJson(res, 404, { error: `Endpoint topilmadi: ${method} ${pathname}` });
   } catch (err) {
     console.error(`[BFF ERROR] ${method} ${pathname}:`, err);
@@ -6164,5 +6528,6 @@ server3003.listen(3003, "0.0.0.0", () => {
 
 setInterval(() => { pollGateTelegramReplies(pgPool).catch(() => {}); }, 4000);
 setInterval(() => { pollKirishTurnstileLive(pgPool).catch(() => {}); }, 5000);
+setInterval(() => { pollOshxonaAndMasjidTurnstilesLive(pgPool).catch(() => {}); }, 6000);
 setInterval(() => { cleanupOldGatePhotos(pgPool).catch(() => {}); }, 3600000);
-startVaqfBackgroundWorkers();
+startMidnightBackupScheduler();

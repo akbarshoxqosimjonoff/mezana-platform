@@ -527,6 +527,21 @@ function App() {
   const [changePwdModalOpen, setChangePwdModalOpen] = useState(false);
   const [pwdForm, setPwdForm] = useState({ newUsername: "", newPassword: "", confirmPassword: "", busy: false, error: "" });
 
+  // Expense Category Management Modal State
+  const [categoryModalOpen, setCategoryModalOpen] = useState(false);
+  const [catList, setCatList] = useState<any[]>([]);
+  const [catBusy, setCatBusy] = useState(false);
+  const [catForm, setCatForm] = useState<{ id?: string; name: string; icon: string; color: string }>({
+    name: "",
+    icon: "📁",
+    color: "#3B82F6",
+  });
+
+  // Full Backup & 1-Click Restore Modal State
+  const [backupModalOpen, setBackupModalOpen] = useState(false);
+  const [backupsList, setBackupsList] = useState<any[]>([]);
+  const [backupBusy, setBackupBusy] = useState(false);
+
   // Command Palette (Ctrl+K) & AI Drawer & Mobile Menu
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -1251,13 +1266,13 @@ function App() {
         if (!match) return false;
       }
       const due = st.paidUntilDate ? String(st.paidUntilDate).slice(0, 10) : null;
-      const isArchived = Boolean(st.isArchived || !st.isActive || st.isDeleted);
+      const isArchived = Boolean(st.isArchived || !st.isActive || st.isDeleted || String(st.studyPlace || "").startsWith("2025-2026"));
       if (debtorFilter.signal === "ARCHIVED") return isArchived;
       if (isArchived && debtorFilter.signal !== "ALL" && debtorFilter.year !== "2025-2026") return false;
       if (debtorFilter.signal === "ACTIVE") return !isArchived;
-      if (debtorFilter.signal === "OVERDUE") return due && due < today;
-      if (debtorFilter.signal === "DUESOON") return due && due >= today && due <= soon;
-      if (debtorFilter.signal === "NODATE") return !due;
+      if (debtorFilter.signal === "OVERDUE") return !isArchived && due && due < today;
+      if (debtorFilter.signal === "DUESOON") return !isArchived && due && due >= today && due <= soon;
+      if (debtorFilter.signal === "NODATE") return !isArchived && !due;
       return true;
     });
   }, [debtorsData.debtors, debtorFilter, overview?.asOf]);
@@ -2060,6 +2075,22 @@ function App() {
             <button className="btn" onClick={() => setAiOpen(true)} style={{ borderColor: "rgba(139,92,246,0.45)" }}>
               <Sparkles size={15} color="#c084fc" /> Aqlli Yordamchi (AI)
             </button>
+            {access.isDirector && (
+              <button
+                className="btn btn-sm"
+                style={{ borderColor: "rgba(16,185,129,0.45)", color: "#34d399" }}
+                onClick={async () => {
+                  setBackupModalOpen(true);
+                  try {
+                    const d = await apiFetch("/fin-api/system/backups");
+                    setBackupsList(d.backups || []);
+                  } catch {}
+                }}
+                title="To'liq zahira nusxa (Full Backup) va 1-tugmada qayta tiklash"
+              >
+                💾 Zahira
+              </button>
+            )}
             <button className="btn btn-sm" onClick={refreshCurrentTab} title="Yangilash">
               <RefreshCw size={15} className={busyLoading ? "pulse-dot" : ""} />
             </button>
@@ -2855,9 +2886,9 @@ function App() {
                   value={payFilter.year}
                   onChange={(e) => setPayFilter({ ...payFilter, year: e.target.value })}
                 >
-                  <option value="">Barcha o'quv yillari</option>
-                  <option value="2026-2027">2026-2027 (Joriy yil)</option>
-                  <option value="2025-2026">2025-2026 (Arxiv yil)</option>
+                  <option value="">2026-2027 (Faol o'quv yili)</option>
+                  <option value="2025-2026">📦 2025-2026 (Arxiv)</option>
+                  <option value="ALL">Barcha yillar (Faol + Arxiv)</option>
                 </select>
                 <select
                   className="select"
@@ -3326,23 +3357,41 @@ function App() {
                         : "O'z hisobingizdan kiritilgan xarajatlar ro'yxati va ularning tasdiqlanish holati (Turk lirasida)."}
                     </p>
                   </div>
-                  <button
-                    className="btn btn-primary"
-                    onClick={() => {
-                      const today = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Istanbul" }).format(new Date());
-                      setNewExpenseModal({
-                        employeeId: access.employeeId || expensesData.employees?.[0]?.id || "",
-                        categoryId: expensesData.categories?.[0]?.id || "",
-                        amount: "",
-                        currency: "TRY",
-                        expenseDate: today,
-                        description: "",
-                        status: "PAID",
-                      });
-                    }}
-                  >
-                    <Plus size={16} /> Yangi xarajat kiritish
-                  </button>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                    <button
+                      className="btn"
+                      style={{ borderColor: "rgba(56,189,248,0.4)", color: "#38bdf8" }}
+                      onClick={async () => {
+                        setCategoryModalOpen(true);
+                        setCatForm({ name: "", icon: "📁", color: "#3B82F6" });
+                        try {
+                          const d = await apiFetch("/fin-api/erp/categories");
+                          setCatList(d.categories || []);
+                        } catch {
+                          setCatList(expensesData.categories || []);
+                        }
+                      }}
+                    >
+                      🏷️ Kategoriyalarni tahrirlash
+                    </button>
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => {
+                        const today = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Istanbul" }).format(new Date());
+                        setNewExpenseModal({
+                          employeeId: access.employeeId || expensesData.employees?.[0]?.id || "",
+                          categoryId: expensesData.categories?.[0]?.id || "",
+                          amount: "",
+                          currency: "TRY",
+                          expenseDate: today,
+                          description: "",
+                          status: "PAID",
+                        });
+                      }}
+                    >
+                      <Plus size={16} /> Yangi xarajat kiritish
+                    </button>
+                  </div>
                 </div>
 
                 {/* Employee Filter Chips */}
@@ -3652,16 +3701,6 @@ function App() {
                                   >
                                     🔗 Talabnomadan
                                   </span>
-                                )}
-                                {Array.isArray(e.vaqfInventory) && e.vaqfInventory.length > 0 && (
-                                  <a
-                                    href={`/vaqf/a/${encodeURIComponent(e.vaqfInventory[0].inventory_no)}`}
-                                    className="badge badge-emerald"
-                                    style={{ fontSize: 10.5, padding: "1px 7px", textDecoration: "none", cursor: "pointer" }}
-                                    title="Vaqf inventaridagi kartochkani ochish"
-                                  >
-                                    🏛 inventarda: {e.vaqfInventory.map((v: any) => v.inventory_no).join(", ")}
-                                  </a>
                                 )}
                                 {e.flaggedLowBalance && (
                                   <span className="badge badge-rose" style={{ fontSize: 10.5, padding: "1px 7px" }}>
@@ -5859,6 +5898,258 @@ function App() {
               <button className="btn btn-sm btn-primary" onClick={() => setPreviewStudentPhoto(null)}>
                 Yopish
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EXPENSE CATEGORIES MANAGEMENT MODAL */}
+      {categoryModalOpen && (
+        <div className="modal-backdrop" onClick={() => setCategoryModalOpen(false)}>
+          <div className="modal-box modal-card animate-in" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>🏷️ Xarajat kategoriyalarini tahrirlash</h3>
+              <button className="btn btn-sm" onClick={() => setCategoryModalOpen(false)}>
+                <X size={16} />
+              </button>
+            </div>
+            <p style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 14 }}>
+              Yangi xarajat kategoriyasi qo'shishingiz, mavjudlarini nomini o'zgartirishingiz yoki keraksizini o'chirishingiz mumkin.
+            </p>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!catForm.name.trim()) return;
+                setCatBusy(true);
+                try {
+                  if (catForm.id) {
+                    await apiFetch(`/fin-api/erp/categories/${catForm.id}`, {
+                      method: "PUT",
+                      body: JSON.stringify({ name: catForm.name.trim(), icon: catForm.icon, color: catForm.color }),
+                    });
+                    notify("success", "Kategoriya yangilandi!");
+                  } else {
+                    await apiFetch("/fin-api/erp/categories", {
+                      method: "POST",
+                      body: JSON.stringify({ name: catForm.name.trim(), icon: catForm.icon, color: catForm.color }),
+                    });
+                    notify("success", "Yangi kategoriya qo'shildi!");
+                  }
+                  setCatForm({ name: "", icon: "📁", color: "#3B82F6" });
+                  const d = await apiFetch("/fin-api/erp/categories");
+                  setCatList(d.categories || []);
+                  const expData = await apiFetch("/fin-api/erp/expenses");
+                  setExpensesData(expData);
+                } catch (err: any) {
+                  notify("error", err.message || "Saqlashda xatolik");
+                } finally {
+                  setCatBusy(false);
+                }
+              }}
+              style={{
+                display: "flex",
+                gap: 8,
+                marginBottom: 16,
+                padding: 12,
+                borderRadius: 12,
+                background: "rgba(15,23,42,0.45)",
+                border: "1px solid var(--border-subtle)",
+                flexWrap: "wrap",
+              }}
+            >
+              <input
+                type="text"
+                className="input"
+                style={{ width: 58, textAlign: "center", fontSize: 18 }}
+                value={catForm.icon}
+                onChange={(e) => setCatForm({ ...catForm, icon: e.target.value })}
+                placeholder="📁"
+                title="Belgi (Emoji)"
+              />
+              <input
+                type="text"
+                className="input"
+                style={{ flex: 1, minWidth: 180 }}
+                required
+                placeholder="Kategoriya nomi (masalan: Xo'jalik mollari)..."
+                value={catForm.name}
+                onChange={(e) => setCatForm({ ...catForm, name: e.target.value })}
+              />
+              <button type="submit" className="btn btn-primary" disabled={catBusy}>
+                {catForm.id ? "💾 Saqlash" : "+ Qo'shish"}
+              </button>
+              {catForm.id && (
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => setCatForm({ name: "", icon: "📁", color: "#3B82F6" })}
+                >
+                  Bekor
+                </button>
+              )}
+            </form>
+
+            <div style={{ maxHeight: 340, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
+              {(catList.length ? catList : expensesData.categories || []).map((c: any) => (
+                <div
+                  key={c.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    background: "rgba(30,41,59,0.5)",
+                    border: "1px solid var(--border-subtle)",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontSize: 18 }}>{c.icon || "📁"}</span>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 14 }}>{c.name}</div>
+                      {c.expenseCount !== undefined && (
+                        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                          {c.expenseCount} ta xarajat • {c.requestCount || 0} ta talabnoma
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      onClick={() => setCatForm({ id: c.id, name: c.name, icon: c.icon || "📁", color: c.color || "#3B82F6" })}
+                    >
+                      ✏️ Tahrirlash
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-danger"
+                      disabled={catBusy}
+                      onClick={async () => {
+                        if (!window.confirm(`"${c.name}" kategoriyasini o'chirishni tasdiqlaysizmi? (Ichidagi xarajatlar "Boshqa" toifasiga o'tkaziladi)`)) {
+                          return;
+                        }
+                        setCatBusy(true);
+                        try {
+                          await apiFetch(`/fin-api/erp/categories/${c.id}`, { method: "DELETE" });
+                          notify("success", `"${c.name}" kategoriyasi o'chirildi`);
+                          const d = await apiFetch("/fin-api/erp/categories");
+                          setCatList(d.categories || []);
+                          const expData = await apiFetch("/fin-api/erp/expenses");
+                          setExpensesData(expData);
+                        } catch (err: any) {
+                          notify("error", err.message || "O'chirishda xatolik");
+                        } finally {
+                          setCatBusy(false);
+                        }
+                      }}
+                    >
+                      🗑️ O'chirish
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SYSTEM FULL BACKUP & 1-CLICK RESTORE MODAL */}
+      {backupModalOpen && (
+        <div className="modal-backdrop" onClick={() => setBackupModalOpen(false)}>
+          <div className="modal-box modal-card animate-in" style={{ maxWidth: 640 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>🛡 To'liq Zahira Nusxa (Full Backup & Restore)</h3>
+              <button className="btn btn-sm" onClick={() => setBackupModalOpen(false)}>
+                <X size={16} />
+              </button>
+            </div>
+            <p style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 14 }}>
+              Har yangi kunga o'tishi bilan (soat 00:00 da) barcha bazalar, kodlar, tokenlar va parollar to'liq zahiralanib Telegram botga yuboriladi. Quyida hozirning o'zida yangi zahira olishingiz yoki 1 ta tugma bilan qayta tiklashingiz mumkin.
+            </p>
+
+            <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+              <button
+                className="btn btn-primary"
+                disabled={backupBusy}
+                onClick={async () => {
+                  setBackupBusy(true);
+                  try {
+                    const r = await apiFetch("/fin-api/system/backups/create", {
+                      method: "POST",
+                      body: JSON.stringify({ sendToTelegram: true, reason: "web_manual_button" }),
+                    });
+                    notify("success", `Yangi zahira olindi (${r.meta?.totalSizeMb} MB) va Telegram botga yuborildi!`);
+                    const d = await apiFetch("/fin-api/system/backups");
+                    setBackupsList(d.backups || []);
+                  } catch (err: any) {
+                    notify("error", err.message || "Zahira olishda xatolik");
+                  } finally {
+                    setBackupBusy(false);
+                  }
+                }}
+              >
+                {backupBusy ? "⏳ Bajarilmoqda..." : "📦 Hozir to'liq zahira olish va Botga yuborish"}
+              </button>
+            </div>
+
+            <div style={{ maxHeight: 340, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
+              {backupsList.length === 0 ? (
+                <div style={{ padding: 20, textAlign: "center", color: "var(--text-muted)" }}>Zahira fayllari yuklanmoqda...</div>
+              ) : (
+                backupsList.map((b: any) => (
+                  <div
+                    key={b.fileName}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "10px 12px",
+                      borderRadius: 10,
+                      background: "rgba(30,41,59,0.55)",
+                      border: "1px solid var(--border-subtle)",
+                      gap: 10,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 13.5 }}>{b.fileName}</div>
+                      <div style={{ fontSize: 11.5, color: "var(--text-secondary)", marginTop: 2 }}>
+                        📦 Hajmi: <b>{b.sizeMb} MB</b>
+                        {b.meta ? ` (DB: ${b.meta.dbSizeMb} MB • Kodlar: ${b.meta.codeSizeMb} MB • Parollar/Tokenlar: ${b.meta.secretsSizeKb} KB)` : ""}
+                      </div>
+                    </div>
+                    <button
+                      className="btn btn-sm"
+                      style={{ borderColor: "rgba(245,158,11,0.5)", color: "#fbbf24" }}
+                      disabled={backupBusy}
+                      onClick={async () => {
+                        if (!window.confirm(`DIQQAT! Tizim ma'lumotlar bazalarini "${b.fileName}" (${b.sizeMb} MB) holatiga qayta tiklashni tasdiqlaysizmi?`)) {
+                          return;
+                        }
+                        setBackupBusy(true);
+                        try {
+                          await apiFetch("/fin-api/system/backups/restore", {
+                            method: "POST",
+                            body: JSON.stringify({ fileName: b.fileName }),
+                          });
+                          notify("success", `Tizim "${b.fileName}" zahirasidan muvaffaqiyatli qayta tiklandi!`);
+                          setBackupModalOpen(false);
+                          refreshCurrentTab();
+                        } catch (err: any) {
+                          notify("error", err.message || "Qayta tiklashda xatolik");
+                        } finally {
+                          setBackupBusy(false);
+                        }
+                      }}
+                    >
+                      ♻️ 1-Click Qayta tiklash
+                    </button>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>

@@ -196,6 +196,19 @@ export function CampusSmartDashboard({ apiFetch, notify, initialSubTab = "overvi
     loadAnalytics();
   }, []);
 
+  useEffect(() => {
+    const timer = setInterval(async () => {
+      try {
+        const q = new URLSearchParams();
+        if (selectedDate) q.set("date", selectedDate);
+        if (selectedMonth) q.set("month", selectedMonth);
+        const res = await apiFetch(`/fin-api/campus/analytics?${q.toString()}`);
+        if (res && res.canteen) setData(res);
+      } catch {}
+    }, 8000);
+    return () => clearInterval(timer);
+  }, [apiFetch, selectedDate, selectedMonth]);
+
   const renderCs2Badge = (diff: number, suffix = "porsiya") => {
     const isPos = diff > 0;
     const isZero = diff === 0;
@@ -840,6 +853,98 @@ export function CampusSmartDashboard({ apiFetch, notify, initialSubTab = "overvi
             </div>
           </div>
 
+          {/* LIVE TURNSTILE FEED IN OVERVIEW (OSHXONA & MASJID) */}
+          <div className="glass-card" style={{ padding: 18 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span className="pulse-dot" style={{ width: 10, height: 10, borderRadius: "50%", background: "#10b981", display: "inline-block" }} />
+                <div>
+                  <h3 style={{ fontSize: 15.5, fontWeight: 800, margin: 0, color: "var(--text-primary)" }}>
+                    🟢 Jonli Turniket Kirishlari — Oshxona va Masjid (Real-Time)
+                  </h3>
+                  <div style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>
+                    Turniketdan karta urilgan zahoti shu yerda jonli ko'rinadi (har 8 soniyada avtomatik yangilanadi)
+                  </div>
+                </div>
+              </div>
+              <span className="badge badge-emerald">
+                Jami oxirgi kirishlar: {((canteen.recentLiveScans || []).length + (mosque.recentLiveScans || []).length)} ta
+              </span>
+            </div>
+
+            <div className="table-wrap" style={{ maxHeight: 320, overflowY: "auto" }}>
+              <table className="fin-table">
+                <thead>
+                  <tr>
+                    <th>Sana / Soat</th>
+                    <th>Turniket</th>
+                    <th>Talaba</th>
+                    <th>Guruh / Xona</th>
+                    <th>Karta ID</th>
+                    <th>Holat / Vaqt turi</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...(canteen.recentLiveScans || []), ...(mosque.recentLiveScans || [])]
+                    .sort((a: any, b: any) => String(b.timestamp || "").localeCompare(String(a.timestamp || "")))
+                    .slice(0, 30)
+                    .map((sc: any) => {
+                      const isCanteen = sc.deviceType === "CANTEEN";
+                      const typeLabels: Record<string, string> = {
+                        BREAKFAST: "🍳 Nonushta",
+                        LUNCH: "🍲 Tushlik",
+                        DINNER: "🍛 Kechki ovqat",
+                        FAJR: "🌅 Bomdod",
+                        DHUHR: "☀️ Peshin",
+                        ASR: "🌤️ Asr",
+                        MAGHRIB: "🌇 Shom",
+                        ISHA: "🌙 Xufton",
+                      };
+                      return (
+                        <tr key={`${sc.deviceType}_${sc.id}`}>
+                          <td style={{ fontWeight: 700, whiteSpace: "nowrap" }}>
+                            {sc.date} <span style={{ color: "#10b981" }}>{sc.time}</span>
+                          </td>
+                          <td>
+                            <span className={`badge ${isCanteen ? "badge-cyan" : "badge-emerald"}`}>
+                              {isCanteen ? "🍽️ Oshxona" : "🕌 Masjid"}
+                            </span>
+                          </td>
+                          <td>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <StudentAvatar
+                                student={{
+                                  id: sc.studentId,
+                                  fullname: sc.studentName,
+                                  photo: sc.photo,
+                                  group: sc.group,
+                                  room: sc.room,
+                                }}
+                                size={30}
+                              />
+                              <span style={{ fontWeight: 700 }}>{sc.studentName}</span>
+                            </div>
+                          </td>
+                          <td>
+                            <span className="badge badge-slate">{sc.group || "Guruhsiz"}</span>
+                            {sc.room && sc.room !== "-" ? ` • Xona: ${sc.room}` : ""}
+                          </td>
+                          <td>
+                            <code>{sc.cardId || "-"}</code>
+                          </td>
+                          <td>
+                            <span className="badge badge-emerald">
+                              ✓ {typeLabels[sc.eventType] || sc.eventType}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           {/* COMPARATIVE OVERVIEW TABLE FOR ALL 3 ZONES */}
           <div className="glass-card" style={{ padding: 18 }}>
             <h3 style={{ fontSize: 15.5, fontWeight: 800, marginTop: 0, marginBottom: 10, color: "var(--text-primary)" }}>
@@ -861,7 +966,7 @@ export function CampusSmartDashboard({ apiFetch, notify, initialSubTab = "overvi
                   <tr>
                     <td>
                       <div style={{ fontWeight: 800 }}>🍽️ 1. Oshxona Turniketi</div>
-                      <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>IP: 192.168.1.201 / 192.168.1.199</div>
+                      <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>IP: 192.168.1.52:8081 (🟢 Jonli ulangan)</div>
                     </td>
                     <td>Porsiya hisobi, % ishtirok va CS2 (+/-) farq</td>
                     <td>05:00-07:00 • 12:00-14:00 • 17:30-19:30</td>
@@ -1413,6 +1518,49 @@ export function CampusSmartDashboard({ apiFetch, notify, initialSubTab = "overvi
                 </div>
               </div>
             )}
+          </div>
+
+          {/* LIVE CANTEEN TURNSTILE SCANS */}
+          <div className="glass-card" style={{ padding: 18 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <h3 style={{ fontSize: 15.5, fontWeight: 800, margin: 0, color: "#10b981" }}>
+                🟢 Oshxona Turniketi — Jonli Kirishlar Oqimi (192.168.1.52:8081)
+              </h3>
+              <span className="badge badge-emerald">Oxirgi {(canteen.recentLiveScans || []).length} ta kirish</span>
+            </div>
+            <div className="table-wrap" style={{ maxHeight: 280, overflowY: "auto" }}>
+              <table className="fin-table">
+                <thead>
+                  <tr>
+                    <th>Sana va Vaqt</th>
+                    <th>Talaba</th>
+                    <th>Guruh</th>
+                    <th>Karta ID</th>
+                    <th>Mahal (Porsiya)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(canteen.recentLiveScans || []).map((sc: any) => (
+                    <tr key={sc.id}>
+                      <td style={{ fontWeight: 700 }}>{sc.date} <span style={{ color: "#10b981" }}>{sc.time}</span></td>
+                      <td>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <StudentAvatar student={{ id: sc.studentId, fullname: sc.studentName, photo: sc.photo, group: sc.group, room: sc.room }} size={28} />
+                          <b>{sc.studentName}</b>
+                        </div>
+                      </td>
+                      <td><span className="badge badge-slate">{sc.group}</span></td>
+                      <td><code>{sc.cardId}</code></td>
+                      <td>
+                        <span className="badge badge-emerald">
+                          {sc.eventType === "BREAKFAST" ? "🍳 Nonushta" : sc.eventType === "LUNCH" ? "🍲 Tushlik" : "🍛 Kechki ovqat"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
 
           {/* ROW 4: SMART TURNIKET TEKSHIRUVI VA QIZIL SIGNALLAR */}
