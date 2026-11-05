@@ -1310,8 +1310,8 @@ async function executeDocumentCompletionTx(tx, doc, actor, options = {}) {
                cost = COALESCE($2, cost),
                currency = COALESCE($3, currency),
                expense_ref = COALESCE($4, expense_ref),
-               result = COALESCE($5, result),
-               returned_at = CASE WHEN $5 IS NOT NULL THEN NOW() ELSE returned_at END,
+               result = COALESCE($5::varchar, result),
+               returned_at = CASE WHEN $5::varchar IS NOT NULL THEN NOW() ELSE returned_at END,
                notes = COALESCE($6, notes),
                updated_at = NOW()
            WHERE id = $7
@@ -1580,11 +1580,11 @@ export async function submitDocument(docId, body = {}, actor) {
       const nextStatus = repairResult ? "completed" : "approved";
       await tx.query(
         `UPDATE vaqf.documents
-         SET status = $1,
+         SET status = $1::varchar,
              approved_by = COALESCE(approved_by, $2),
              approved_by_name = COALESCE(approved_by_name, $3),
              approved_at = COALESCE(approved_at, NOW()),
-             completed_at = CASE WHEN $1 = 'completed' THEN NOW() ELSE completed_at END,
+             completed_at = CASE WHEN $1::varchar = 'completed' THEN NOW() ELSE completed_at END,
              updated_at = NOW()
          WHERE id = $4`,
         [nextStatus, actor?.actorId || null, actor?.actorName || "Mas'ul", id]
@@ -1934,6 +1934,8 @@ export async function getMyAssignedAssets(sess, accessContext) {
        asg.person_ref,
        asg.person_name,
        (asg.qty - COALESCE(asg.returned_qty, 0))::float AS assigned_qty,
+       (asg.qty - COALESCE(asg.returned_qty, 0))::float AS remaining_qty,
+       (asg.qty - COALESCE(asg.returned_qty, 0))::float AS qty,
        asg.assigned_at,
        TO_CHAR(asg.expected_return_at, 'YYYY-MM-DD') AS expected_return_at,
        asg.assign_doc_id,
@@ -2008,6 +2010,8 @@ export async function getPersonAssignedAssets(personRef) {
        asg.person_ref,
        asg.person_name,
        (asg.qty - COALESCE(asg.returned_qty, 0))::float AS assigned_qty,
+       (asg.qty - COALESCE(asg.returned_qty, 0))::float AS remaining_qty,
+       (asg.qty - COALESCE(asg.returned_qty, 0))::float AS qty,
        asg.assigned_at,
        TO_CHAR(asg.expected_return_at, 'YYYY-MM-DD') AS expected_return_at,
        asg.assign_doc_id,
@@ -2756,13 +2760,61 @@ export async function getLifecycleReports(filters = {}) {
     [institutionId]
   );
 
+  // Group active assignments by employee for UI summary table
+  const empMap = new Map();
+  for (const r of assignmentsRes.rows) {
+    const key = (r.person_ref || r.person_name || "Noma'lum").toLowerCase();
+    if (!empMap.has(key)) {
+      empMap.set(key, {
+        person_ref: r.person_ref,
+        person_name: r.person_name || r.person_ref,
+        assignments_count: 0,
+        total_units: 0,
+        total_value_try: 0,
+      });
+    }
+    const g = empMap.get(key);
+    g.assignments_count += 1;
+    g.total_units += Number(r.qty || 1);
+    if ((r.currency || "TRY") === "TRY" && r.purchase_price !== null) {
+      g.total_value_try += Number(r.purchase_price || 0) * Number(r.qty || 1);
+    }
+  }
+
+  const writeoffsTotalBookValue = writeoffsRes.rows.reduce((s, r) => s + Number(r.book_value || 0), 0);
+  const repairsTotalCostTry = repairsRes.rows.reduce(
+    (s, r) => s + ((r.currency || "TRY") === "TRY" ? Number(r.cost || 0) : 0),
+    0
+  );
+
   return {
     assignments: assignmentsRes.rows,
+    employeeAssignments: Array.from(empMap.values()),
     movements: movementsRes.rows,
-    writeoffs: writeoffsRes.rows,
-    repairs: repairsRes.rows,
+    writeoffs: {
+      items: writeoffsRes.rows,
+      totals: {
+        total_count: writeoffsRes.rows.length,
+        total_book_value: writeoffsTotalBookValue,
+      },
+    },
+    repairs: {
+      items: repairsRes.rows,
+      summary: {
+        repairs_count: repairsRes.rows.length,
+        total_cost_try: repairsTotalCostTry,
+      },
+      topFailingAssets: topFailingRes.rows.map((r) => ({
+        ...r,
+        id: r.asset_id,
+        name: r.asset_name,
+        repair_count: r.repairs_count,
+        total_repair_cost: r.total_cost_try,
+      })),
+    },
     top_failing_assets: topFailingRes.rows,
     warranty_expiring_30d: warrantyRes.rows,
+    expiringWarrantyAssets: warrantyRes.rows,
   };
 }
 
