@@ -1546,7 +1546,7 @@ export function BoardDecisionsPanel({
               style={{
                 padding: "10px 14px",
                 borderRadius: 10,
-                background: "rgba(15,23,42,0.4)",
+                background: "var(--bg-subtle)",
                 border: "1px solid var(--border-subtle)",
                 display: "flex",
                 justifyContent: "space-between",
@@ -1673,7 +1673,7 @@ export function AnnualVaqfReportPanel({
 
         {report && (
           <div className="resp-grid-2">
-            <div className="glass-card" style={{ background: "rgba(15,23,42,0.35)" }}>
+            <div className="glass-card" style={{ background: "var(--bg-subtle)" }}>
               <h4 style={{ fontWeight: 800, color: "#fbcc42", marginBottom: 8 }}>1-3. Muassasalar, Ko'chmas mulk va Inventar</h4>
               <div>Muassasalar: <strong>{report.general?.institutions?.length || 0} ta</strong></div>
               <div>Ko'chmas mulk obyektlari: <strong>{report.real_estate?.length || 0} ta</strong></div>
@@ -1684,7 +1684,7 @@ export function AnnualVaqfReportPanel({
               ))}
             </div>
 
-            <div className="glass-card" style={{ background: "rgba(15,23,42,0.35)" }}>
+            <div className="glass-card" style={{ background: "var(--bg-subtle)" }}>
               <h4 style={{ fontWeight: 800, color: "#10b981", marginBottom: 8 }}>4-7. Hadyalar, Ijara va Kurul Qarorlari</h4>
               <div>Jami hadyalar ({year}): <strong>{report.donations_summary?.total_count || 0} ta ({fmtTRY(report.donations_summary?.total_try)})</strong></div>
               <div>Faol ijara shartnomalari (Out): <strong>{report.leases_summary?.active_out_count || 0} ta ({fmtTRY(report.leases_summary?.monthly_rent_out_try)}/oy)</strong></div>

@@ -257,7 +257,7 @@ export function NotificationsBellPopover({
                   style={{
                     padding: "9px 11px",
                     borderRadius: 10,
-                    background: it.is_read ? "rgba(15,23,42,0.35)" : "rgba(251,204,66,0.12)",
+                    background: it.is_read ? "var(--bg-subtle)" : "rgba(251,204,66,0.12)",
                     border: it.is_read
                       ? "1px solid var(--border-subtle)"
                       : "1px solid rgba(251,204,66,0.4)",
@@ -514,7 +514,7 @@ export function DirectorDashboardSection({
             style={{
               padding: "12px 14px",
               borderRadius: 12,
-              background: att.pending_approvals_count > 0 ? "rgba(251,204,66,0.12)" : "rgba(15,23,42,0.4)",
+              background: att.pending_approvals_count > 0 ? "rgba(251,204,66,0.12)" : "var(--bg-subtle)",
               border: att.pending_approvals_count > 0 ? "1px solid rgba(251,204,66,0.45)" : "1px solid var(--border-subtle)",
               cursor: "pointer",
               display: "flex",
@@ -539,7 +539,7 @@ export function DirectorDashboardSection({
             style={{
               padding: "12px 14px",
               borderRadius: 12,
-              background: att.open_faults_count > 0 ? "rgba(244,63,94,0.12)" : "rgba(15,23,42,0.4)",
+              background: att.open_faults_count > 0 ? "rgba(244,63,94,0.12)" : "var(--bg-subtle)",
               border: att.open_faults_count > 0 ? "1px solid rgba(244,63,94,0.45)" : "1px solid var(--border-subtle)",
               cursor: "pointer",
               display: "flex",
@@ -569,7 +569,7 @@ export function DirectorDashboardSection({
                   ? "rgba(244,63,94,0.16)"
                   : att.unregistered_expenses_count > 0
                   ? "rgba(6,182,212,0.12)"
-                  : "rgba(15,23,42,0.4)",
+                  : "var(--bg-subtle)",
               border:
                 att.unregistered_over_7d_count > 0
                   ? "1px solid rgba(244,63,94,0.6)"
@@ -609,7 +609,7 @@ export function DirectorDashboardSection({
                   ? "rgba(244,63,94,0.15)"
                   : att.due_14d_schedules_count > 0
                   ? "rgba(245,158,11,0.12)"
-                  : "rgba(15,23,42,0.4)",
+                  : "var(--bg-subtle)",
               border:
                 att.overdue_schedules_count > 0
                   ? "1px solid rgba(244,63,94,0.55)"
@@ -642,7 +642,7 @@ export function DirectorDashboardSection({
             style={{
               padding: "12px 14px",
               borderRadius: 12,
-              background: "rgba(15,23,42,0.4)",
+              background: "var(--bg-subtle)",
               border: "1px solid var(--border-subtle)",
               cursor: "pointer",
               display: "flex",
@@ -667,7 +667,7 @@ export function DirectorDashboardSection({
             style={{
               padding: "12px 14px",
               borderRadius: 12,
-              background: att.missing_assets_count > 0 ? "rgba(244,63,94,0.12)" : "rgba(15,23,42,0.4)",
+              background: att.missing_assets_count > 0 ? "rgba(244,63,94,0.12)" : "var(--bg-subtle)",
               border: att.missing_assets_count > 0 ? "1px solid rgba(244,63,94,0.45)" : "1px solid var(--border-subtle)",
               cursor: "pointer",
               display: "flex",
@@ -707,7 +707,7 @@ export function DirectorDashboardSection({
                   style={{
                     padding: "9px 12px",
                     borderRadius: 10,
-                    background: "rgba(15,23,42,0.35)",
+                    background: "var(--bg-subtle)",
                     border: "1px solid var(--border-subtle)",
                     cursor: "pointer",
                   }}
@@ -748,7 +748,7 @@ export function DirectorDashboardSection({
                   alignItems: "center",
                   padding: "9px 12px",
                   borderRadius: 10,
-                  background: "rgba(15,23,42,0.35)",
+                  background: "var(--bg-subtle)",
                   border: "1px solid var(--border-subtle)",
                   cursor: "pointer",
                 }}
@@ -1307,7 +1307,7 @@ export function PendingFinanceExpensesSection({
             <p style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 12 }}>
               Tanlangan kategoriyalar bo'yicha Moliya tizimida xarajat tasdiqlanganda avtomatik ravishda Vaqf "Ro'yxatga olinishi kerak" navbatiga tushadi:
             </p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14, maxHeight: "52vh", overflowY: "auto", paddingRight: 4 }}>
               {(finSettings.available_finance_categories || []).map((c: any) => {
                 const checked = (finSettings.inventory_category_ids || []).includes(c.id);
                 return (
@@ -1319,8 +1319,9 @@ export function PendingFinanceExpensesSection({
                       gap: 10,
                       padding: "8px 12px",
                       borderRadius: 8,
-                      background: "rgba(15,23,42,0.4)",
+                      background: "var(--bg-subtle)",
                       border: "1px solid var(--border-subtle)",
+                      cursor: "pointer",
                     }}
                   >
                     <input
@@ -1616,7 +1617,7 @@ export function SchedulesAndRemindersSection({
         ) : (
           <div className="resp-grid-2">
             {Object.entries(byMonth).map(([month, list]) => (
-              <div key={month} className="glass-card" style={{ background: "rgba(15,23,42,0.35)" }}>
+              <div key={month} className="glass-card" style={{ background: "var(--bg-subtle)" }}>
                 <div style={{ fontWeight: 800, fontSize: 15, color: "#fbcc42", marginBottom: 10 }}>
                   📅 {month} ({list.length} ta)
                 </div>
@@ -1630,7 +1631,7 @@ export function SchedulesAndRemindersSection({
                           padding: "9px 12px",
                           borderRadius: 10,
                           border: isOverdue ? "1px solid #f43f5e" : "1px solid var(--border-subtle)",
-                          background: isOverdue ? "rgba(244,63,94,0.12)" : "rgba(15,23,42,0.4)",
+                          background: isOverdue ? "rgba(244,63,94,0.12)" : "var(--bg-subtle)",
                           display: "flex",
                           justifyContent: "space-between",
                           alignItems: "center",
@@ -2044,7 +2045,7 @@ export function VaqfBotBannerAndLinkBar({
             marginBottom: 14,
             padding: "12px 16px",
             borderColor: "rgba(6, 182, 212, 0.45)",
-            background: "linear-gradient(135deg, rgba(6, 182, 212, 0.14), rgba(15, 23, 42, 0.85))",
+            background: "var(--bg-banner-cyan)",
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
@@ -2055,7 +2056,7 @@ export function VaqfBotBannerAndLinkBar({
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ fontSize: 20 }}>🤖</span>
             <div>
-              <div style={{ fontWeight: 800, fontSize: 13.5, color: "#22d3ee" }}>
+              <div style={{ fontWeight: 800, fontSize: 13.5, color: "var(--accent-cyan)" }}>
                 Vaqf botini oching (@{botUsername})
               </div>
               <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
@@ -2327,7 +2328,7 @@ export function SystemHealthAndMultiImportSection({
           </div>
 
           <div className="resp-grid-4">
-            <div style={{ padding: 12, borderRadius: 10, background: "rgba(15,23,42,0.45)", border: "1px solid var(--border-subtle)" }}>
+            <div style={{ padding: 12, borderRadius: 10, background: "var(--bg-subtle)", border: "1px solid var(--border-subtle)" }}>
               <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>Oxirgi zaxira nusxa (Backup)</div>
               <div style={{ fontWeight: 800, fontSize: 14, marginTop: 4, color: health.backup?.ok ? "#10b981" : "#f59e0b" }}>
                 {health.backup?.last_backup_at
@@ -2340,7 +2341,7 @@ export function SystemHealthAndMultiImportSection({
               </div>
             </div>
 
-            <div style={{ padding: 12, borderRadius: 10, background: "rgba(15,23,42,0.45)", border: "1px solid var(--border-subtle)" }}>
+            <div style={{ padding: 12, borderRadius: 10, background: "var(--bg-subtle)", border: "1px solid var(--border-subtle)" }}>
               <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>Outbox xabarnomalar navbati</div>
               <div style={{ fontWeight: 800, fontSize: 14, marginTop: 4 }}>
                 Yuborilgan: <span style={{ color: "#10b981" }}>{health.outbox?.sent || 0}</span> | Kutilmoqda:{" "}
@@ -2352,7 +2353,7 @@ export function SystemHealthAndMultiImportSection({
               </div>
             </div>
 
-            <div style={{ padding: 12, borderRadius: 10, background: "rgba(15,23,42,0.45)", border: "1px solid var(--border-subtle)" }}>
+            <div style={{ padding: 12, borderRadius: 10, background: "var(--bg-subtle)", border: "1px solid var(--border-subtle)" }}>
               <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>Vaqf Telegram Boti</div>
               <div style={{ fontWeight: 800, fontSize: 14, marginTop: 4, color: "#22d3ee" }}>
                 @{health.bot?.username} ({health.bot?.token_masked})
@@ -2363,7 +2364,7 @@ export function SystemHealthAndMultiImportSection({
               </div>
             </div>
 
-            <div style={{ padding: 12, borderRadius: 10, background: "rgba(15,23,42,0.45)", border: "1px solid var(--border-subtle)" }}>
+            <div style={{ padding: 12, borderRadius: 10, background: "var(--bg-subtle)", border: "1px solid var(--border-subtle)" }}>
               <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>Dastur versiyasi va Shifrlash</div>
               <div style={{ fontWeight: 800, fontSize: 14, marginTop: 4, fontFamily: "monospace", color: "#fbcc42" }}>
                 {health.version?.branch} @ {health.version?.commit}
@@ -2397,7 +2398,7 @@ export function SystemHealthAndMultiImportSection({
                 padding: 12,
                 borderRadius: 10,
                 cursor: "pointer",
-                background: activeImportType === tpl.type ? "rgba(251, 204, 66, 0.14)" : "rgba(15, 23, 42, 0.45)",
+                background: activeImportType === tpl.type ? "rgba(251, 204, 66, 0.14)" : "var(--bg-subtle)",
                 border:
                   activeImportType === tpl.type
                     ? "1px solid rgba(251, 204, 66, 0.65)"

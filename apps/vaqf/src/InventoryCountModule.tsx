@@ -263,13 +263,16 @@ export function MobileCountScannerPage({
   vaqfAccess,
   notify,
   onExitScanner,
+  onBackToAdmin,
 }: {
   countId: number;
-  user: any;
-  vaqfAccess: any;
+  user?: any;
+  vaqfAccess?: any;
   notify: (msg: string, type?: "ok" | "err") => void;
-  onExitScanner: () => void;
+  onExitScanner?: () => void;
+  onBackToAdmin?: () => void;
 }) {
+  const handleExit = onExitScanner || onBackToAdmin || (() => { window.location.href = "/vaqf/"; });
   const [loading, setLoading] = useState(true);
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
   const [countData, setCountData] = useState<any>(null);
@@ -875,7 +878,7 @@ export function MobileCountScannerPage({
       >
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {vaqfAccess?.canView && (
-            <button className="btn btn-sm" onClick={onExitScanner} title="Direktor paneliga qaytish">
+            <button className="btn btn-sm" onClick={handleExit} title="Direktor paneliga qaytish">
               <ArrowLeft size={16} />
             </button>
           )}
@@ -1519,20 +1522,26 @@ export function MobileCountScannerPage({
 // STEP 3: DIRECTOR INVENTORY COUNTS SECTION (IN apps/vaqf)
 // ============================================================================
 export function DirectorInventoryCountsSection({
-  institutions,
-  locations,
-  categories,
-  staff,
+  institutions = [],
+  selectedInstitutionId,
+  locations = [],
+  categories = [],
+  staff: staffProp,
+  staffList = [],
   notify,
   onOpenMobileScanner,
 }: {
-  institutions: any[];
+  institutions?: any[];
+  selectedInstitutionId?: number;
   locations: any[];
   categories: any[];
-  staff: any[];
+  staff?: any[];
+  staffList?: any[];
   notify: (msg: string, type?: "ok" | "err") => void;
   onOpenMobileScanner: (countId: number) => void;
 }) {
+  const staff = Array.isArray(staffProp) && staffProp.length > 0 ? staffProp : Array.isArray(staffList) ? staffList : [];
+  const defaultInstId = Number(selectedInstitutionId) || Number(institutions?.[0]?.id) || 1;
   const [counts, setCounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeCountId, setActiveCountId] = useState<number | null>(null);
@@ -1552,7 +1561,7 @@ export function DirectorInventoryCountsSection({
     committee: Array<{ name: string; role: string }>;
     notes: string;
   }>({
-    institution_id: institutions[0]?.id || 1,
+    institution_id: defaultInstId,
     title: `Yillik inventarizatsiya — ${new Date().toISOString().slice(0, 10)}`,
     scopeType: "all",
     location_ids: [],

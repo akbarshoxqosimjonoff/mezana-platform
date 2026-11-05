@@ -397,7 +397,7 @@ export function NewDocumentModal({
                 padding: "10px 12px",
                 borderRadius: 10,
                 border: docType === k ? `2px solid ${meta.color}` : "1px solid var(--border-subtle)",
-                background: docType === k ? "rgba(251, 204, 66, 0.12)" : "rgba(15, 23, 42, 0.45)",
+                background: docType === k ? "rgba(251, 204, 66, 0.12)" : "var(--bg-subtle)",
                 color: "var(--text-primary)",
                 textAlign: "left",
                 cursor: "pointer",
@@ -412,7 +412,7 @@ export function NewDocumentModal({
         </div>
 
         {/* Asset Search & Add */}
-        <div style={{ marginBottom: 16, padding: 12, borderRadius: 12, background: "rgba(15,23,42,0.45)", border: "1px solid var(--border-subtle)" }}>
+        <div style={{ marginBottom: 16, padding: 12, borderRadius: 12, background: "var(--bg-subtle)", border: "1px solid var(--border-subtle)" }}>
           <label className="form-label" style={{ marginBottom: 6, display: "block" }}>
             Buyumlarni qidirish yoki inventar raqamini (QR) kiritish *
           </label>
@@ -433,7 +433,7 @@ export function NewDocumentModal({
                   zIndex: 40,
                   marginTop: 4,
                   borderRadius: 10,
-                  background: "#0f172a",
+                  background: "var(--bg-surface-elevated)",
                   border: "1px solid rgba(251,204,66,0.35)",
                   maxHeight: 240,
                   overflowY: "auto",
@@ -486,7 +486,7 @@ export function NewDocumentModal({
                     gap: 10,
                     padding: "8px 12px",
                     borderRadius: 8,
-                    background: "rgba(2,6,23,0.5)",
+                    background: "var(--bg-subtle)",
                     border: "1px solid var(--border-subtle)",
                     flexWrap: "wrap",
                   }}
@@ -1164,7 +1164,7 @@ export function DocumentsAndApprovalsSection({
               </button>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10, padding: 12, borderRadius: 10, background: "rgba(15,23,42,0.45)", marginBottom: 14, fontSize: 13 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10, padding: 12, borderRadius: 10, background: "var(--bg-subtle)", marginBottom: 14, fontSize: 13 }}>
               <div>
                 <span style={{ color: "var(--text-muted)" }}>Yaratuvchi:</span>{" "}
                 <strong>{selectedDoc.created_by_name || selectedDoc.created_by || "—"}</strong>
@@ -1437,7 +1437,7 @@ export function MyAssetsSection({
           style={{
             marginBottom: 18,
             borderColor: "rgba(251, 204, 66, 0.5)",
-            background: "linear-gradient(135deg, rgba(251, 204, 66, 0.14), rgba(15, 23, 42, 0.85))",
+            background: "var(--bg-banner-amber)",
           }}
         >
           <div className="section-header">
@@ -1526,7 +1526,7 @@ export function MyAssetsSection({
                 style={{
                   padding: 14,
                   borderRadius: 14,
-                  background: "rgba(15, 23, 42, 0.55)",
+                  background: "var(--bg-subtle)",
                   border: "1px solid var(--border-subtle)",
                   display: "flex",
                   flexDirection: "column",
@@ -2026,7 +2026,7 @@ export function LifecycleReportsSection({
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {(report?.writeoffs?.items || []).slice(0, 10).map((w: any) => (
-                <div key={w.id} style={{ padding: "8px 12px", borderRadius: 8, background: "rgba(15,23,42,0.4)", fontSize: 12.5, display: "flex", justifyContent: "space-between" }}>
+                <div key={w.id} style={{ padding: "8px 12px", borderRadius: 8, background: "var(--bg-subtle)", fontSize: 12.5, display: "flex", justifyContent: "space-between" }}>
                   <div>
                     <strong style={{ color: "#fbcc42", fontFamily: "monospace" }}>{w.inventory_no}</strong> — {w.asset_name} ({WRITEOFF_REASON_LABELS[w.reason] || w.reason})
                   </div>
@@ -2049,7 +2049,7 @@ export function LifecycleReportsSection({
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {(report?.repairs?.topFailingAssets || []).map((a: any) => (
-                <div key={a.id} style={{ padding: "8px 12px", borderRadius: 8, background: "rgba(15,23,42,0.4)", fontSize: 12.5, display: "flex", justifyContent: "space-between" }}>
+                <div key={a.id} style={{ padding: "8px 12px", borderRadius: 8, background: "var(--bg-subtle)", fontSize: 12.5, display: "flex", justifyContent: "space-between" }}>
                   <div>
                     <strong style={{ color: "#fbcc42", fontFamily: "monospace" }}>{a.inventory_no}</strong> — {a.name} ({a.repair_count} marta buzilgan)
                   </div>
@@ -2286,13 +2286,13 @@ export function RolesAndSettingsSection({
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 12, fontSize: 13 }}>
-            <div style={{ padding: 10, borderRadius: 10, background: "rgba(15,23,42,0.45)", border: "1px solid var(--border-subtle)" }}>
+            <div style={{ padding: 10, borderRadius: 10, background: "var(--bg-subtle)", border: "1px solid var(--border-subtle)" }}>
               ✅ <strong>Hisobdan chiqarish (Write-off):</strong> Har doim Direktor tasdig'i talab etiladi.
             </div>
-            <div style={{ padding: 10, borderRadius: 10, background: "rgba(15,23,42,0.45)", border: "1px solid var(--border-subtle)" }}>
+            <div style={{ padding: 10, borderRadius: 10, background: "var(--bg-subtle)", border: "1px solid var(--border-subtle)" }}>
               ✅ <strong>Muassasalar arasi ko'chirish:</strong> Har doim Direktor tasdig'i talab etiladi.
             </div>
-            <div style={{ padding: 10, borderRadius: 10, background: "rgba(15,23,42,0.45)", border: "1px solid var(--border-subtle)" }}>
+            <div style={{ padding: 10, borderRadius: 10, background: "var(--bg-subtle)", border: "1px solid var(--border-subtle)" }}>
               ✅ <strong>Muassasa ichida xonadan xonaga ko'chirish:</strong> Tasdiqsiz, inventar mas'uli bajaradi (qiymati chegaradan oshmasa).
             </div>
 

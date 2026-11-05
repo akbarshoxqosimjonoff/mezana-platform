@@ -762,10 +762,14 @@ export function App() {
     const walk = (pid: number, depth: number) => {
       const list = locationTree.get(pid) || [];
       for (const l of list) {
-        const prefix = depth > 0 ? "— ".repeat(depth) : "";
+        const prefix = depth > 0 ? "\u00A0\u00A0\u00A0".repeat(depth) : "";
+        const showCode =
+          l.code &&
+          l.kind === "building" &&
+          !String(l.name || "").toLowerCase().includes(String(l.code).toLowerCase());
         out.push({
           id: l.id,
-          label: `${prefix}${l.name}${l.code ? ` [${l.code}]` : ""}`,
+          label: `${prefix}${l.name}${showCode ? ` [${l.code}]` : ""}`,
           kind: l.kind,
         });
         walk(l.id, depth + 1);
@@ -844,8 +848,16 @@ export function App() {
         )}
         <MobileCountScannerPage
           countId={mobileCountId}
-          categories={categories}
+          user={auth.user}
+          vaqfAccess={auth.vaqfAccess}
           notify={notify}
+          onExitScanner={() => {
+            if (auth.vaqfAccess?.canView) {
+              navigatePage("counts");
+            } else {
+              window.location.href = "/";
+            }
+          }}
           onBackToAdmin={() => {
             if (auth.vaqfAccess?.canView) {
               navigatePage("counts");
@@ -896,7 +908,8 @@ export function App() {
           className="brand-box"
           style={{
             borderColor: "rgba(251, 204, 66, 0.35)",
-            background: "linear-gradient(135deg, rgba(251, 204, 66, 0.12), rgba(15, 23, 42, 0.75))",
+            background: "var(--bg-brand)",
+            borderRadius: 12,
           }}
         >
           <img
@@ -905,7 +918,7 @@ export function App() {
             style={{ width: 36, height: 46, objectFit: "contain", flexShrink: 0 }}
           />
           <div>
-            <div style={{ fontWeight: 800, fontSize: 16, letterSpacing: "0.01em", color: "#fbcc42" }}>
+            <div style={{ fontWeight: 800, fontSize: 16, letterSpacing: "0.01em", color: "var(--text-brand-gold)" }}>
               EZAN VAKFI
             </div>
             <div style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>
@@ -1231,7 +1244,7 @@ export function App() {
                     <option value="">Barcha kategoriyalar</option>
                     {categories.map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.parent_id ? `— ${c.name}` : c.name}
+                        {c.parent_id ? `   ${c.name}` : c.name}
                       </option>
                     ))}
                   </select>
@@ -1595,7 +1608,7 @@ export function App() {
                         gap: 12,
                         padding: 14,
                         borderRadius: 12,
-                        background: "rgba(15,23,42,0.45)",
+                        background: "var(--bg-subtle)",
                         border: "1px solid var(--border-subtle)",
                       }}
                     >
@@ -1787,7 +1800,7 @@ export function App() {
                                 alignItems: "center",
                                 padding: "8px 12px",
                                 borderRadius: 8,
-                                background: "rgba(15,23,42,0.4)",
+                                background: "var(--bg-subtle)",
                                 border: "1px solid var(--border-subtle)",
                                 color: "var(--text-primary)",
                                 textDecoration: "none",
@@ -1819,7 +1832,7 @@ export function App() {
                                 style={{
                                   padding: "10px 12px",
                                   borderRadius: 10,
-                                  background: "rgba(15,23,42,0.5)",
+                                  background: "var(--bg-subtle)",
                                   border: "1px solid var(--border-subtle)",
                                   display: "flex",
                                   justifyContent: "space-between",
@@ -1877,7 +1890,7 @@ export function App() {
                             style={{
                               padding: 12,
                               borderRadius: 10,
-                              background: "rgba(15,23,42,0.4)",
+                              background: "var(--bg-subtle)",
                               border: "1px solid var(--border-subtle)",
                             }}
                           >
@@ -1958,7 +1971,7 @@ export function App() {
                       >
                         {categories.map((c) => (
                           <option key={c.id} value={c.id}>
-                            {c.parent_id ? `— ${c.name}` : c.name}
+                            {c.parent_id ? `   ${c.name}` : c.name}
                           </option>
                         ))}
                       </select>
@@ -2210,7 +2223,7 @@ export function App() {
                       <option value="">— Kategoriyani tanlang —</option>
                       {categories.map((c) => (
                         <option key={c.id} value={c.id}>
-                          {c.parent_id ? `— ${c.name}` : c.name} ({c.tracking === "batch" ? "Partiya" : "Donalab"})
+                          {c.parent_id ? `   ${c.name}` : c.name} ({c.tracking === "batch" ? "Partiya" : "Donalab"})
                         </option>
                       ))}
                     </select>
@@ -2590,7 +2603,7 @@ export function App() {
                               justifyContent: "space-between",
                               padding: "9px 12px",
                               borderRadius: 10,
-                              background: depth === 0 ? "rgba(20, 30, 52, 0.75)" : "rgba(15, 23, 42, 0.42)",
+                              background: depth === 0 ? "var(--bg-subtle-strong)" : "var(--bg-subtle)",
                               border: "1px solid var(--border-subtle)",
                               marginBottom: 4,
                             }}
@@ -3117,9 +3130,11 @@ export function App() {
           {/* ============================================================== */}
           {page === "counts" && (
             <DirectorInventoryCountsSection
+              institutions={institutions}
               selectedInstitutionId={activeNumericInstId}
               locations={locations}
               categories={categories}
+              staff={staffList}
               staffList={staffList}
               notify={notify}
               onOpenMobileScanner={(cId) => {
