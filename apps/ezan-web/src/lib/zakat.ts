@@ -2,11 +2,11 @@ import { SITE_CONFIG } from "./config";
 
 export interface ZakatInput {
   cashTry: number;
-  foreignCashTry: number;
+  foreignCashTry?: number;
   goldGrams: number;
-  silverGrams: number;
-  tradeGoodsTry: number;
-  receivablesTry: number;
+  silverGrams?: number;
+  tradeGoodsTry?: number;
+  receivablesTry?: number;
   debtsTry: number;
   goldGramPriceTry?: number;
 }

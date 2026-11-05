@@ -1,0 +1,92 @@
+name: Ezan Web CI
+
+on:
+  push:
+    branches: [main, "site/**"]
+    paths:
+      - "apps/ezan-web/**"
+      - "apps/finance-bff/vaqf/**"
+      - ".github/workflows/ezan-web-ci.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "apps/ezan-web/**"
+      - "apps/finance-bff/vaqf/**"
+      - ".github/workflows/ezan-web-ci.yml"
+
+jobs:
+  secret-scan:
+    name: Secret Scan (Gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  ezan-web-ci:
+    name: Lint, Typecheck, Audit, Unit Tests & Build
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ezan_app
+          POSTGRES_PASSWORD: ci_test_db_password_2027_secure
+          POSTGRES_DB: ezan_web
+        ports:
+          - 5437:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    defaults:
+      run:
+        working-directory: apps/ezan-web
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://ezan_app:ci_test_db_password_2027_secure@127.0.0.1:5437/ezan_web
+      EZAN_SYNC_SECRET: ci_only_ephemeral_sync_secret_key_minimum_32_characters_long_2027
+      PAYMENT_WEBHOOK_SECRET: ci_only_ephemeral_webhook_secret_key_minimum_32_characters_2027
+      ADMIN_SESSION_SECRET: ci_only_ephemeral_admin_session_secret_minimum_32_chars_2027
+      PAYLOAD_SECRET: ci_only_ephemeral_payload_secret_key_minimum_32_characters_2027
+      SIGNED_URL_SECRET: ci_only_ephemeral_signed_url_secret_key_minimum_32_chars_2027
+      MESSAGING_DLR_WEBHOOK_SECRET: ci_only_ephemeral_dlr_webhook_secret_key_minimum_32_chars_2027
+      DONATIONS_LIVE: "false"
+      PAYMENT_PROVIDER: mock
+      SMS_PROVIDER: mock
+      WHATSAPP_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: apps/ezan-web/package-lock.json
+
+      - name: Install FFmpeg for video worker tests
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Security Audit (high/critical)
+        run: npm audit --audit-level=high
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint --if-present
+
+      - name: Run Unit & Integration Tests
+        run: npm test
+
+      - name: Build Production Bundle
+        run: npm run build
