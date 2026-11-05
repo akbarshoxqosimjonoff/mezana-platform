@@ -2753,6 +2753,17 @@ export async function generateLifecycleDocumentPdfBuffer(docId, { lang = "tr" } 
         .text(`${L.sigLabel}: ___________________`, sx + 8, curY + 44);
     });
 
+    pdf
+      .font(fReg)
+      .fontSize(7)
+      .fillColor("#64748b")
+      .text(
+        `Ezan Vakfi Vaqf Tizimi  |  Telegram Bot: @ezanvakfitizimbot (https://t.me/ezanvakfitizimbot)`,
+        36,
+        curY + 72,
+        { width: pageWidth, align: "center" }
+      );
+
     pdf.end();
   });
 }

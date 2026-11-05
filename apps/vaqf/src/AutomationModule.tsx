@@ -1818,7 +1818,7 @@ export function UnauthenticatedQrLandingCard({ inventoryNo }: { inventoryNo: str
       .catch(() => {});
   }, [inventoryNo]);
 
-  const tgLink = info?.tg_deep_link || `https://t.me/mezanatizimbot?start=a_${encodeURIComponent(inventoryNo)}`;
+  const tgLink = info?.tg_deep_link || `https://t.me/ezanvakfitizimbot?start=a_${encodeURIComponent(inventoryNo)}`;
   const loginLink = `/?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
 
   return (
@@ -1837,7 +1837,7 @@ export function UnauthenticatedQrLandingCard({ inventoryNo }: { inventoryNo: str
           </div>
         )}
         <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 20 }}>
-          Buyum kartochkasini ko'rish, nosozlik xabar qilish yoki zimmatni tasdiqlash uchun Telegram bot orqali oching yoki tizimga kiring:
+          Buyum kartochkasini ko'rish, nosozlik xabar qilish yoki zimmatni tasdiqlash uchun Telegram bot (@ezanvakfitizimbot) orqali oching yoki tizimga kiring:
         </p>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -1854,7 +1854,7 @@ export function UnauthenticatedQrLandingCard({ inventoryNo }: { inventoryNo: str
               border: "none",
             }}
           >
-            ✈️ Telegram orqali ochish
+            ✈️ Telegram orqali ochish (@ezanvakfitizimbot)
           </a>
           <a
             href={loginLink}
@@ -2000,6 +2000,494 @@ export function TelegramMiniAppScannerPage({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ============================================================================
+// 6-BOSQICH: VAQF BOT BANNER ("Vaqf botini oching") & TELEGRAM LINK MODAL
+// ============================================================================
+export function VaqfBotBannerAndLinkBar({
+  botStatus,
+  onRefreshBotStatus,
+  notify,
+}: {
+  botStatus: any;
+  onRefreshBotStatus: () => void;
+  notify: (msg: string, type?: "ok" | "err") => void;
+}) {
+  const [linkModal, setLinkModal] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+
+  const openLinkCodeModal = async () => {
+    try {
+      setBusy(true);
+      const data = await apiFetch("/vaqf-api/me/telegram-link-code", { method: "POST" });
+      setLinkModal(data);
+    } catch (e: any) {
+      notify(e.message, "err");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const botUsername = botStatus?.bot_username || "ezanvakfitizimbot";
+  const botUrl = botStatus?.bot_url || `https://t.me/${botUsername}`;
+  const needsStart = !botStatus?.bot_started || botStatus?.bot_blocked;
+
+  return (
+    <>
+      {needsStart && (
+        <div
+          className="glass-card animate-in"
+          style={{
+            marginBottom: 14,
+            padding: "12px 16px",
+            borderColor: "rgba(6, 182, 212, 0.45)",
+            background: "linear-gradient(135deg, rgba(6, 182, 212, 0.14), rgba(15, 23, 42, 0.85))",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: 12,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 20 }}>🤖</span>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 13.5, color: "#22d3ee" }}>
+                Vaqf botini oching (@{botUsername})
+              </div>
+              <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                {!botStatus?.telegram_linked
+                  ? "Telegram hisobingiz hali bog'lanmagan. 10 daqiqalik bir martalik kod orqali bog'lang:"
+                  : botStatus?.bot_blocked
+                  ? "Siz @ezanvakfitizimbot ni bloklagansiz. Xabarnomalar kelishi uchun botni qayta /start qiling."
+                  : "Zimmat, tasdiq va eslatma xabarlari kelishi uchun yangi @ezanvakfitizimbot da /start bosing."}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <a
+              href={botUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="btn btn-sm btn-cyan"
+              style={{ textDecoration: "none" }}
+              onClick={() => setTimeout(onRefreshBotStatus, 4000)}
+            >
+              <ExternalLink size={14} /> @{botUsername} ni ochish
+            </a>
+            <button className="btn btn-sm btn-primary" onClick={openLinkCodeModal} disabled={busy}>
+              🔗 Telegram'ni bog'lash
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!needsStart && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+          <button className="btn btn-sm" onClick={openLinkCodeModal} disabled={busy} title="Telegram hisobni qayta bog'lash">
+            🔗 Telegram bog'langan (@{botUsername})
+          </button>
+        </div>
+      )}
+
+      {linkModal && (
+        <div className="modal-backdrop" onClick={() => setLinkModal(null)}>
+          <div className="modal-box" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 440, textAlign: "center" }}>
+            <div className="section-header">
+              <div className="section-title">🔗 Telegram'ni bog'lash (@{linkModal.bot_username})</div>
+              <button className="btn btn-sm" onClick={() => setLinkModal(null)}>
+                <X size={15} />
+              </button>
+            </div>
+            <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 14 }}>
+              Quyidagi bir martalik kod <strong>10 daqiqa</strong> davomida amal qiladi. Tugmani bosing yoki botga{" "}
+              <code>/start link_{linkModal.code}</code> yuboring:
+            </p>
+            <div
+              style={{
+                padding: "14px",
+                borderRadius: 10,
+                background: "rgba(251, 204, 66, 0.12)",
+                border: "1px dashed rgba(251, 204, 66, 0.5)",
+                fontFamily: "monospace",
+                fontSize: 22,
+                fontWeight: 800,
+                color: "#fbcc42",
+                letterSpacing: "0.12em",
+                marginBottom: 16,
+              }}
+            >
+              {linkModal.code}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <a
+                href={linkModal.deep_link}
+                target="_blank"
+                rel="noreferrer"
+                className="btn btn-primary"
+                style={{ textDecoration: "none", justifyContent: "center", padding: "11px 16px" }}
+                onClick={() => {
+                  setTimeout(() => {
+                    onRefreshBotStatus();
+                  }, 5000);
+                }}
+              >
+                ✈️ @{linkModal.bot_username} orqali avtomatik bog'lash
+              </a>
+              <button
+                className="btn"
+                onClick={() => {
+                  setLinkModal(null);
+                  onRefreshBotStatus();
+                }}
+              >
+                Yopish
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ============================================================================
+// 6-BOSQICH: TIZIM HOLATI (HEALTH) & 5 SHABLONLI EXCEL IMPORT
+// ============================================================================
+const MULTI_TEMPLATES = [
+  {
+    type: "locations",
+    title: "1. Joylar va xonalar (Bina / Kat / Oda)",
+    desc: "Muassasa kodi, bino, qavat va xonalar ierarxiyasi (3 ta namuna bilan)",
+  },
+  {
+    type: "assets",
+    title: "2. Mavjud buyumlar (Demirbaş / Eşya)",
+    desc: "Buyum nomi, kategoriya, joylashuv, javobgar va qiymati (3 ta namuna bilan)",
+  },
+  {
+    type: "roles",
+    title: "3. Xodimlar va rollar (Kullanıcı Rolleri)",
+    desc: "Foydalanuvchi identifikatori, F.I.Sh. va Vaqf roli (director, inventory_manager, accountant, staff)",
+  },
+  {
+    type: "properties",
+    title: "4. Ko'chmas mulk (Gayrimenkul / Taşınmaz)",
+    desc: "Vaqf binolari, yer uchastkalari, Ada/Parsel va kadastr ma'lumotlari",
+  },
+  {
+    type: "schedules",
+    title: "5. Muddatli ishlar (Periyodik Bakım / Kontroller)",
+    desc: "Kafolat, kombi, o't o'chirgich va davriy texnik ko'rik muddatlari",
+  },
+];
+
+export function SystemHealthAndMultiImportSection({
+  isDirector,
+  notify,
+}: {
+  isDirector: boolean;
+  notify: (msg: string, type?: "ok" | "err") => void;
+}) {
+  const [health, setHealth] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const [activeImportType, setActiveImportType] = useState<string>("locations");
+  const [importFile, setImportFile] = useState<{ name: string; dataUrl: string } | null>(null);
+  const [preview, setPreview] = useState<any>(null);
+
+  const loadHealth = useCallback(async () => {
+    if (!isDirector) return;
+    try {
+      const h = await apiFetch("/vaqf-api/health");
+      setHealth(h);
+    } catch {}
+  }, [isDirector]);
+
+  useEffect(() => {
+    loadHealth();
+  }, [loadHealth]);
+
+  const triggerOpsAction = async (endpoint: string, body: any = {}, okMsg: string) => {
+    try {
+      setBusy(true);
+      const res = await apiFetch(endpoint, { method: "POST", body: JSON.stringify(body) });
+      notify(okMsg);
+      await loadHealth();
+      return res;
+    } catch (e: any) {
+      notify(e.message, "err");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleSelectMultiExcel = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const dataUrl = String(reader.result || "");
+      setImportFile({ name: file.name, dataUrl });
+      try {
+        setBusy(true);
+        const endpoint =
+          activeImportType === "assets" ? "/vaqf-api/import/assets" : `/vaqf-api/import/${activeImportType}`;
+        const res = await apiFetch(endpoint, {
+          method: "POST",
+          body: JSON.stringify({ mode: "preview", dataUrl, fileName: file.name }),
+        });
+        setPreview(res);
+      } catch (e: any) {
+        notify(e.message, "err");
+      } finally {
+        setBusy(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleCommitMultiExcel = async () => {
+    if (!importFile) return;
+    try {
+      setBusy(true);
+      const endpoint =
+        activeImportType === "assets" ? "/vaqf-api/import/assets" : `/vaqf-api/import/${activeImportType}`;
+      const res = await apiFetch(endpoint, {
+        method: "POST",
+        body: JSON.stringify({ mode: "commit", skipInvalid: true, dataUrl: importFile.dataUrl, fileName: importFile.name }),
+      });
+      notify(`Muvaffaqiyatli saqlandi: ${res.importedCount} ta qator!`);
+      setPreview(null);
+      setImportFile(null);
+    } catch (e: any) {
+      notify(e.message, "err");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 18 }}>
+      {/* 5-QADAM: TIZIM HOLATI (SYSTEM HEALTH) */}
+      {isDirector && health && (
+        <div className="glass-card">
+          <div className="section-header">
+            <div className="section-title">
+              <Activity size={18} color="#10b981" /> Tizim holati va Monitoring (6-bosqich)
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button
+                className="btn btn-sm"
+                disabled={busy}
+                onClick={() => triggerOpsAction("/vaqf-api/ops/backup", {}, "Zaxira nusxa (Backup) olindi!")}
+              >
+                💾 Hozir Backup olish
+              </button>
+              <button
+                className="btn btn-sm"
+                disabled={busy}
+                onClick={() =>
+                  triggerOpsAction(
+                    "/vaqf-api/ops/restore-test",
+                    {},
+                    "Haftalik Restore test muvaffaqiyatli yakunlandi!"
+                  )
+                }
+              >
+                🧪 Restore test o'tkazish
+              </button>
+              <button
+                className="btn btn-sm"
+                disabled={busy}
+                onClick={() =>
+                  triggerOpsAction("/vaqf-api/ops/verify-pii-key", {}, "VAQF_PII_KEY shifrlash kaliti tasdiqlandi!")
+                }
+              >
+                🔑 PII kalitni tekshirish
+              </button>
+              <button
+                className="btn btn-sm btn-cyan"
+                disabled={busy}
+                onClick={() =>
+                  triggerOpsAction(
+                    "/vaqf-api/ops/migration-broadcast",
+                    {},
+                    "@mezanatizimbot orqali bir martalik o'tish e'loni yuborildi!"
+                  )
+                }
+              >
+                📣 Bot ko'chgani haqida e'lon yuborish
+              </button>
+              <button className="btn btn-sm" onClick={loadHealth}>
+                <RefreshCw size={14} />
+              </button>
+            </div>
+          </div>
+
+          <div className="resp-grid-4">
+            <div style={{ padding: 12, borderRadius: 10, background: "rgba(15,23,42,0.45)", border: "1px solid var(--border-subtle)" }}>
+              <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>Oxirgi zaxira nusxa (Backup)</div>
+              <div style={{ fontWeight: 800, fontSize: 14, marginTop: 4, color: health.backup?.ok ? "#10b981" : "#f59e0b" }}>
+                {health.backup?.last_backup_at
+                  ? `${new Date(health.backup.last_backup_at).toLocaleString("uz-UZ")} (${health.backup.age_hours} soat oldin)`
+                  : "Hali olinmagan"}
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--text-secondary)", marginTop: 4 }}>
+                Disk bo'sh joyi: <strong>{health.backup?.disk_free_percent}%</strong> | 4TB /backup:{" "}
+                <strong>{health.backup?.separate_disk_mounted ? "Ulangan" : "Asosiy diskda"}</strong>
+              </div>
+            </div>
+
+            <div style={{ padding: 12, borderRadius: 10, background: "rgba(15,23,42,0.45)", border: "1px solid var(--border-subtle)" }}>
+              <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>Outbox xabarnomalar navbati</div>
+              <div style={{ fontWeight: 800, fontSize: 14, marginTop: 4 }}>
+                Yuborilgan: <span style={{ color: "#10b981" }}>{health.outbox?.sent || 0}</span> | Kutilmoqda:{" "}
+                <span style={{ color: "#fbcc42" }}>{health.outbox?.pending || 0}</span>
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--text-secondary)", marginTop: 4 }}>
+                Xato (failed): <strong>{health.outbox?.failed || 0}</strong> | Skipped (bot ochilmagan):{" "}
+                <strong>{health.outbox?.skipped || 0}</strong>
+              </div>
+            </div>
+
+            <div style={{ padding: 12, borderRadius: 10, background: "rgba(15,23,42,0.45)", border: "1px solid var(--border-subtle)" }}>
+              <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>Vaqf Telegram Boti</div>
+              <div style={{ fontWeight: 800, fontSize: 14, marginTop: 4, color: "#22d3ee" }}>
+                @{health.bot?.username} ({health.bot?.token_masked})
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--text-secondary)", marginTop: 4 }}>
+                PM2: <strong>{health.bot?.pm2_status}</strong> | Faol chatlar:{" "}
+                <strong>{health.bot?.started_chats || 0} ta</strong> (Bloklangan: {health.bot?.blocked_chats || 0})
+              </div>
+            </div>
+
+            <div style={{ padding: 12, borderRadius: 10, background: "rgba(15,23,42,0.45)", border: "1px solid var(--border-subtle)" }}>
+              <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>Dastur versiyasi va Shifrlash</div>
+              <div style={{ fontWeight: 800, fontSize: 14, marginTop: 4, fontFamily: "monospace", color: "#fbcc42" }}>
+                {health.version?.branch} @ {health.version?.commit}
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--text-secondary)", marginTop: 4 }}>
+                PII Key: <strong>{health.pii_key?.ok ? `✅ OK (${health.pii_key?.keyFingerprint})` : "⚠️ Xato"}</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 6-QADAM: 5 TA IKKI TILLI (TR+UZ) EXCEL SHABLONLAR VA IMPORT */}
+      <div className="glass-card">
+        <div className="section-header">
+          <div className="section-title">
+            <FileText size={18} color="#fbcc42" /> Boshlang'ich ma'lumotlarni yuklash (5 ta TR+UZ Excel shablon)
+          </div>
+        </div>
+
+        <div className="resp-grid-3" style={{ marginBottom: 14 }}>
+          {MULTI_TEMPLATES.map((tpl) => (
+            <div
+              key={tpl.type}
+              onClick={() => {
+                setActiveImportType(tpl.type);
+                setPreview(null);
+                setImportFile(null);
+              }}
+              style={{
+                padding: 12,
+                borderRadius: 10,
+                cursor: "pointer",
+                background: activeImportType === tpl.type ? "rgba(251, 204, 66, 0.14)" : "rgba(15, 23, 42, 0.45)",
+                border:
+                  activeImportType === tpl.type
+                    ? "1px solid rgba(251, 204, 66, 0.65)"
+                    : "1px solid var(--border-subtle)",
+              }}
+            >
+              <div style={{ fontWeight: 800, fontSize: 13.5, color: activeImportType === tpl.type ? "#fbcc42" : "var(--text-primary)" }}>
+                {tpl.title}
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--text-secondary)", marginTop: 4, marginBottom: 10 }}>
+                {tpl.desc}
+              </div>
+              <a
+                href={`/vaqf-api/import/templates/${tpl.type}`}
+                target="_blank"
+                rel="noreferrer"
+                className="btn btn-sm"
+                style={{ textDecoration: "none" }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                📥 Shablonni yuklab olish (.xlsx)
+              </a>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <label className="btn btn-cyan" style={{ cursor: "pointer" }}>
+            📂 "{MULTI_TEMPLATES.find((t) => t.type === activeImportType)?.title}" uchun Excel fayl tanlash
+            <input
+              type="file"
+              accept=".xlsx,.xls"
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleSelectMultiExcel(f);
+                e.target.value = "";
+              }}
+            />
+          </label>
+
+          {preview && preview.validCount > 0 && (
+            <button className="btn btn-primary" disabled={busy} onClick={handleCommitMultiExcel}>
+              <Check size={15} /> Bazaga yozish ({preview.validCount} ta to'g'ri qator)
+            </button>
+          )}
+        </div>
+
+        {preview && (
+          <div style={{ marginTop: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>
+              Oldindan ko'rish ({importFile?.name}): Jami {preview.totalRows} qator —{" "}
+              <span style={{ color: "#10b981" }}>{preview.validCount} ta yaroqli</span>,{" "}
+              <span style={{ color: "#f43f5e" }}>{preview.errorCount} ta xatolik</span>
+            </div>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Qator</th>
+                    <th>Ma'lumotlar</th>
+                    <th>Holati / Xatolar</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(preview.rows || []).map((r: any) => (
+                    <tr key={r.rowNumber}>
+                      <td>#{r.rowNumber}</td>
+                      <td style={{ fontSize: 12, fontFamily: "monospace" }}>
+                        {JSON.stringify(
+                          Object.fromEntries(
+                            Object.entries(r).filter(([k]) => !["rowNumber", "valid", "errors"].includes(k))
+                          )
+                        )}
+                      </td>
+                      <td>
+                        {r.valid ? (
+                          <span className="badge badge-emerald">Tayyor</span>
+                        ) : (
+                          <span style={{ color: "#fb7185", fontSize: 12 }}>{(r.errors || []).join("; ")}</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

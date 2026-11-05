@@ -498,7 +498,7 @@ export function buildReplyKeyboard(userId: string): Keyboard {
       .text("📝 Talabnoma yaratish")
       .row()
       .text(`💼 Hisobim (${accLabel})`)
-      .text("🏛 Vaqf");
+      .text("🏛 Vaqf endi alohida botda");
   } else {
     kb.text("➕ Xarajat kiritish")
       .text("💵 Talaba to'lovi")
@@ -510,7 +510,7 @@ export function buildReplyKeyboard(userId: string): Keyboard {
       .text("📊 Oxirgi xarajatlar")
       .row()
       .text("📂 Kategoriyalar")
-      .text("🏛 Vaqf");
+      .text("🏛 Vaqf endi alohida botda");
   }
 
   if (CAMERA_OWNER_IDS.has(String(userId))) {

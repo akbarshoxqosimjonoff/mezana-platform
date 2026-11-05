@@ -84,8 +84,16 @@ import {
 
 import {
   getVaqfBotSecret,
+  getVaqfBotUsername,
   resolveLinkedUserByTelegramId,
   verifyTelegramWebAppInitData,
+  recordVaqfBotStart,
+  setVaqfBotChatLang,
+  getVaqfBotChatInfo,
+  getVaqfBotStatusForWebUser,
+  createVaqfTelegramLinkCode,
+  redeemVaqfTelegramLinkCode,
+  sendOneTimeBotMigrationNotice,
   listWebNotificationsForUser,
   markWebNotificationRead,
   getUserNotificationPrefs,
@@ -106,6 +114,18 @@ import {
   getDirectorDashboardData,
   processOutboxBatch,
 } from "./automationService.mjs";
+
+import {
+  verifyVaqfPiiKey,
+  rotateVaqfPiiKey,
+  runVaqfBackup,
+  runWeeklyRestoreTest,
+  isHealthRequestAllowed,
+  getVaqfSystemHealth,
+  runSystemMonitoringChecks,
+  generateMultiImportTemplateBuffer,
+  previewOrCommitMultiImport,
+} from "./opsService.mjs";
 
 import {
   getGovernanceSettings,
@@ -184,7 +204,7 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
     const publicQrMatch = pathname.match(/^\/vaqf-api\/public\/qr-info\/([^/]+)$/);
     if (publicQrMatch && method === "GET") {
       const code = decodeURIComponent(publicQrMatch[1]).trim().toUpperCase();
-      const botUsername = process.env.TELEGRAM_BOT_USERNAME || "mezanatizimbot";
+      const botUsername = getVaqfBotUsername();
       let assetSummary = null;
       try {
         const asset = await getAssetDetail(code, { byCode: true });
@@ -205,8 +225,8 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
       });
     }
 
-    // Internal Bot Callback endpoint (`POST /vaqf-api/bot/callback`), strictly from localhost + secret
-    if (pathname === "/vaqf-api/bot/callback" && method === "POST") {
+    // Internal Bot endpoints (`POST /vaqf-api/bot/*`), strictly from localhost + secret
+    if (pathname.startsWith("/vaqf-api/bot/")) {
       const remoteAddr = String(req.socket?.remoteAddress || "");
       const isLocal =
         remoteAddr === "127.0.0.1" ||
@@ -216,9 +236,40 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
       if (!isLocal || secretHeader !== getVaqfBotSecret()) {
         return sendJson(res, 403, { error: "Faqat lokal Telegram bot servisi uchun ruxsat etilgan" });
       }
-      const body = await readJsonBody(req);
-      const result = await executeBotCallbackAction(body);
-      return sendJson(res, 200, result);
+
+      if (pathname === "/vaqf-api/bot/callback" && method === "POST") {
+        const body = await readJsonBody(req);
+        const result = await executeBotCallbackAction(body);
+        return sendJson(res, 200, result);
+      }
+
+      if (pathname === "/vaqf-api/bot/start" && method === "POST") {
+        const body = await readJsonBody(req);
+        const result = await recordVaqfBotStart(body.telegram_id || req.headers["x-telegram-id"], body.lang);
+        return sendJson(res, 200, result);
+      }
+
+      if (pathname === "/vaqf-api/bot/redeem-link" && method === "POST") {
+        const body = await readJsonBody(req);
+        const result = await redeemVaqfTelegramLinkCode(
+          body.telegram_id || req.headers["x-telegram-id"],
+          body.code,
+          body.meta || {}
+        );
+        return sendJson(res, 200, result);
+      }
+
+      if (pathname === "/vaqf-api/bot/lang" && method === "POST") {
+        const body = await readJsonBody(req);
+        const result = await setVaqfBotChatLang(body.telegram_id || req.headers["x-telegram-id"], body.lang);
+        return sendJson(res, 200, result);
+      }
+
+      if (pathname === "/vaqf-api/bot/chat-info" && method === "GET") {
+        const tgId = url.searchParams.get("telegram_id") || req.headers["x-telegram-id"];
+        const info = await getVaqfBotChatInfo(tgId);
+        return sendJson(res, 200, { chat: info });
+      }
     }
 
     // Telegram Mini App Auth & Quick Lookup (`POST /vaqf-api/miniapp/auth`)
@@ -297,6 +348,21 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
       }
     }
 
+    // 5-QADAM (6-BOSQICH): HEALTH ENDPOINT (`GET /vaqf-api/health`)
+    // Strictly restricted to 127.0.0.1 (no external X-Forwarded-For) OR Director session
+    if (pathname === "/vaqf-api/health" && method === "GET") {
+      let maybeVAccess = null;
+      if (sess) {
+        if (!accessContext) accessContext = getSessionAccessContext(sess);
+        maybeVAccess = await resolveVaqfAccessAsync(sess, accessContext);
+      }
+      if (!isHealthRequestAllowed(req, maybeVAccess)) {
+        return sendJson(res, 403, { error: "Health endpoint faqat 127.0.0.1 va Direktor uchun ochiq" });
+      }
+      const health = await getVaqfSystemHealth();
+      return sendJson(res, 200, health);
+    }
+
     if (!sess) {
       return sendJson(res, 401, { error: "Sessiya muddati tugagan. Iltimos, tizimga kiring." });
     }
@@ -310,7 +376,10 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
       if (!vAccess.canView && !vAccess.canCount && !vAccess.canAccess) {
         return sendJson(res, 403, { error: "Vaqf tizimiga kirish huquqi yo'q", vaqfAccess: vAccess });
       }
-      const staff = vAccess.canView ? await listResponsibleStaff() : [];
+      const [staff, botStatus] = await Promise.all([
+        vAccess.canView ? listResponsibleStaff() : Promise.resolve([]),
+        getVaqfBotStatusForWebUser(sess, accessContext),
+      ]);
       return sendJson(res, 200, {
         authenticated: true,
         user: {
@@ -321,7 +390,18 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
         },
         vaqfAccess: vAccess,
         staff,
+        botStatus,
       });
+    }
+
+    if (pathname === "/vaqf-api/me/bot-status" && method === "GET") {
+      const botStatus = await getVaqfBotStatusForWebUser(sess, accessContext);
+      return sendJson(res, 200, botStatus);
+    }
+
+    if (pathname === "/vaqf-api/me/telegram-link-code" && method === "POST") {
+      const linkData = await createVaqfTelegramLinkCode(sess, accessContext);
+      return sendJson(res, 200, linkData);
     }
 
     // ========================================================================
@@ -413,7 +493,7 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
     // 4-BOSQICH: SCHEDULES & REMINDERS (/vaqf-api/schedules*)
     // ========================================================================
     if (pathname === "/vaqf-api/schedules" && method === "GET") {
-      if (!vAccess.canView) {
+      if (!vAccess.canView && !vAccess.canAccess) {
         return sendJson(res, 403, { error: "Muddatlar va eslatmalarni ko'rish huquqi yo'q" });
       }
       const filters = Object.fromEntries(url.searchParams.entries());
@@ -460,6 +540,94 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
     }
 
     // ========================================================================
+    // 6-BOSQICH: SYSTEM OPS & MULTI-TEMPLATE IMPORT (/vaqf-api/ops/*, /vaqf-api/import/*)
+    // ========================================================================
+    if (pathname === "/vaqf-api/ops/backup" && method === "POST") {
+      if (!vAccess.isDirector) {
+        return sendJson(res, 403, { error: "Zaxira nusxa olish faqat Direktor uchun" });
+      }
+      const body = await readJsonBody(req);
+      const result = await runVaqfBackup({
+        requireSeparateDisk: Boolean(body.requireSeparateDisk),
+        triggeredBy: actor.actorId,
+      });
+      return sendJson(res, 200, result);
+    }
+
+    if (pathname === "/vaqf-api/ops/restore-test" && method === "POST") {
+      if (!vAccess.isDirector) {
+        return sendJson(res, 403, { error: "Restore test o'tkazish faqat Direktor uchun" });
+      }
+      const result = await runWeeklyRestoreTest({ triggeredBy: actor.actorId });
+      return sendJson(res, 200, result);
+    }
+
+    if (pathname === "/vaqf-api/ops/verify-pii-key" && method === "POST") {
+      if (!vAccess.isDirector) {
+        return sendJson(res, 403, { error: "PII kalitni tekshirish faqat Direktor uchun" });
+      }
+      const body = await readJsonBody(req);
+      const result = await verifyVaqfPiiKey(body.candidateKey || undefined);
+      return sendJson(res, result.ok ? 200 : 400, result);
+    }
+
+    if (pathname === "/vaqf-api/ops/rotate-pii-key" && method === "POST") {
+      if (!vAccess.isDirector) {
+        return sendJson(res, 403, { error: "PII kalitni aylantirish faqat Direktor uchun" });
+      }
+      const body = await readJsonBody(req);
+      const result = await rotateVaqfPiiKey({
+        currentKey: body.currentKey,
+        nextKey: body.nextKey,
+        actor,
+      });
+      return sendJson(res, 200, result);
+    }
+
+    if (pathname === "/vaqf-api/ops/monitoring-check" && method === "POST") {
+      if (!vAccess.isDirector) {
+        return sendJson(res, 403, { error: "Monitoring tekshiruvi faqat Direktor uchun" });
+      }
+      const result = await runSystemMonitoringChecks();
+      return sendJson(res, 200, result);
+    }
+
+    if (pathname === "/vaqf-api/ops/migration-broadcast" && method === "POST") {
+      if (!vAccess.isDirector) {
+        return sendJson(res, 403, { error: "O'tish e'lonini yuborish faqat Direktor uchun" });
+      }
+      const result = await sendOneTimeBotMigrationNotice({ actor });
+      return sendJson(res, 200, result);
+    }
+
+    const multiTplMatch = pathname.match(/^\/vaqf-api\/import\/templates\/(locations|assets|roles|properties|schedules)$/);
+    if (multiTplMatch && method === "GET") {
+      if (!vAccess.canView) {
+        return sendJson(res, 403, { error: "Import shablonini yuklab olish huquqi yo'q" });
+      }
+      const tplType = multiTplMatch[1];
+      const { buffer, fileName } = await generateMultiImportTemplateBuffer(tplType);
+      res.writeHead(200, {
+        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Disposition": `attachment; filename="${fileName}"`,
+        "Cache-Control": "no-store",
+      });
+      res.end(buffer);
+      return;
+    }
+
+    const multiImpMatch = pathname.match(/^\/vaqf-api\/import\/(locations|roles|properties|schedules)$/);
+    if (multiImpMatch && method === "POST") {
+      if (!vAccess.canEdit) {
+        return sendJson(res, 403, { error: "Excel import qilish huquqi yo'q" });
+      }
+      const tplType = multiImpMatch[1];
+      const body = await readJsonBody(req);
+      const result = await previewOrCommitMultiImport(tplType, body, actor, vAccess);
+      return sendJson(res, 200, result);
+    }
+
+    // ========================================================================
     // 4-BOSQICH: DIRECTOR DASHBOARD (/vaqf-api/dashboard)
     // ========================================================================
     if (pathname === "/vaqf-api/dashboard" && method === "GET") {
@@ -472,6 +640,14 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
         getGovernanceDashboardSummary({ institutionId }),
       ]);
       return sendJson(res, 200, { ...data, governance });
+    }
+
+    // Allow asset search (`GET /vaqf-api/bot/search`) for any user with Vaqf access (including staff in bot `/qidir`)
+    if (pathname === "/vaqf-api/bot/search" && method === "GET" && (vAccess.canView || vAccess.canAccess || vAccess.canCount)) {
+      const search = url.searchParams.get("search") || "";
+      const limit = Number(url.searchParams.get("limit") || 10);
+      const result = await listAssets({ search, limit });
+      return sendJson(res, 200, result);
     }
 
     // Allow QR lookup by code (`GET /vaqf-api/assets/by-code/:code`) for any user with Vaqf access (including staff/bot/MiniApp)

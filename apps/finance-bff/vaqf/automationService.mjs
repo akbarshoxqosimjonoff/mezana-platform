@@ -46,10 +46,33 @@ function parseEnvFile(filePath) {
 }
 
 const platformEnv = parseEnvFile("/srv/data/apps/mezana-platform/.env.platform.local");
+const bffEnv = parseEnvFile("/srv/data/apps/mezana-platform/apps/finance-bff/.env");
+const vaqfBotEnv = parseEnvFile("/srv/data/apps/mezana-platform/apps/vaqf-bot/.env");
 const botEnv = parseEnvFile("/srv/data/apps/mezana-platform/apps/telegram-bot/.env");
 const erpEnv = parseEnvFile("/srv/data/apps/moliy/.env");
 
+/**
+ * 6-bosqich 0-qadam & 1-qadam:
+ * Vaqf xabarlari va Mini App imzosi FAQAT yangi alohida bot tokeni (`VAQF_TELEGRAM_BOT_TOKEN`)
+ * bilan ishlaydi. Eski `TELEGRAM_BOT_TOKEN` ga hech qachon fallback qilinmaydi!
+ */
+export function getVaqfTelegramBotToken() {
+  return (
+    process.env.VAQF_TELEGRAM_BOT_TOKEN ||
+    bffEnv.VAQF_TELEGRAM_BOT_TOKEN ||
+    vaqfBotEnv.VAQF_TELEGRAM_BOT_TOKEN ||
+    platformEnv.VAQF_TELEGRAM_BOT_TOKEN ||
+    botEnv.VAQF_TELEGRAM_BOT_TOKEN ||
+    ""
+  );
+}
+
+// Backward-compatible alias inside Vaqf module — always returns ONLY the dedicated Vaqf bot token
 export function getTelegramBotToken() {
+  return getVaqfTelegramBotToken();
+}
+
+export function getLegacyMezanaBotToken() {
   return (
     process.env.TELEGRAM_BOT_TOKEN ||
     botEnv.TELEGRAM_BOT_TOKEN ||
@@ -58,9 +81,40 @@ export function getTelegramBotToken() {
   );
 }
 
+export function getVaqfBotUsername() {
+  return (
+    process.env.VAQF_TELEGRAM_BOT_USERNAME ||
+    bffEnv.VAQF_TELEGRAM_BOT_USERNAME ||
+    platformEnv.VAQF_TELEGRAM_BOT_USERNAME ||
+    "ezanvakfitizimbot"
+  ).replace(/^@/, "");
+}
+
+export function maskBotToken(token) {
+  const s = String(token || "").trim();
+  if (!s) return "";
+  return `***${s.slice(-4)}`;
+}
+
+export function sanitizeSecretFromText(input) {
+  let text = String(input ?? "");
+  text = text.replace(/[0-9]{8,10}:AA[A-Za-z0-9_-]{30,}/g, (m) => `***${m.slice(-4)}`);
+  const vaqfTok = getVaqfTelegramBotToken();
+  if (vaqfTok && text.includes(vaqfTok)) {
+    text = text.split(vaqfTok).join(`***${vaqfTok.slice(-4)}`);
+  }
+  const legTok = getLegacyMezanaBotToken();
+  if (legTok && text.includes(legTok)) {
+    text = text.split(legTok).join(`***${legTok.slice(-4)}`);
+  }
+  return text;
+}
+
 export function getVaqfBotSecret() {
   return (
     process.env.VAQF_BOT_SECRET ||
+    bffEnv.VAQF_BOT_SECRET ||
+    vaqfBotEnv.VAQF_BOT_SECRET ||
     botEnv.VAQF_BOT_SECRET ||
     platformEnv.VAQF_BOT_SECRET ||
     "vaqf_internal_bot_secret_2026"
@@ -169,7 +223,13 @@ export async function resolveTelegramIdsForRecipientRef(recipientRef) {
   if (!ref) return [];
 
   // Role-based broadcast targets
-  if (ref === "role:director" || ref === "director" || ref === "mezana") {
+  if (
+    ref === "role:director" ||
+    ref === "director" ||
+    ref === "mezana" ||
+    ref === "direktor@moliya.org" ||
+    ref === "director@moliy.org"
+  ) {
     const dirRes = await query(
       `SELECT DISTINCT tl."telegramId" AS tg_id
        FROM identity.telegram_links tl
@@ -576,11 +636,343 @@ function buildTelegramInlineKeyboardForOutbox(row) {
   return null;
 }
 
-async function defaultTelegramSender(chatId, htmlText, replyMarkup = null) {
-  const token = getTelegramBotToken();
-  if (!token) throw new Error("TELEGRAM_BOT_TOKEN mavjud emas");
+export async function recordVaqfBotStart(arg1 = {}, arg2 = null) {
+  let telegramId = null;
+  let username = null;
+  let fullName = null;
+  let lang = null;
+  if (typeof arg1 === "string" || typeof arg1 === "number") {
+    telegramId = String(arg1);
+    lang = arg2;
+  } else if (arg1 && typeof arg1 === "object") {
+    telegramId = arg1.telegramId || arg1.telegram_id;
+    username = arg1.username || null;
+    fullName = arg1.fullName || arg1.full_name || null;
+    lang = arg1.lang || null;
+  }
+  const tgId = String(telegramId || "").trim();
+  if (!tgId) return null;
+  const linked = await resolveLinkedUserByTelegramId(tgId);
+  const userRef = linked?.email || linked?.userId || null;
+  const resolvedName = fullName || linked?.displayName || null;
 
-  const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+  const res = await query(
+    `INSERT INTO vaqf.bot_chats (telegram_id, user_ref, username, full_name, lang, started_at, blocked_at, last_seen_at)
+     VALUES ($1, $2, $3, $4, COALESCE($5, 'uz'), NOW(), NULL, NOW())
+     ON CONFLICT (telegram_id) DO UPDATE
+       SET user_ref = COALESCE($2, vaqf.bot_chats.user_ref),
+           username = COALESCE($3, vaqf.bot_chats.username),
+           full_name = COALESCE($4, vaqf.bot_chats.full_name),
+           lang = COALESCE($5, vaqf.bot_chats.lang),
+           blocked_at = NULL,
+           last_seen_at = NOW()
+     RETURNING *`,
+    [tgId, userRef, username || null, resolvedName, lang === "tr" ? "tr" : lang === "uz" ? "uz" : null]
+  );
+  return {
+    chat: res.rows[0],
+    linked,
+  };
+}
+
+export async function markVaqfBotChatBlocked(telegramId) {
+  const tgId = String(telegramId || "").trim();
+  if (!tgId) return;
+  await query(
+    `INSERT INTO vaqf.bot_chats (telegram_id, started_at, blocked_at, last_seen_at)
+     VALUES ($1, NOW(), NOW(), NOW())
+     ON CONFLICT (telegram_id) DO UPDATE
+       SET blocked_at = NOW(),
+           last_seen_at = NOW()`,
+    [tgId]
+  );
+}
+
+export async function setVaqfBotChatLang(telegramId, lang = "uz") {
+  const tgId = String(telegramId || "").trim();
+  const safeLang = lang === "tr" ? "tr" : "uz";
+  const res = await query(
+    `INSERT INTO vaqf.bot_chats (telegram_id, lang, started_at, last_seen_at)
+     VALUES ($1, $2, NOW(), NOW())
+     ON CONFLICT (telegram_id) DO UPDATE
+       SET lang = $2,
+           last_seen_at = NOW()
+     RETURNING *`,
+    [tgId, safeLang]
+  );
+  return res.rows[0];
+}
+
+export async function getVaqfBotChatLang(telegramId) {
+  const tgId = String(telegramId || "").trim();
+  if (!tgId) return "uz";
+  const res = await query(`SELECT lang FROM vaqf.bot_chats WHERE telegram_id = $1 LIMIT 1`, [tgId]);
+  return res.rows[0]?.lang === "tr" ? "tr" : "uz";
+}
+
+export async function getVaqfBotChatInfo(telegramId) {
+  const tgId = String(telegramId || "").trim();
+  if (!tgId) return null;
+  const res = await query(`SELECT * FROM vaqf.bot_chats WHERE telegram_id = $1 LIMIT 1`, [tgId]);
+  return res.rows[0] || null;
+}
+
+export async function getVaqfBotStatusForWebUser(sess, accessContext) {
+  const botUsername = getVaqfBotUsername();
+  const botUrl = `https://t.me/${botUsername}`;
+  const candidateRefs = Array.from(extractSessionCandidateRefs(sess, accessContext));
+  let tgIds = [];
+  for (const ref of candidateRefs) {
+    const found = await resolveTelegramIdsForRecipientRef(ref);
+    for (const id of found) {
+      if (!tgIds.includes(id)) tgIds.push(id);
+    }
+  }
+  if (tgIds.length === 0) {
+    return {
+      isLinked: false,
+      telegram_linked: false,
+      telegramId: null,
+      telegram_id: null,
+      botStarted: false,
+      bot_started: false,
+      botBlocked: false,
+      bot_blocked: false,
+      botUsername,
+      bot_username: botUsername,
+      botUrl,
+      bot_url: botUrl,
+    };
+  }
+  const chatRes = await query(
+    `SELECT telegram_id, started_at, blocked_at, lang FROM vaqf.bot_chats WHERE telegram_id = ANY($1::text[]) ORDER BY last_seen_at DESC LIMIT 1`,
+    [tgIds]
+  );
+  const chatRow = chatRes.rows[0] || null;
+  const botStarted = Boolean(chatRow && !chatRow.blocked_at);
+  return {
+    isLinked: true,
+    telegram_linked: true,
+    telegramId: tgIds[0],
+    telegram_id: tgIds[0],
+    botStarted,
+    bot_started: botStarted,
+    botBlocked: Boolean(chatRow?.blocked_at),
+    bot_blocked: Boolean(chatRow?.blocked_at),
+    lang: chatRow?.lang || "uz",
+    botUsername,
+    bot_username: botUsername,
+    botUrl,
+    bot_url: botUrl,
+  };
+}
+
+export async function createVaqfTelegramLinkCode(sess, accessContext) {
+  const botUsername = getVaqfBotUsername();
+  const candidateRefs = Array.from(extractSessionCandidateRefs(sess, accessContext));
+  let identityUserId = sess?.erpUser?.id || sess?.user?.id || null;
+
+  if (!identityUserId || String(identityUserId).startsWith("crm:")) {
+    const uRes = await query(
+      `SELECT u.id
+       FROM identity."User" u
+       LEFT JOIN people."Employee" e ON e."userId" = u.id AND e."deletedAt" IS NULL
+       WHERE LOWER(u.id) = ANY($1::text[])
+          OR LOWER(COALESCE(u.email, '')) = ANY($1::text[])
+          OR LOWER(COALESCE(e.username, '')) = ANY($1::text[])
+       LIMIT 1`,
+      [candidateRefs]
+    );
+    identityUserId = uRes.rows[0]?.id || null;
+  }
+
+  if (!identityUserId && sess?.crmUser?.role === "root") {
+    identityUserId = "cmtlai0bg000ipir95hv9hfez";
+  }
+  if (!identityUserId) {
+    throw httpError(400, "Bog'lash kodi yaratish uchun foydalanuvchi profili topilmadi");
+  }
+
+  const code = crypto.randomBytes(5).toString("hex").toUpperCase();
+  const id = `vaqflnk_${Date.now()}_${crypto.randomBytes(3).toString("hex")}`;
+
+  const ins = await query(
+    `INSERT INTO identity.telegram_link_codes (id, code, "userId", "expiresAt", "usedAt", "createdAt")
+     VALUES ($1, $2, $3, NOW() + INTERVAL '10 minutes', NULL, NOW())
+     RETURNING code, "expiresAt"`,
+    [id, code, identityUserId]
+  );
+
+  const deepLink = `https://t.me/${botUsername}?start=link_${ins.rows[0].code}`;
+  return {
+    code: ins.rows[0].code,
+    expiresAt: ins.rows[0].expiresAt,
+    expires_at: ins.rows[0].expiresAt,
+    expiresInMinutes: 10,
+    botUsername,
+    bot_username: botUsername,
+    deepLink,
+    deep_link: deepLink,
+  };
+}
+
+export async function redeemVaqfTelegramLinkCode(arg1 = {}, arg2 = null, arg3 = {}) {
+  let code = null;
+  let telegramId = null;
+  let telegramUsername = null;
+  let fullName = null;
+  if (typeof arg1 === "string" || typeof arg1 === "number") {
+    telegramId = String(arg1);
+    code = arg2;
+    telegramUsername = arg3?.username || arg3?.telegramUsername || null;
+    fullName = arg3?.fullName || [arg3?.first_name, arg3?.last_name].filter(Boolean).join(" ") || null;
+  } else if (arg1 && typeof arg1 === "object") {
+    code = arg1.code;
+    telegramId = arg1.telegramId || arg1.telegram_id;
+    telegramUsername = arg1.telegramUsername || arg1.username || null;
+    fullName = arg1.fullName || arg1.full_name || null;
+  }
+  const rawCode = String(code || "")
+    .trim()
+    .replace(/^link_/i, "")
+    .toUpperCase();
+  const tgId = String(telegramId || "").trim();
+  if (!rawCode || !tgId) {
+    throw httpError(400, "Bog'lash kodi va Telegram ID kiritilishi shart");
+  }
+
+  return withTransaction(async (tx) => {
+    const cRes = await tx.query(
+      `SELECT id, code, "userId", "expiresAt", "usedAt",
+              ("expiresAt" < NOW()) AS is_expired
+       FROM identity.telegram_link_codes
+       WHERE UPPER(code) = $1
+       FOR UPDATE`,
+      [rawCode]
+    );
+    const row = cRes.rows[0];
+    if (!row) {
+      throw httpError(404, "Bog'lash kodi topilmadi");
+    }
+    if (row.usedAt) {
+      throw httpError(400, "Ushbu bog'lash kodi allaqachon ishlatilgan (bir martalik kod)");
+    }
+    if (row.is_expired) {
+      throw httpError(400, "Bog'lash kodining amal qilish muddati (10 daqiqa) tugagan");
+    }
+
+    await tx.query(`UPDATE identity.telegram_link_codes SET "usedAt" = NOW() WHERE id = $1`, [row.id]);
+
+    // Remove previous link for this userId or telegramId so 1-to-1 link stays clean
+    await tx.query(`DELETE FROM identity.telegram_links WHERE "userId" = $1 OR "telegramId" = $2`, [
+      row.userId,
+      tgId,
+    ]);
+    await tx.query(
+      `INSERT INTO identity.telegram_links (id, "userId", "telegramId", "telegramUsername", "linkedAt")
+       VALUES ($1, $2, $3, $4, NOW())`,
+      [`tglink_vaqf_${Date.now()}_${tgId}`, row.userId, tgId, telegramUsername || null]
+    );
+
+    await tx.query(
+      `INSERT INTO vaqf.bot_chats (telegram_id, user_ref, username, full_name, started_at, blocked_at, last_seen_at)
+       VALUES ($1, $2, $3, $4, NOW(), NULL, NOW())
+       ON CONFLICT (telegram_id) DO UPDATE
+         SET user_ref = $2,
+             username = COALESCE($3, vaqf.bot_chats.username),
+             full_name = COALESCE($4, vaqf.bot_chats.full_name),
+             blocked_at = NULL,
+             last_seen_at = NOW()`,
+      [tgId, row.userId, telegramUsername || null, fullName || null]
+    );
+
+    return {
+      ok: true,
+      linked: true,
+      userId: row.userId,
+      user_ref: row.userId,
+      telegramId: tgId,
+    };
+  });
+}
+
+export async function sendOneTimeBotMigrationNotice({ sender = null } = {}) {
+  const botUsername = getVaqfBotUsername();
+  const legacyToken = getLegacyMezanaBotToken();
+
+  // Gather all Vaqf users (director, user_roles, and employees with active assignments) who have linked Telegram IDs
+  const refs = new Set(["role:director"]);
+  const rolesRes = await query(`SELECT DISTINCT user_ref FROM vaqf.user_roles`);
+  for (const r of rolesRes.rows) {
+    if (r.user_ref) refs.add(r.user_ref);
+  }
+  const assignRes = await query(
+    `SELECT DISTINCT person_ref FROM vaqf.assignments WHERE returned_at IS NULL AND person_ref IS NOT NULL`
+  );
+  for (const r of assignRes.rows) {
+    if (r.person_ref) refs.add(r.person_ref);
+  }
+
+  const targetTgIds = new Set();
+  for (const ref of refs) {
+    const ids = await resolveTelegramIdsForRecipientRef(ref);
+    for (const id of ids) targetTgIds.add(String(id));
+  }
+
+  const notified = [];
+  const skipped = [];
+
+  for (const tgId of targetTgIds) {
+    const chRes = await query(`SELECT migration_notified_at FROM vaqf.bot_chats WHERE telegram_id = $1`, [tgId]);
+    if (chRes.rows[0]?.migration_notified_at) {
+      skipped.push(tgId);
+      continue;
+    }
+
+    const html =
+      `🏛 <b>Ezan Vakfı — Muhim xabar!</b>\n\n` +
+      `Vaqf xabarlari, buyumlar zimmati, QR skanerlash va tasdiqlar endi alohida <b>@${botUsername}</b> boti orqali ishlaydi.\n\n` +
+      `Iltimos, yangi botni ochib <b>/start</b> tugmasini bosing (qayta kod kiritish shart emas, bog'lanishingiz tayyor).`;
+    const replyMarkup = {
+      inline_keyboard: [[{ text: `🏛 @${botUsername} ni ochish`, url: `https://t.me/${botUsername}?start=welcome` }]],
+    };
+
+    try {
+      if (sender) {
+        await sender(tgId, html, replyMarkup);
+      } else if (legacyToken) {
+        await fetch(`https://api.telegram.org/bot${legacyToken}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: tgId,
+            text: html,
+            parse_mode: "HTML",
+            reply_markup: replyMarkup,
+          }),
+        });
+      }
+      await query(
+        `INSERT INTO vaqf.bot_chats (telegram_id, started_at, last_seen_at, migration_notified_at)
+         VALUES ($1, NOW(), NOW(), NOW())
+         ON CONFLICT (telegram_id) DO UPDATE SET migration_notified_at = NOW()`,
+        [tgId]
+      );
+      notified.push(tgId);
+    } catch {
+      skipped.push(tgId);
+    }
+  }
+
+  return { botUsername, notifiedCount: notified.length, notified, skipped };
+}
+
+async function defaultTelegramSender(chatId, htmlText, replyMarkup = null, fetchImpl = null) {
+  const token = getVaqfTelegramBotToken();
+  if (!token) throw new Error("VAQF_TELEGRAM_BOT_TOKEN mavjud emas");
+
+  const doFetch = fetchImpl || fetch;
+  const r = await doFetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -590,11 +982,17 @@ async function defaultTelegramSender(chatId, htmlText, replyMarkup = null) {
       ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
     }),
   });
-  const j = await r.json();
+  const j = await r.json().catch(() => ({}));
   if (!r.ok || !j?.ok) {
-    throw new Error(j?.description || `Telegram HTTP ${r.status}`);
+    const err = new Error(sanitizeSecretFromText(j?.description || `Telegram HTTP ${r.status}`));
+    err.status = r.status || j?.error_code || 500;
+    throw err;
   }
-  return { messageId: Number(j.result?.message_id || 0), chatId: String(chatId) };
+  return {
+    messageId: Number(j.result?.message_id || 0),
+    chatId: String(chatId),
+    tokenMasked: maskBotToken(token),
+  };
 }
 
 let customOutboxSender = null;
@@ -604,16 +1002,24 @@ export function setCustomOutboxSenderForTest(fn) {
 
 /**
  * Outbox worker processor: processes pending rows in `vaqf.notifications_outbox`.
- * Retries up to 5 times on failure, then marks `failed`.
- * Marks `skipped` if recipient has no linked Telegram account.
+ * - Sends ONLY with `VAQF_TELEGRAM_BOT_TOKEN` (@ezanvakfitizimbot).
+ * - If user has not started the Vaqf bot (`vaqf.bot_chats`), marks `skipped` (`skip_reason = 'bot_not_started'`, `last_error = 'bot_not_started'`).
+ * - If bot is blocked (HTTP 403), sets `vaqf.bot_chats.blocked_at = NOW()` and stops retrying (`status = 'failed'`).
+ * - Retries transient errors up to 5 times, then marks `failed`.
  */
 export async function processOutboxBatch({
   limit = 20,
   forceSendQuietHours = false,
+  forceIgnoreQuietHours = false,
   now = new Date(),
   sender = null,
+  fetchImpl = null,
 } = {}) {
-  const sendFn = sender || customOutboxSender || defaultTelegramSender;
+  const ignoreQuietHours = Boolean(forceSendQuietHours || forceIgnoreQuietHours);
+  const sendFn =
+    sender ||
+    customOutboxSender ||
+    ((chatId, htmlText, replyMarkup) => defaultTelegramSender(chatId, htmlText, replyMarkup, fetchImpl));
   const pendingRes = await query(
     `SELECT * FROM vaqf.notifications_outbox
      WHERE status = 'pending' AND next_attempt_at <= $1
@@ -631,7 +1037,9 @@ export async function processOutboxBatch({
     if (!enabledList.includes("*") && !enabledList.includes(row.event_type)) {
       await query(
         `UPDATE vaqf.notifications_outbox
-         SET status = 'skipped', last_error = 'Foydalanuvchi ushbu xabar turini o''chirib qo''ygan'
+         SET status = 'skipped',
+             skip_reason = 'user_disabled_event',
+             last_error = 'Foydalanuvchi ushbu xabar turini o''chirib qo''ygan'
          WHERE id = $1`,
         [row.id]
       );
@@ -641,12 +1049,11 @@ export async function processOutboxBatch({
 
     const isUrgent = Boolean(row.payload?.urgent);
     if (
-      !forceSendQuietHours &&
+      !ignoreQuietHours &&
       !isUrgent &&
       prefs.quiet_hours_enabled &&
       isWithinIstanbulQuietHours(now, prefs.quiet_start, prefs.quiet_end)
     ) {
-      // Defer by 30 minutes until quiet hours end
       await query(
         `UPDATE vaqf.notifications_outbox
          SET next_attempt_at = NOW() + INTERVAL '30 minutes'
@@ -661,11 +1068,56 @@ export async function processOutboxBatch({
     if (!tgIds || tgIds.length === 0) {
       await query(
         `UPDATE vaqf.notifications_outbox
-         SET status = 'skipped', last_error = 'Telegram bog''lanmagan'
+         SET status = 'skipped',
+             skip_reason = 'telegram_not_linked',
+             last_error = 'Telegram bog''lanmagan'
          WHERE id = $1`,
         [row.id]
       );
       stats.skipped += 1;
+      continue;
+    }
+
+    // Check vaqf.bot_chats for whether the recipient has /start'ed the dedicated Vaqf bot or blocked it
+    const chatRowsRes = await query(
+      `SELECT telegram_id, started_at, blocked_at FROM vaqf.bot_chats WHERE telegram_id = ANY($1::text[])`,
+      [tgIds]
+    );
+    const chatMap = new Map(chatRowsRes.rows.map((r) => [String(r.telegram_id), r]));
+    const activeTgIds = [];
+    let anyBlocked = false;
+    for (const id of tgIds) {
+      const ch = chatMap.get(String(id));
+      if (!ch) continue;
+      if (ch.blocked_at) {
+        anyBlocked = true;
+        continue;
+      }
+      activeTgIds.push(String(id));
+    }
+
+    if (activeTgIds.length === 0) {
+      if (anyBlocked) {
+        await query(
+          `UPDATE vaqf.notifications_outbox
+           SET status = 'failed',
+               skip_reason = 'bot_blocked',
+               last_error = 'bot_blocked'
+           WHERE id = $1`,
+          [row.id]
+        );
+        stats.failed += 1;
+      } else {
+        await query(
+          `UPDATE vaqf.notifications_outbox
+           SET status = 'skipped',
+               skip_reason = 'bot_not_started',
+               last_error = 'bot_not_started'
+           WHERE id = $1`,
+          [row.id]
+        );
+        stats.skipped += 1;
+      }
       continue;
     }
 
@@ -675,11 +1127,25 @@ export async function processOutboxBatch({
     try {
       let firstMsgId = null;
       let firstChatId = null;
-      for (const chatId of tgIds) {
-        const sent = await sendFn(chatId, htmlText, replyMarkup);
-        if (!firstMsgId && sent?.messageId) {
-          firstMsgId = sent.messageId;
-          firstChatId = String(chatId);
+      for (const chatId of activeTgIds) {
+        try {
+          const sent = await sendFn(chatId, htmlText, replyMarkup);
+          if (!firstMsgId && sent?.messageId) {
+            firstMsgId = sent.messageId;
+            firstChatId = String(chatId);
+          }
+        } catch (sendErr) {
+          const errStr = sanitizeSecretFromText(sendErr?.message || sendErr || "");
+          const isBlocked403 =
+            Number(sendErr?.status) === 403 ||
+            /403|forbidden|blocked by the user|user is deactivated/i.test(errStr);
+          if (isBlocked403) {
+            await markVaqfBotChatBlocked(chatId);
+            const blockedErr = new Error(`403 Forbidden: bot_blocked (${chatId})`);
+            blockedErr.isBlocked403 = true;
+            throw blockedErr;
+          }
+          throw sendErr;
         }
       }
       await query(
@@ -690,23 +1156,26 @@ export async function processOutboxBatch({
              recipient_telegram_id = $1,
              telegram_chat_id = $1,
              telegram_message_id = $2,
+             skip_reason = NULL,
              last_error = NULL
          WHERE id = $3`,
-        [firstChatId || tgIds[0], firstMsgId || null, row.id]
+        [firstChatId || activeTgIds[0], firstMsgId || null, row.id]
       );
       stats.sent += 1;
     } catch (err) {
       const nextAttempts = Number(row.attempts || 0) + 1;
-      const nextStatus = nextAttempts >= 5 ? "failed" : "pending";
-      const errMsg = String(err?.message || err || "Telegram send error").slice(0, 500);
+      const isBlocked = Boolean(err?.isBlocked403) || /403|forbidden|bot_blocked/i.test(String(err?.message || ""));
+      const nextStatus = isBlocked || nextAttempts >= 5 ? "failed" : "pending";
+      const errMsg = sanitizeSecretFromText(err?.message || err || "Telegram send error").slice(0, 500);
       await query(
         `UPDATE vaqf.notifications_outbox
          SET status = $1::varchar,
              attempts = $2,
+             skip_reason = CASE WHEN $5::boolean THEN 'bot_blocked' ELSE skip_reason END,
              last_error = $3,
              next_attempt_at = CASE WHEN $1::varchar = 'pending' THEN NOW() + INTERVAL '10 seconds' ELSE next_attempt_at END
          WHERE id = $4`,
-        [nextStatus, nextAttempts, errMsg, row.id]
+        [nextStatus, nextAttempts, errMsg, row.id, isBlocked]
       );
       if (nextStatus === "failed") stats.failed += 1;
       else stats.retried += 1;
