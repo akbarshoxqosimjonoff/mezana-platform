@@ -32,6 +32,25 @@ import {
   X,
 } from "lucide-react";
 import { DirectorInventoryCountsSection, MobileCountScannerPage } from "./InventoryCountModule";
+import {
+  NewDocumentModal,
+  DocumentsAndApprovalsSection,
+  MyAssetsSection,
+  FaultsAndOffboardingSection,
+  LifecycleReportsSection,
+  RolesAndSettingsSection,
+  DOC_TYPE_META,
+  DOC_STATUS_META,
+  ROLE_META,
+} from "./LifecycleModule";
+import {
+  FileText,
+  PackageCheck,
+  ShieldCheck,
+  UserCheck,
+  UserMinus,
+  Wrench,
+} from "lucide-react";
 
 type VaqfPage =
   | "dashboard"
@@ -40,6 +59,12 @@ type VaqfPage =
   | "new_asset"
   | "counts"
   | "mobile_count"
+  | "documents"
+  | "approvals"
+  | "my_assets"
+  | "faults_offboarding"
+  | "reports"
+  | "roles_settings"
   | "locations"
   | "categories"
   | "import"
@@ -85,6 +110,13 @@ const EVENT_LABELS: Record<string, string> = {
   document_added: "Hujjat biriktirildi",
   deleted: "Yumshoq o'chirildi",
   imported: "Excel/CSV orqali import qilindi",
+  assigned: "Zimmatga berildi (ZMT)",
+  returned: "Zimmatdan qaytarib olindi (QYT)",
+  transferred: "Joylashuvi ko'chirildi (KCH)",
+  repair_sent: "Ta'mirga yuborildi (TMR)",
+  repair_completed: "Ta'mirdan qaytdi (TMR)",
+  written_off: "Hisobdan chiqarildi (HCH)",
+  fault_reported: "Nosozlik haqida xabar berildi",
 };
 
 const fmtTRY = (val: number | string | null | undefined) => {
@@ -186,6 +218,7 @@ export function App() {
   const [editMode, setEditMode] = useState(false);
   const [editForm, setEditForm] = useState<any>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
+  const [quickDocModalType, setQuickDocModalType] = useState<string | null>(null);
 
   // Quick Add New Asset Form (remembers last location & responsible person)
   const [newForm, setNewForm] = useState<any>(() => ({
@@ -374,6 +407,9 @@ export function App() {
             const catRes = await apiFetch("/vaqf-api/categories");
             setCategories(catRes.items || []);
           } catch {}
+          if (me.vaqfAccess?.canAccess && !me.vaqfAccess?.canCount) {
+            setPage("my_assets");
+          }
         }
         await parseUrlRoute(me);
       } catch (err: any) {
@@ -831,51 +867,92 @@ export function App() {
           </select>
         </div>
 
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4 }}>
-          <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--text-muted)", padding: "6px 10px 4px", letterSpacing: "0.06em" }}>
-            INVENTARIZATSIYA
-          </div>
-          <button className={`nav-btn ${page === "dashboard" ? "active" : ""}`} onClick={() => navigatePage("dashboard")}>
-            <PieChart size={17} /> Bosh sahifa
-          </button>
-          <button
-            className={`nav-btn ${page === "assets" || page === "asset_detail" ? "active" : ""}`}
-            onClick={() => navigatePage("assets")}
-          >
-            <Layers size={17} /> Mulk ro'yxati
-            <span className="nav-badge badge-amber">{tot.total_cards || assetsData.total || 0}</span>
-          </button>
-          <button className={`nav-btn ${page === "new_asset" ? "active" : ""}`} onClick={() => navigatePage("new_asset")}>
-            <Plus size={17} /> Yangi buyum qo'shish
-          </button>
-          <button className={`nav-btn ${page === "counts" ? "active" : ""}`} onClick={() => navigatePage("counts")}>
-            <ClipboardCheck size={17} /> Inventarizatsiya (Sanoq)
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4, overflowY: "auto" }}>
+          {auth.vaqfAccess?.canView && (
+            <>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--text-muted)", padding: "6px 10px 4px", letterSpacing: "0.06em" }}>
+                INVENTARIZATSIYA
+              </div>
+              <button className={`nav-btn ${page === "dashboard" ? "active" : ""}`} onClick={() => navigatePage("dashboard")}>
+                <PieChart size={17} /> Bosh sahifa
+              </button>
+              <button
+                className={`nav-btn ${page === "assets" || page === "asset_detail" ? "active" : ""}`}
+                onClick={() => navigatePage("assets")}
+              >
+                <Layers size={17} /> Mulk ro'yxati
+                <span className="nav-badge badge-amber">{tot.total_cards || assetsData.total || 0}</span>
+              </button>
+              {auth.vaqfAccess?.canEdit && (
+                <button className={`nav-btn ${page === "new_asset" ? "active" : ""}`} onClick={() => navigatePage("new_asset")}>
+                  <Plus size={17} /> Yangi buyum qo'shish
+                </button>
+              )}
+              <button className={`nav-btn ${page === "counts" ? "active" : ""}`} onClick={() => navigatePage("counts")}>
+                <ClipboardCheck size={17} /> Inventarizatsiya (Sanoq)
+              </button>
+
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--text-muted)", padding: "12px 10px 4px", letterSpacing: "0.06em" }}>
+                MULK HARAKATI VA ZIMMAT
+              </div>
+              <button className={`nav-btn ${page === "documents" ? "active" : ""}`} onClick={() => navigatePage("documents")}>
+                <FileText size={17} /> Hujjatlar (Dalolatnoma)
+              </button>
+              {auth.vaqfAccess?.canApprove && (
+                <button className={`nav-btn ${page === "approvals" ? "active" : ""}`} onClick={() => navigatePage("approvals")}>
+                  <ShieldCheck size={17} /> Tasdiqlar (Direktor)
+                </button>
+              )}
+              <button className={`nav-btn ${page === "faults_offboarding" ? "active" : ""}`} onClick={() => navigatePage("faults_offboarding")}>
+                <Wrench size={17} /> Nosozlik va Zimmat yopish
+              </button>
+              <button className={`nav-btn ${page === "reports" ? "active" : ""}`} onClick={() => navigatePage("reports")}>
+                <Activity size={17} /> Hisobotlar (Zimmat/Zarar)
+              </button>
+            </>
+          )}
+
+          <button className={`nav-btn ${page === "my_assets" ? "active" : ""}`} onClick={() => navigatePage("my_assets")}>
+            <UserCheck size={17} /> Mening buyumlarim
           </button>
 
-          <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--text-muted)", padding: "12px 10px 4px", letterSpacing: "0.06em" }}>
-            TUZILMA VA SOZLAMALAR
-          </div>
-          <button className={`nav-btn ${page === "locations" ? "active" : ""}`} onClick={() => navigatePage("locations")}>
-            <Building2 size={17} /> Joylar va xonalar
-            <span className="nav-badge badge-cyan">{locations.length}</span>
-          </button>
-          <button className={`nav-btn ${page === "categories" ? "active" : ""}`} onClick={() => navigatePage("categories")}>
-            <Filter size={17} /> Kategoriyalar
-            <span className="nav-badge badge-slate">{categories.length}</span>
-          </button>
-          <button className={`nav-btn ${page === "import" ? "active" : ""}`} onClick={() => navigatePage("import")}>
-            <FileSpreadsheet size={17} /> Excel / CSV Import
-          </button>
-          <button className={`nav-btn ${page === "labels" ? "active" : ""}`} onClick={() => navigatePage("labels")}>
-            <Download size={17} /> QR Yorliqlar (PDF)
-            {selectedIds.length > 0 && <span className="nav-badge badge-emerald">{selectedIds.length}</span>}
-          </button>
+          {auth.vaqfAccess?.canView && (
+            <>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--text-muted)", padding: "12px 10px 4px", letterSpacing: "0.06em" }}>
+                TUZILMA VA SOZLAMALAR
+              </div>
+              <button className={`nav-btn ${page === "locations" ? "active" : ""}`} onClick={() => navigatePage("locations")}>
+                <Building2 size={17} /> Joylar va xonalar
+                <span className="nav-badge badge-cyan">{locations.length}</span>
+              </button>
+              <button className={`nav-btn ${page === "categories" ? "active" : ""}`} onClick={() => navigatePage("categories")}>
+                <Filter size={17} /> Kategoriyalar
+                <span className="nav-badge badge-slate">{categories.length}</span>
+              </button>
+              {auth.vaqfAccess?.canEdit && (
+                <button className={`nav-btn ${page === "import" ? "active" : ""}`} onClick={() => navigatePage("import")}>
+                  <FileSpreadsheet size={17} /> Excel / CSV Import
+                </button>
+              )}
+              <button className={`nav-btn ${page === "labels" ? "active" : ""}`} onClick={() => navigatePage("labels")}>
+                <Download size={17} /> QR Yorliqlar (PDF)
+                {selectedIds.length > 0 && <span className="nav-badge badge-emerald">{selectedIds.length}</span>}
+              </button>
+              {auth.vaqfAccess?.canManageRoles && (
+                <button className={`nav-btn ${page === "roles_settings" ? "active" : ""}`} onClick={() => navigatePage("roles_settings")}>
+                  <Settings size={17} /> Rollar va Sozlamalar
+                </button>
+              )}
+            </>
+          )}
         </div>
 
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 10, borderTop: "1px solid var(--border-subtle)" }}>
           <div style={{ fontSize: 12.5 }}>
-            <div style={{ fontWeight: 700 }}>{auth.user?.sourceLabel || auth.user?.name || "Direktor"}</div>
-            <div style={{ color: "#fbcc42", fontSize: 11 }}>Ezan Vakfı Boshqaruvi</div>
+            <div style={{ fontWeight: 700 }}>{auth.user?.sourceLabel || auth.user?.name || "Foydalanuvchi"}</div>
+            <div style={{ color: "#fbcc42", fontSize: 11 }}>
+              {ROLE_META[auth.vaqfAccess?.role || ""]?.label || "Ezan Vakfı"}
+            </div>
           </div>
           <a href="/" className="btn btn-sm" style={{ textDecoration: "none" }} title="Mezana Akademiyasiga qaytish">
             <ArrowLeft size={14} />
@@ -1579,14 +1656,35 @@ export function App() {
                   <button className="btn btn-sm btn-cyan" onClick={() => openLabelsPdf([activeAsset.id])}>
                     <Download size={14} /> QR Yorliq chop etish
                   </button>
-                  {!editMode && (
+                  {auth.vaqfAccess?.canEdit && activeAsset.status !== "written_off" && (
+                    <>
+                      <button className="btn btn-sm" style={{ borderColor: "#10b981", color: "#10b981" }} onClick={() => setQuickDocModalType("assignment")}>
+                        👤 Zimmatga berish
+                      </button>
+                      <button className="btn btn-sm" style={{ borderColor: "#06b6d4", color: "#06b6d4" }} onClick={() => setQuickDocModalType("return")}>
+                        ↩️ Qaytarib olish
+                      </button>
+                      <button className="btn btn-sm" style={{ borderColor: "#a855f7", color: "#a855f7" }} onClick={() => setQuickDocModalType("transfer")}>
+                        🚚 Ko'chirish
+                      </button>
+                      <button className="btn btn-sm" style={{ borderColor: "#f59e0b", color: "#f59e0b" }} onClick={() => setQuickDocModalType("repair")}>
+                        🔧 Ta'mirga berish
+                      </button>
+                      <button className="btn btn-sm" style={{ borderColor: "#f43f5e", color: "#f43f5e" }} onClick={() => setQuickDocModalType("writeoff")}>
+                        🗑️ Hisobdan chiqarish so'rovi
+                      </button>
+                    </>
+                  )}
+                  {!editMode && auth.vaqfAccess?.canEdit && (
                     <button className="btn btn-sm btn-primary" onClick={startEditingAsset}>
                       <Edit3 size={14} /> Tahrirlash
                     </button>
                   )}
-                  <button className="btn btn-sm btn-danger" onClick={() => handleDeleteAsset(activeAsset)}>
-                    <Trash2 size={14} /> O'chirish
-                  </button>
+                  {auth.vaqfAccess?.canEdit && (
+                    <button className="btn btn-sm btn-danger" onClick={() => handleDeleteAsset(activeAsset)}>
+                      <Trash2 size={14} /> O'chirish
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1827,55 +1925,128 @@ export function App() {
                     </div>
                   </div>
 
-                  {/* Right: Asset Events History */}
-                  <div className="glass-card">
-                    <div className="section-header">
-                      <div className="section-title">
-                        <History size={18} color="#10b981" /> Buyum tarixi (Audit log)
+                    {/* Right: Asset Events History & Lifecycle Documents */}
+                    <div className="glass-card">
+                      {(activeAsset.lifecycle_documents || []).length > 0 && (
+                        <div style={{ marginBottom: 18 }}>
+                          <div className="section-header" style={{ marginBottom: 10 }}>
+                            <div className="section-title">
+                              <FileText size={18} color="#fbcc42" /> Rasmiy dalolatnomalar ({activeAsset.lifecycle_documents.length})
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                            {activeAsset.lifecycle_documents.map((ld: any) => (
+                              <div
+                                key={ld.id}
+                                style={{
+                                  padding: "10px 12px",
+                                  borderRadius: 10,
+                                  background: "rgba(15,23,42,0.5)",
+                                  border: "1px solid var(--border-subtle)",
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  alignItems: "center",
+                                  flexWrap: "wrap",
+                                  gap: 8,
+                                }}
+                              >
+                                <div>
+                                  <span style={{ fontFamily: "monospace", color: "#fbcc42", fontWeight: 800, marginRight: 8 }}>
+                                    {ld.doc_no}
+                                  </span>
+                                  <span className={`badge ${DOC_TYPE_META[ld.type]?.badge || "badge-slate"}`}>
+                                    {DOC_TYPE_META[ld.type]?.label || ld.type}
+                                  </span>
+                                  <span className={`badge ${DOC_STATUS_META[ld.status]?.badge || "badge-slate"}`} style={{ marginLeft: 6 }}>
+                                    {DOC_STATUS_META[ld.status]?.label || ld.status}
+                                  </span>
+                                </div>
+                                <div style={{ display: "flex", gap: 6 }}>
+                                  <a
+                                    href={`/vaqf-api/documents/${ld.id}/pdf?lang=tr`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="btn btn-sm btn-cyan"
+                                    style={{ textDecoration: "none" }}
+                                  >
+                                    TR PDF
+                                  </a>
+                                  <a
+                                    href={`/vaqf-api/documents/${ld.id}/pdf?lang=uz`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="btn btn-sm"
+                                    style={{ textDecoration: "none" }}
+                                  >
+                                    UZ PDF
+                                  </a>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="section-header">
+                        <div className="section-title">
+                          <History size={18} color="#10b981" /> Buyum tarixi (Audit log)
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        {(activeAsset.events || []).map((ev: any) => (
+                          <div
+                            key={ev.id}
+                            style={{
+                              padding: 12,
+                              borderRadius: 10,
+                              background: "rgba(15,23,42,0.4)",
+                              border: "1px solid var(--border-subtle)",
+                            }}
+                          >
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, flexWrap: "wrap", gap: 6 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                <strong style={{ fontSize: 13, color: "#fbcc42" }}>
+                                  {EVENT_LABELS[ev.event_type] || ev.event_type}
+                                </strong>
+                                {ev.doc_no && ev.pdf_url && (
+                                  <a
+                                    href={`${ev.pdf_url}?lang=tr`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="badge badge-cyan"
+                                    style={{ textDecoration: "none", fontFamily: "monospace" }}
+                                  >
+                                    📄 {ev.doc_no} (PDF)
+                                  </a>
+                                )}
+                              </div>
+                              <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
+                                {new Date(ev.created_at).toLocaleString("uz-UZ")}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>
+                              Bajaruvchi: <strong>{ev.actor_name || ev.actor_id || "Tizim"}</strong>
+                              {ev.note ? ` — ${ev.note}` : ""}
+                            </div>
+                            {(ev.old_value || ev.new_value) && (
+                              <pre
+                                style={{
+                                  marginTop: 6,
+                                  padding: 8,
+                                  borderRadius: 6,
+                                  background: "rgba(0,0,0,0.25)",
+                                  fontSize: 11,
+                                  color: "var(--text-secondary)",
+                                  overflowX: "auto",
+                                }}
+                              >
+                                {JSON.stringify({ old: ev.old_value, new: ev.new_value }, null, 2)}
+                              </pre>
+                            )}
+                          </div>
+                        ))}
                       </div>
                     </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                      {(activeAsset.events || []).map((ev: any) => (
-                        <div
-                          key={ev.id}
-                          style={{
-                            padding: 12,
-                            borderRadius: 10,
-                            background: "rgba(15,23,42,0.4)",
-                            border: "1px solid var(--border-subtle)",
-                          }}
-                        >
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                            <strong style={{ fontSize: 13, color: "#fbcc42" }}>
-                              {EVENT_LABELS[ev.event_type] || ev.event_type}
-                            </strong>
-                            <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
-                              {new Date(ev.created_at).toLocaleString("uz-UZ")}
-                            </span>
-                          </div>
-                          <div style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>
-                            Bajaruvchi: <strong>{ev.actor_name || ev.actor_id || "Tizim"}</strong>
-                            {ev.note ? ` — ${ev.note}` : ""}
-                          </div>
-                          {(ev.old_value || ev.new_value) && (
-                            <pre
-                              style={{
-                                marginTop: 6,
-                                padding: 8,
-                                borderRadius: 6,
-                                background: "rgba(0,0,0,0.25)",
-                                fontSize: 11,
-                                color: "var(--text-secondary)",
-                                overflowX: "auto",
-                              }}
-                            >
-                              {JSON.stringify({ old: ev.old_value, new: ev.new_value }, null, 2)}
-                            </pre>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
                 </div>
               ) : (
                 /* Edit Form */
@@ -3073,6 +3244,73 @@ export function App() {
                 setMobileCountId(cId);
                 setPage("mobile_count");
                 window.history.pushState({}, "", `/vaqf/count/${cId}`);
+              }}
+            />
+          )}
+
+          {page === "documents" && (
+            <DocumentsAndApprovalsSection
+              mode="documents"
+              institutionId={selectedInstitutionId}
+              institutions={institutions}
+              flatLocations={flatLocationOptions}
+              staffList={staffList}
+              vAccess={auth.vaqfAccess}
+              notify={notify}
+              onOpenAsset={openAssetCard}
+            />
+          )}
+
+          {page === "approvals" && (
+            <DocumentsAndApprovalsSection
+              mode="approvals"
+              institutionId={selectedInstitutionId}
+              institutions={institutions}
+              flatLocations={flatLocationOptions}
+              staffList={staffList}
+              vAccess={auth.vaqfAccess}
+              notify={notify}
+              onOpenAsset={openAssetCard}
+            />
+          )}
+
+          {page === "my_assets" && <MyAssetsSection notify={notify} />}
+
+          {page === "faults_offboarding" && (
+            <FaultsAndOffboardingSection
+              institutionId={selectedInstitutionId}
+              institutions={institutions}
+              flatLocations={flatLocationOptions}
+              staffList={staffList}
+              notify={notify}
+            />
+          )}
+
+          {page === "reports" && (
+            <LifecycleReportsSection institutionId={selectedInstitutionId} notify={notify} />
+          )}
+
+          {page === "roles_settings" && (
+            <RolesAndSettingsSection institutions={institutions} notify={notify} />
+          )}
+
+          {quickDocModalType && activeAsset && (
+            <NewDocumentModal
+              open={true}
+              onClose={() => setQuickDocModalType(null)}
+              initialType={quickDocModalType}
+              initialAssets={[activeAsset]}
+              initialFromPersonRef={activeAsset.responsible_ref || ""}
+              initialFromPersonName={activeAsset.responsible_name || ""}
+              institutionId={selectedInstitutionId}
+              institutions={institutions}
+              flatLocations={flatLocationOptions}
+              staffList={staffList}
+              notify={notify}
+              onCreated={async () => {
+                await openAssetCard(activeAsset.id);
+                loadAssets().catch(() => {});
+                loadSummary().catch(() => {});
               }}
             />
           )}
