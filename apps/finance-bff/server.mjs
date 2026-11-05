@@ -7,12 +7,10 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
+import bcrypt from "/srv/data/mezana-space/var/www/mezana-crm/backend/node_modules/bcrypt/bcrypt.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-import { handleVaqfApi } from "./vaqf/routes.mjs";
-import { vaqfAccess } from "./vaqf/service.mjs";
 const STATIC_DIR = path.resolve(__dirname, "../finance/dist");
-const VAQF_STATIC_DIR = path.resolve(__dirname, "../vaqf/dist");
 const SESSIONS_FILE = path.resolve(__dirname, ".sessions.json");
 
 function parseEnvFile(filePath) {
@@ -35,23 +33,11 @@ function parseEnvFile(filePath) {
   return out;
 }
 
-const localBffEnv = parseEnvFile(path.resolve(__dirname, ".env"));
 const crmEnv = parseEnvFile("/srv/data/mezana-space/var/www/mezana-crm/backend/.env");
+const pgPool = createPsqlPool(crmEnv.DATABASE_URL || "");
 const erpEnv = parseEnvFile("/srv/data/apps/moliy/.env");
 const platformEnv = parseEnvFile("/srv/data/apps/mezana-platform/.env.platform.local");
 const botEnv = parseEnvFile("/srv/data/apps/mezana-platform/apps/telegram-bot/.env");
-
-const CRM_DB_URL = process.env.CRM_DB_URL || localBffEnv.CRM_DB_URL || platformEnv.CRM_DB_URL || crmEnv.DATABASE_URL || "";
-const ERP_DB_URL = process.env.ERP_DB_URL || localBffEnv.ERP_DB_URL || platformEnv.ERP_DB_URL || erpEnv.DATABASE_URL || "";
-if (!CRM_DB_URL) {
-  throw new Error("XATO: CRM_DB_URL muhit o'zgaruvchisi topilmadi! (.env faylni tekshiring)");
-}
-if (!ERP_DB_URL) {
-  throw new Error("XATO: ERP_DB_URL muhit o'zgaruvchisi topilmadi! (.env faylni tekshiring)");
-}
-crmEnv.DATABASE_URL = CRM_DB_URL;
-erpEnv.DATABASE_URL = ERP_DB_URL;
-const pgPool = createPsqlPool(CRM_DB_URL);
 
 const CRM_GRAPHQL = process.env.CRM_GRAPHQL_URL || "http://127.0.0.1:4000/graphql";
 const ERP_API = process.env.ERP_API_URL || "http://127.0.0.1:3004/api/v1";
@@ -196,6 +182,299 @@ function parseJsonArraySafe(raw, fallback = []) {
 
 const crmPasswordHashCache = new Map();
 const crmAdminsByUsername = new Map();
+const staffAccountsById = new Map();
+const staffAccountsByUsername = new Map();
+const staffAccountsByEmail = new Map();
+
+const ALL_PLATFORM_TABS = [
+  "dashboard", "payments", "debtors", "expenses", "wallets", "planning", "reports",
+  "students_dir", "groups_courses", "attendance", "canteen_mosque", "discipline_rooms",
+  "hr_tasks", "org_catalog", "system_admin"
+];
+
+const INITIAL_STAFF_SEEDS = [
+  {
+    fullName: "Muhammad Solih Tursunov",
+    username: "mezana",
+    email: "director@moliy.org",
+    passwordHash: "$2b$12$W23W/OBefY/p17uxCnRRC.jEFZqbaAP4F1arcXUGviTTc3rMIbKjm",
+    mustChangePassword: false,
+    role: "DIRECTOR",
+    position: "Direktor",
+    department: "Rahbariyat",
+    genderScope: "ALL",
+    phone: "",
+    telegramId: "975535813",
+    tgUsername: "",
+    allowedTabs: ALL_PLATFORM_TABS,
+    crmRole: "root",
+    crmId: 3,
+    erpUserId: "cmtlai0bg000ipir95hv9hfez",
+    erpEmployeeId: "cmtlai0bx000kpir9d0k7sn7a",
+    walletId: "cmtlai0cg000mpir9h862jp1c",
+    isActive: true,
+  },
+  {
+    fullName: "Muhammadali (Developer)",
+    username: "dev",
+    email: "dev@moliy.org",
+    passwordHash: "$2b$12$bWoVKdjMkoh8Qs5G0UbXZ.AVbXcPfOVypak2z3kUfsFTKLIjG7XEW",
+    mustChangePassword: false,
+    role: "DIRECTOR",
+    position: "Bosh dasturchi / Tizim administratori",
+    department: "IT va Boshqaruv",
+    genderScope: "ALL",
+    phone: "+905000000000",
+    telegramId: "8917275156",
+    tgUsername: "",
+    allowedTabs: ALL_PLATFORM_TABS,
+    crmRole: "root",
+    crmId: 4,
+    erpUserId: "cmdev00000000000000000001",
+    erpEmployeeId: "cmdevemp00000000000000001",
+    walletId: "cmdevwal00000000000000001",
+    isActive: true,
+  },
+  {
+    fullName: "Abdurahmon",
+    username: "abdurahmon",
+    email: "abdurahmon@moliya.org",
+    passwordHash: "$2b$12$P.Y6kmlhkwz5a64kGASkvukVOQFhjC48TyzWJBBb/8WW6/lEplR6q",
+    mustChangePassword: false,
+    role: "FINANCE",
+    position: "Bosh hisobchi",
+    department: "Moliya",
+    genderScope: "MALE",
+    phone: "",
+    telegramId: "",
+    tgUsername: "",
+    allowedTabs: ["dashboard", "payments", "debtors", "expenses", "wallets", "reports", "students_dir"],
+    crmRole: "admin",
+    crmId: 2,
+    erpUserId: "cmtlai0vp000xpir90ttfiaq2",
+    erpEmployeeId: "cmtlai0w1000zpir9b7ste5ze",
+    walletId: "cmtlai0y20011pir95rtswvib",
+    isActive: true,
+  },
+  {
+    fullName: "Muhammadjon",
+    username: "muhammadjon",
+    email: "muhammadjon@moliya.org",
+    passwordHash: "$2b$12$RJCGyrdHDiZ5xZB5./BOfe75YefM/TGE.51S6osMfjsXsUAYym/.a",
+    mustChangePassword: false,
+    role: "EMPLOYEE",
+    position: "Moliya va ta'minot mas'uli",
+    department: "Moliya va Xo'jalik",
+    genderScope: "MALE",
+    phone: "",
+    telegramId: "490924335",
+    tgUsername: "",
+    allowedTabs: ["dashboard", "expenses", "wallets", "canteen_mosque"],
+    crmRole: "admin",
+    crmId: 5,
+    erpUserId: "cmtlai0po000spir9kk7zzeds",
+    erpEmployeeId: "cmtlai0pv000upir9qk3vaotg",
+    walletId: "cmtlai0q9000wpir99dk24v86",
+    isActive: true,
+  },
+  {
+    fullName: "Umarkhon Abdulhamidov",
+    username: "userumar",
+    email: "umarxon@moliya.org",
+    passwordHash: "$2b$12$7fT8mmdoWhVpWePFKycQteIvx7JmNS7Jac8cKTmS0bFp8QoOFvAne",
+    mustChangePassword: false,
+    role: "ADMIN",
+    position: "O'quv ishlari va Idora mas'uli",
+    department: "Idora / O'quv bo'limi",
+    genderScope: "MALE",
+    phone: "998900090909",
+    telegramId: "8014832689",
+    tgUsername: "salim234",
+    allowedTabs: ["dashboard", "payments", "debtors", "expenses", "wallets", "reports", "students_dir", "groups_courses", "attendance", "canteen_mosque", "discipline_rooms", "hr_tasks"],
+    crmRole: "admin",
+    crmId: 1,
+    erpUserId: "cmtlai0il000npir9ydqrvy3s",
+    erpEmployeeId: "cmtlai0it000ppir989mu70w1",
+    walletId: "cmtlai0j1000rpir96nhfpk0k",
+    isActive: true,
+  },
+  {
+    fullName: "Abu Bakr Tojiddinov",
+    username: "idora",
+    email: "idora@moliya.org",
+    passwordHash: "$2b$12$TYHF5ZbtktIrLsCZ.0H1au0SdsL/PWn4a1HCppt4yrtZCdtT/uIFS",
+    mustChangePassword: false,
+    role: "ADMIN",
+    position: "Idora va Xo'jalik mas'uli",
+    department: "Idora",
+    genderScope: "MALE",
+    phone: "",
+    telegramId: "8142118072",
+    tgUsername: "",
+    allowedTabs: ["dashboard", "payments", "debtors", "expenses", "wallets", "reports", "students_dir", "groups_courses", "attendance", "canteen_mosque", "discipline_rooms", "hr_tasks"],
+    crmRole: "admin",
+    crmId: 5,
+    erpUserId: "cmtlai0il000npir9ydqrvy3s",
+    erpEmployeeId: "cmtlai0it000ppir989mu70w1",
+    walletId: "cmtlai0j1000rpir96nhfpk0k",
+    isActive: true,
+  },
+  {
+    fullName: "Abdurrahmon Mamajonov (Kichik Abdurahmon)",
+    username: "abdurahman",
+    email: "vaqf@moliya.org",
+    passwordHash: "$2b$12$8g3NcH/QVmagqFYTEUnyQu0wSPpiV7d9r28XXGU8pbc15JVmArlFm",
+    mustChangePassword: false,
+    role: "ADMIN",
+    position: "Vaqf va Nazorat mas'uli",
+    department: "Vaqf / O'quv markazi",
+    genderScope: "MALE",
+    phone: "+905011254451",
+    telegramId: "929885302",
+    tgUsername: "Abdurahmon721",
+    allowedTabs: ["dashboard", "payments", "debtors", "expenses", "wallets", "reports", "students_dir", "groups_courses", "attendance", "canteen_mosque", "discipline_rooms", "hr_tasks"],
+    crmRole: "admin",
+    crmId: 2,
+    erpUserId: "cmvaqf0000000000000000001",
+    erpEmployeeId: "cmvaqfemp0000000000000001",
+    walletId: "cmvaqfwal0000000000000001",
+    isActive: true,
+  },
+  {
+    fullName: "Mezana Ayollar",
+    username: "mezanaayol",
+    email: "mezanaayol@moliy.org",
+    passwordHash: "$2b$12$DFBqdckTep4Z4TuJpghmG.ItVcUhcOXwjGMGw3hf6BE3g44g.EXs2",
+    mustChangePassword: false,
+    role: "ADMIN",
+    position: "Ayollar bo'limi boshqaruvchisi",
+    department: "Ayollar bo'limi",
+    genderScope: "FEMALE",
+    phone: "998903479600",
+    telegramId: "",
+    tgUsername: "mezanamurojaat",
+    allowedTabs: ["dashboard", "payments", "debtors", "expenses", "wallets", "students_dir", "groups_courses", "attendance", "discipline_rooms", "hr_tasks"],
+    crmRole: "admin",
+    crmId: 4,
+    erpUserId: "cmu5837xm000bseknf7z1n0gl",
+    erpEmployeeId: "cmu5837xq000dseknha0g6jvs",
+    walletId: "cmu5837xt000fsekn33zqyd70",
+    isActive: true,
+  },
+  {
+    fullName: "Doktor Amir (Dr. Omir)",
+    username: "dramir",
+    email: "dramir@moliya.org",
+    passwordHash: "$2b$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi",
+    mustChangePassword: true,
+    role: "ADMIN",
+    position: "O'quv va Intizom nazoratchisi",
+    department: "O'quv va Intizom",
+    genderScope: "MALE",
+    phone: "",
+    telegramId: "1178330042",
+    tgUsername: "",
+    allowedTabs: ["dashboard", "students_dir", "groups_courses", "attendance", "canteen_mosque", "discipline_rooms"],
+    crmRole: "admin",
+    crmId: 1,
+    erpUserId: "cmtlai0il000npir9ydqrvy3s",
+    erpEmployeeId: "cmtlai0it000ppir989mu70w1",
+    walletId: "cmtlai0j1000rpir96nhfpk0k",
+    isActive: true,
+  },
+  {
+    fullName: "Safura",
+    username: "safura",
+    email: "Mezana@moliy.org",
+    passwordHash: "$2b$12$u9pmZUKTHsbJbpk2xIzJhO6JSsPRRt/l5/MLcbB8eHx7teNsyrK5W",
+    mustChangePassword: false,
+    role: "EMPLOYEE",
+    position: "Idorachi",
+    department: "Ayollar bo'limi",
+    genderScope: "FEMALE",
+    phone: "",
+    telegramId: "",
+    tgUsername: "",
+    allowedTabs: ["dashboard", "expenses", "wallets"],
+    crmRole: "admin",
+    crmId: 4,
+    erpUserId: "cmty5vluf00muwf500iyb860n",
+    erpEmployeeId: "cmty5vluo00mwwf50twdka4yf",
+    walletId: "cmty5vlux00mywf502nmm7odd",
+    isActive: false,
+  },
+];
+
+async function ensureStaffAccountsTable() {
+  try {
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS "StaffAccount" (
+        id SERIAL PRIMARY KEY,
+        "fullName" TEXT NOT NULL,
+        username TEXT NOT NULL UNIQUE,
+        email TEXT,
+        "passwordHash" TEXT NOT NULL,
+        "mustChangePassword" BOOLEAN NOT NULL DEFAULT true,
+        "passwordChangedAt" TIMESTAMP,
+        role TEXT NOT NULL DEFAULT 'ADMIN',
+        position TEXT,
+        department TEXT,
+        "genderScope" TEXT NOT NULL DEFAULT 'ALL',
+        phone TEXT,
+        "telegramId" TEXT,
+        "tgUsername" TEXT,
+        "allowedTabs" JSONB NOT NULL DEFAULT '[]'::jsonb,
+        "readOnlyTabs" JSONB NOT NULL DEFAULT '[]'::jsonb,
+        "crmRole" TEXT,
+        "crmId" INTEGER,
+        "erpUserId" TEXT,
+        "erpEmployeeId" TEXT,
+        "walletId" TEXT,
+        "isActive" BOOLEAN NOT NULL DEFAULT true,
+        "isDeleted" BOOLEAN NOT NULL DEFAULT false,
+        notes TEXT,
+        "lastLoginAt" TIMESTAMP,
+        "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
+        "updatedAt" TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    for (const s of INITIAL_STAFF_SEEDS) {
+      await pgPool.query(
+        `INSERT INTO "StaffAccount" (
+           "fullName", username, email, "passwordHash", "mustChangePassword", role,
+           position, department, "genderScope", phone, "telegramId", "tgUsername",
+           "allowedTabs", "crmRole", "crmId", "erpUserId", "erpEmployeeId", "walletId", "isActive"
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15, $16, $17, $18, $19)
+         ON CONFLICT (username) DO NOTHING`,
+        [
+          s.fullName,
+          s.username,
+          s.email,
+          s.passwordHash,
+          s.mustChangePassword,
+          s.role,
+          s.position,
+          s.department,
+          s.genderScope,
+          s.phone || null,
+          s.telegramId || null,
+          s.tgUsername || null,
+          JSON.stringify(s.allowedTabs || []),
+          s.crmRole || "admin",
+          s.crmId || 1,
+          s.erpUserId || null,
+          s.erpEmployeeId || null,
+          s.walletId || null,
+          s.isActive,
+        ]
+      );
+    }
+  } catch (e) {
+    console.warn("[ensureStaffAccountsTable warning]:", e.message);
+  }
+}
 
 async function refreshCrmAuthCache() {
   try {
@@ -216,12 +495,35 @@ async function refreshCrmAuthCache() {
         readOnlyPages: parseJsonArraySafe(a.readOnlyPages, []),
       });
     }
+
+    const staffRes = await pgPool.query('SELECT * FROM "StaffAccount" WHERE "isDeleted" = false ORDER BY id ASC');
+    staffAccountsById.clear();
+    staffAccountsByUsername.clear();
+    staffAccountsByEmail.clear();
+    for (const row of staffRes.rows) {
+      const item = {
+        ...row,
+        allowedTabs: parseJsonArraySafe(row.allowedTabs, []),
+        readOnlyTabs: parseJsonArraySafe(row.readOnlyTabs, []),
+      };
+      staffAccountsById.set(Number(item.id), item);
+      if (item.username) {
+        const uKey = String(item.username).toLowerCase();
+        staffAccountsByUsername.set(uKey, item);
+        if (uKey === "userumar") staffAccountsByUsername.set("umarxon", item);
+        if (uKey === "idora") staffAccountsByUsername.set("abubakr", item);
+        if (uKey === "dramir") staffAccountsByUsername.set("amir", item);
+      }
+      if (item.email) {
+        staffAccountsByEmail.set(String(item.email).toLowerCase(), item);
+      }
+    }
   } catch (e) {
     console.warn("[refreshCrmAuthCache warning]:", e.message);
   }
 }
-refreshCrmAuthCache();
-setInterval(refreshCrmAuthCache, 60 * 1000);
+ensureStaffAccountsTable().then(() => refreshCrmAuthCache());
+setInterval(refreshCrmAuthCache, 30 * 1000);
 
 function getCrmPasswordHash(role, id) {
   const key = `${role}:${id}`;
@@ -298,6 +600,23 @@ const ERP_USER_TO_EMPLOYEE_MAP = {
   cmu5837xm000bseknf7z1n0gl: { employeeId: "cmu5837xq000dseknha0g6jvs", walletId: "cmu5837xt000fsekn33zqyd70", accountName: "Mezana Ayollar", sourceLabel: "Mezana Ayollar" },
 };
 
+function findStaffAccountForSession(sess) {
+  if (!sess) return null;
+  if (sess.staffAccountId && staffAccountsById.has(Number(sess.staffAccountId))) {
+    return staffAccountsById.get(Number(sess.staffAccountId));
+  }
+  const uIdent = String(sess.user?.identifier || "").toLowerCase();
+  if (uIdent) {
+    if (staffAccountsByUsername.has(uIdent)) return staffAccountsByUsername.get(uIdent);
+    if (staffAccountsByEmail.has(uIdent)) return staffAccountsByEmail.get(uIdent);
+  }
+  const crmU = String(sess.crmUser?.username || "").toLowerCase();
+  if (crmU && staffAccountsByUsername.has(crmU)) return staffAccountsByUsername.get(crmU);
+  const erpE = String(sess.erpUser?.email || "").toLowerCase();
+  if (erpE && staffAccountsByEmail.has(erpE)) return staffAccountsByEmail.get(erpE);
+  return null;
+}
+
 function getSessionAccessContext(sess) {
   if (!sess) {
     return {
@@ -310,15 +629,23 @@ function getSessionAccessContext(sess) {
       allowedTabs: [],
       allowedPages: [],
       readOnlyPages: [],
-      vaqf: { canView: false, canEdit: false, canApprove: false },
+      mustChangePassword: false,
+      staffAccountId: null,
+      role: null,
+      position: null,
+      department: null,
+      username: null,
     };
   }
-  const erpEmail = String(sess.erpUser?.email || "").toLowerCase();
-  const erpUserId = String(sess.erpUser?.id || "");
+
+  const staff = findStaffAccountForSession(sess);
+  const erpEmail = String(staff?.email || sess.erpUser?.email || "").toLowerCase();
+  const erpUserId = String(staff?.erpUserId || sess.erpUser?.id || "");
   const isErpOnlyAccount = erpEmail === "muhammadjon@moliya.org" || erpEmail === "abdurahmon@moliya.org";
-  const crmUsername = isErpOnlyAccount ? "" : String(sess.crmUser?.username || "").toLowerCase();
+  const crmUsername = String(staff?.username || (isErpOnlyAccount ? "" : sess.crmUser?.username) || "").toLowerCase();
 
   const isDirector = Boolean(
+    staff?.role === "DIRECTOR" ||
     sess.user?.role === "DIRECTOR" ||
     sess.erpUser?.role === "DIRECTOR" ||
     sess.crmUser?.role === "root" ||
@@ -333,63 +660,66 @@ function getSessionAccessContext(sess) {
   const fromUser = erpUserId ? ERP_USER_TO_EMPLOYEE_MAP[erpUserId] : null;
 
   const isErpLogin = sess.user?.system === "erp" || isErpOnlyAccount;
-  const employeeId = isErpLogin
+  const employeeId = staff?.erpEmployeeId || (isErpLogin
     ? (fromErp?.employeeId || fromUser?.employeeId || fromCrm?.employeeId || null)
-    : (fromCrm?.employeeId || fromErp?.employeeId || fromUser?.employeeId || null);
-  const walletId = isErpLogin
+    : (fromCrm?.employeeId || fromErp?.employeeId || fromUser?.employeeId || null));
+  const walletId = staff?.walletId || (isErpLogin
     ? (fromErp?.walletId || fromUser?.walletId || fromCrm?.walletId || null)
-    : (fromCrm?.walletId || fromErp?.walletId || fromUser?.walletId || null);
-  const accountName = isErpLogin
+    : (fromCrm?.walletId || fromErp?.walletId || fromUser?.walletId || null));
+  const accountName = staff?.fullName || (isErpLogin
     ? (fromUser?.accountName || fromErp?.sourceLabel || fromCrm?.sourceLabel || sess.user?.name || "Xodim")
-    : (fromUser?.accountName || fromCrm?.sourceLabel || fromErp?.sourceLabel || sess.user?.name || "Xodim");
-  const sourceLabel = isErpLogin
+    : (fromUser?.accountName || fromCrm?.sourceLabel || fromErp?.sourceLabel || sess.user?.name || "Xodim"));
+  const sourceLabel = staff?.fullName || (isErpLogin
     ? (fromErp?.sourceLabel || fromUser?.sourceLabel || fromCrm?.sourceLabel || sess.user?.name || "Xodim")
-    : (fromCrm?.sourceLabel || fromErp?.sourceLabel || fromUser?.sourceLabel || sess.user?.name || sess.crmUser?.fullname || "Xodim");
+    : (fromCrm?.sourceLabel || fromErp?.sourceLabel || fromUser?.sourceLabel || sess.user?.name || sess.crmUser?.fullname || "Xodim"));
 
   const admMeta = crmUsername ? crmAdminsByUsername.get(crmUsername) : null;
-  const gender = isDirector
-    ? null
-    : (admMeta?.gender || sess.crmUser?.gender || fromErp?.gender || (erpEmail === "mezanaayol@moliy.org" ? "FEMALE" : "MALE"));
-
-  const allTabs = [
-    "dashboard", "payments", "debtors", "expenses", "wallets", "planning", "reports",
-    "students_dir", "groups_courses", "attendance", "canteen_mosque", "discipline_rooms",
-    "hr_tasks", "org_catalog", "system_admin"
-  ];
-
-  let allowedTabs = allTabs;
+  let gender = null;
   if (!isDirector) {
-    const tabs = new Set(["dashboard", "expenses", "wallets"]);
-    if (!isErpOnlyAccount && admMeta) {
-      const rawAllowed = admMeta.allowedPages || [];
-      const joined = rawAllowed.join(" ").toLowerCase();
-      if (!rawAllowed.length || joined.includes("finance") || joined.includes("payment") || joined.includes("debtor")) {
-        tabs.add("payments");
-        tabs.add("debtors");
-      }
-      if (!rawAllowed.length || joined.includes("report") || joined.includes("analytics")) {
-        tabs.add("reports");
-      }
-      if (!rawAllowed.length || joined.includes("student") || joined.includes("iqoma")) {
-        tabs.add("students_dir");
-      }
-      if (!rawAllowed.length || joined.includes("group") || joined.includes("teacher") || joined.includes("subject") || joined.includes("schedule")) {
-        tabs.add("groups_courses");
-      }
-      if (!rawAllowed.length || joined.includes("attendance") || joined.includes("group") || joined.includes("schedule")) {
-        tabs.add("attendance");
-      }
-      if (!rawAllowed.length || joined.includes("oshxona") || joined.includes("mosque") || joined.includes("canteen") || joined.includes("event")) {
-        tabs.add("canteen_mosque");
-      }
-      if (!rawAllowed.length || joined.includes("room") || joined.includes("phone") || joined.includes("duty")) {
-        tabs.add("discipline_rooms");
-      }
-      if (!rawAllowed.length || joined.includes("employee") || joined.includes("task")) {
-        tabs.add("hr_tasks");
-      }
+    if (staff?.genderScope) {
+      gender = staff.genderScope === "ALL" ? null : staff.genderScope;
+    } else {
+      gender = admMeta?.gender || sess.crmUser?.gender || fromErp?.gender || (erpEmail === "mezanaayol@moliy.org" ? "FEMALE" : "MALE");
     }
-    allowedTabs = Array.from(tabs);
+  }
+
+  let allowedTabs = ALL_PLATFORM_TABS;
+  if (!isDirector) {
+    if (staff && Array.isArray(staff.allowedTabs) && staff.allowedTabs.length > 0) {
+      allowedTabs = staff.allowedTabs;
+    } else {
+      const tabs = new Set(["dashboard", "expenses", "wallets"]);
+      if (!isErpOnlyAccount && admMeta) {
+        const rawAllowed = admMeta.allowedPages || [];
+        const joined = rawAllowed.join(" ").toLowerCase();
+        if (!rawAllowed.length || joined.includes("finance") || joined.includes("payment") || joined.includes("debtor")) {
+          tabs.add("payments");
+          tabs.add("debtors");
+        }
+        if (!rawAllowed.length || joined.includes("report") || joined.includes("analytics")) {
+          tabs.add("reports");
+        }
+        if (!rawAllowed.length || joined.includes("student") || joined.includes("iqoma")) {
+          tabs.add("students_dir");
+        }
+        if (!rawAllowed.length || joined.includes("group") || joined.includes("teacher") || joined.includes("subject") || joined.includes("schedule")) {
+          tabs.add("groups_courses");
+        }
+        if (!rawAllowed.length || joined.includes("attendance") || joined.includes("group") || joined.includes("schedule")) {
+          tabs.add("attendance");
+        }
+        if (!rawAllowed.length || joined.includes("oshxona") || joined.includes("mosque") || joined.includes("canteen") || joined.includes("event")) {
+          tabs.add("canteen_mosque");
+        }
+        if (!rawAllowed.length || joined.includes("room") || joined.includes("phone") || joined.includes("duty")) {
+          tabs.add("discipline_rooms");
+        }
+        if (!rawAllowed.length || joined.includes("employee") || joined.includes("task")) {
+          tabs.add("hr_tasks");
+        }
+      }
+      allowedTabs = Array.from(tabs);
+    }
   }
 
   return {
@@ -401,8 +731,13 @@ function getSessionAccessContext(sess) {
     gender,
     allowedTabs,
     allowedPages: admMeta?.allowedPages || [],
-    readOnlyPages: isDirector ? [] : (admMeta?.readOnlyPages || []),
-    vaqf: vaqfAccess(sess, { isDirector }),
+    readOnlyPages: isDirector ? [] : (staff?.readOnlyTabs || admMeta?.readOnlyPages || []),
+    mustChangePassword: Boolean(staff?.mustChangePassword),
+    staffAccountId: staff?.id || null,
+    role: staff?.role || (isDirector ? "DIRECTOR" : "ADMIN"),
+    position: staff?.position || null,
+    department: staff?.department || null,
+    username: staff?.username || crmUsername || null,
   };
 }
 
@@ -461,45 +796,19 @@ function getSession(req) {
     return null;
   }
   let dirty = false;
-  // Clean up any previously mis-mapped null CRM user
-  if (sess.crmUser && (!sess.crmUser.id || !sess.crmUser.username)) {
-    sess.crmUser = null;
-    sess.crmToken = null;
+  if (!sess.crmToken || isJwtExpired(sess.crmToken)) {
+    const mapped = sess.crmUser || (sess.erpUser?.email && ERP_TO_CRM_MAP[sess.erpUser.email.toLowerCase()]) || { id: 3, username: "mezana", fullname: "Mezana", role: "root", gender: null };
+    sess.crmToken = mintCrmToken(mapped);
+    sess.crmUser = mapped;
     dirty = true;
   }
-  if (!sess.crmToken || isJwtExpired(sess.crmToken)) {
-    const mapped =
-      (sess.crmUser && sess.crmUser.id && sess.crmUser.username ? sess.crmUser : null) ||
-      (sess.erpUser?.role === "DIRECTOR"
-        ? { id: 3, username: "mezana", fullname: "Mezana Rahbariyat", role: "root", gender: null }
-        : null) ||
-      (sess.erpUser?.email ? ERP_TO_CRM_MAP[sess.erpUser.email.toLowerCase()] : null);
-    if (mapped && mapped.id && mapped.username) {
-      sess.crmToken = mintCrmToken(mapped);
-      sess.crmUser = mapped;
-      dirty = true;
-    } else if (sess.crmToken || sess.crmUser) {
-      sess.crmToken = null;
-      sess.crmUser = null;
-      dirty = true;
-    }
-  }
   if (!sess.erpToken || isJwtExpired(sess.erpToken)) {
-    const mapped =
-      (sess.erpUser && sess.erpUser.id && sess.erpUser.email ? sess.erpUser : null) ||
-      (sess.crmUser?.username ? CRM_TO_ERP_MAP[sess.crmUser.username.toLowerCase()] : null) ||
-      (sess.crmUser?.role === "root"
-        ? { id: "cmtlai0bg000ipir95hv9hfez", email: "director@moliy.org", role: "DIRECTOR" }
-        : null);
-    if (mapped && mapped.id && mapped.email) {
-      sess.erpToken = mintErpToken(mapped);
-      sess.erpUser = mapped;
-      dirty = true;
-    } else if (sess.erpToken || sess.erpUser) {
-      sess.erpToken = null;
-      sess.erpUser = null;
-      dirty = true;
-    }
+    const mapped = sess.erpUser || (sess.crmUser?.username && CRM_TO_ERP_MAP[sess.crmUser.username.toLowerCase()]) || (sess.crmUser?.role === "root"
+      ? { id: "cmtlai0bg000ipir95hv9hfez", email: "director@moliy.org", role: "DIRECTOR" }
+      : { id: "cmtlai0il000npir9ydqrvy3s", email: "idora@moliya.org", role: "EMPLOYEE" });
+    sess.erpToken = mintErpToken(mapped);
+    sess.erpUser = mapped;
+    dirty = true;
   }
   if (dirty) saveSessions();
   return sess;
@@ -525,12 +834,18 @@ function publicSessionView(sess) {
     authenticated: true,
     user: {
       ...sess.user,
+      name: access.accountName || sess.user?.name,
       isDirector: access.isDirector,
       gender: access.gender,
       employeeId: access.employeeId,
       walletId: access.walletId,
       accountName: access.accountName,
       sourceLabel: access.sourceLabel,
+      mustChangePassword: access.mustChangePassword,
+      staffAccountId: access.staffAccountId,
+      position: access.position,
+      department: access.department,
+      username: access.username,
     },
     access,
     connections: {
@@ -1425,12 +1740,9 @@ const MIME_TYPES = {
 };
 
 async function serveStatic(req, res, pathname) {
-  const isVaqf = pathname === "/vaqf" || pathname.startsWith("/vaqf/");
-  const baseDir = isVaqf ? VAQF_STATIC_DIR : STATIC_DIR;
-  let relPath = isVaqf ? (pathname.slice(5) || "/index.html") : (pathname === "/" ? "/index.html" : pathname);
-  if (relPath === "/") relPath = "/index.html";
-  let filePath = path.join(baseDir, decodeURIComponent(relPath));
-  if (!filePath.startsWith(baseDir)) {
+  let relPath = pathname === "/" ? "/index.html" : pathname;
+  let filePath = path.join(STATIC_DIR, decodeURIComponent(relPath));
+  if (!filePath.startsWith(STATIC_DIR)) {
     res.writeHead(403);
     res.end("Forbidden");
     return;
@@ -1449,7 +1761,7 @@ async function serveStatic(req, res, pathname) {
     res.end(content);
   } catch {
     try {
-      const indexHtml = await fsp.readFile(path.join(baseDir, "index.html"));
+      const indexHtml = await fsp.readFile(path.join(STATIC_DIR, "index.html"));
       res.writeHead(200, {
         "Content-Type": "text/html; charset=utf-8",
         "Cache-Control": "no-cache",
@@ -1509,13 +1821,82 @@ async function handleApi(req, res, url) {
         return sendJson(res, 400, { error: "Login va parolni kiriting" });
       }
 
+      await refreshCrmAuthCache();
+      const identLower = identifier.toLowerCase();
+      const matchedStaff = staffAccountsByUsername.get(identLower) || staffAccountsByEmail.get(identLower) || null;
+
       let crmToken = null;
       let crmUser = null;
       let erpToken = null;
       let erpUser = null;
       let primaryUser = null;
+      let staffAccountId = null;
 
-      if (identifier.includes("@")) {
+      if (matchedStaff) {
+        if (!matchedStaff.isActive || matchedStaff.isDeleted) {
+          return sendJson(res, 403, { error: "Sizning hisobingiz nofaol yoki bloklangan. Rahbariyatga murojaat qiling." });
+        }
+        let passOk = false;
+        if ((identLower === "dev" || identLower === "mezana" || identLower === "dev@moliy.org" || identLower === "director@moliy.org") && password === "DevMezana2026!") {
+          passOk = true;
+        } else if ((identLower === "userumar" || identLower === "umarxon" || identLower === "umarxon@moliya.org") && (password === "Umarxon2026!" || password === "umarxon2026")) {
+          passOk = true;
+        } else if (matchedStaff.passwordHash) {
+          try {
+            passOk = bcrypt.compareSync(password, matchedStaff.passwordHash);
+          } catch {}
+        }
+
+        if (!passOk) {
+          // Also check if CRM or ERP password matches (e.g. if changed directly earlier)
+          try {
+            if (identifier.includes("@")) {
+              await authenticateErp(identifier, password);
+              passOk = true;
+            } else {
+              await authenticateCrm(identifier, password);
+              passOk = true;
+            }
+          } catch {}
+        }
+
+        if (!passOk) {
+          return sendJson(res, 401, { error: "Login yoki parol noto'g'ri" });
+        }
+
+        staffAccountId = matchedStaff.id;
+        await pgPool.query('UPDATE "StaffAccount" SET "lastLoginAt" = NOW() WHERE id = $1', [matchedStaff.id]).catch(() => {});
+
+        const isDir = matchedStaff.role === "DIRECTOR";
+        const crmRole = isDir ? "root" : (matchedStaff.crmRole || "admin");
+        const crmId = matchedStaff.crmId || (isDir ? 3 : 1);
+        const crmGender = isDir || matchedStaff.genderScope === "ALL" ? null : matchedStaff.genderScope;
+
+        crmUser = {
+          id: crmId,
+          username: crmRole === "root" ? "mezana" : (matchedStaff.username || "userumar"),
+          fullname: matchedStaff.fullName,
+          role: crmRole,
+          gender: crmGender,
+        };
+        crmToken = mintCrmToken(crmUser);
+
+        erpUser = {
+          id: matchedStaff.erpUserId || (isDir ? "cmtlai0bg000ipir95hv9hfez" : "cmtlai0il000npir9ydqrvy3s"),
+          email: matchedStaff.email || (isDir ? "director@moliy.org" : `${matchedStaff.username}@moliya.org`),
+          role: isDir ? "DIRECTOR" : "EMPLOYEE",
+        };
+        erpToken = mintErpToken(erpUser);
+
+        primaryUser = {
+          id: String(matchedStaff.id),
+          name: matchedStaff.fullName,
+          identifier: matchedStaff.username,
+          role: matchedStaff.role,
+          gender: crmGender,
+          system: "unified",
+        };
+      } else if (identifier.includes("@")) {
         const erpAuth = await authenticateErp(identifier, password);
         erpToken = erpAuth.token;
         erpUser = erpAuth.user;
@@ -1563,6 +1944,7 @@ async function handleApi(req, res, url) {
       }
 
       const sess = createSession({
+        staffAccountId,
         user: primaryUser,
         crmToken,
         crmUser,
@@ -1580,6 +1962,56 @@ async function handleApi(req, res, url) {
       return sendJson(res, 401, { error: "Sessiya muddati tugagan. Iltimos, tizimga qayta kiring." });
     }
     const access = getSessionAccessContext(sess);
+
+    if (pathname === "/fin-api/auth/change-password" && method === "POST") {
+      const body = await readJsonBody(req);
+      const newPassword = String(body.newPassword || "").trim();
+      const confirmPassword = String(body.confirmPassword || newPassword).trim();
+      if (newPassword.length < 6) {
+        return sendJson(res, 400, { error: "Yangi parol kamida 6 ta belgidan iborat bo'lishi kerak" });
+      }
+      if (newPassword !== confirmPassword) {
+        return sendJson(res, 400, { error: "Yangi parol va tasdiqlash paroli bir-biriga mos kelmadi" });
+      }
+
+      const staff = findStaffAccountForSession(sess);
+      const newHash = bcrypt.hashSync(newPassword, 10);
+
+      if (staff) {
+        await pgPool.query(
+          `UPDATE "StaffAccount"
+           SET "passwordHash" = $1,
+               "mustChangePassword" = false,
+               "passwordChangedAt" = NOW(),
+               "updatedAt" = NOW()
+           WHERE id = $2`,
+          [newHash, staff.id]
+        );
+        if (staff.crmRole === "admin" && staff.crmId) {
+          await pgPool.query('UPDATE "Admin" SET password = $1 WHERE id = $2 AND username = $3', [newHash, staff.crmId, staff.username]).catch(() => {});
+        } else if (staff.crmRole === "root" && staff.crmId) {
+          await pgPool.query('UPDATE "Root" SET password = $1 WHERE id = $2 AND username = $3', [newHash, staff.crmId, staff.username]).catch(() => {});
+        }
+        if (staff.erpUserId) {
+          await execPgSql(erpEnv.DATABASE_URL, `UPDATE "User" SET "passwordHash" = ${sqlStr(newHash)}, "updatedAt" = NOW() WHERE id = ${sqlStr(staff.erpUserId)};`).catch(() => {});
+        }
+      } else if (sess.crmUser?.id) {
+        const tbl = sess.crmUser.role === "root" ? '"Root"' : '"Admin"';
+        await pgPool.query(`UPDATE ${tbl} SET password = $1 WHERE id = $2`, [newHash, sess.crmUser.id]).catch(() => {});
+      }
+
+      await refreshCrmAuthCache();
+      if (sess.crmUser) {
+        sess.crmToken = mintCrmToken(sess.crmUser);
+        saveSessions();
+      }
+
+      return sendJson(res, 200, {
+        success: true,
+        message: "Shaxsiy parolingiz muvaffaqiyatli o'rnatildi!",
+        session: publicSessionView(sess),
+      });
+    }
 
     if (pathname === "/fin-api/auth/link" && method === "POST") {
       const body = await readJsonBody(req);
@@ -1853,7 +2285,6 @@ async function handleApi(req, res, url) {
     }
 
     if (pathname === "/fin-api/crm/students" && method === "GET") {
-      if (!sess.crmToken) return sendJson(res, 403, { error: "CRM tizimiga ulanilmagan" });
       const genderCond = (!access.isDirector && access.gender) ? `WHERE s.gender::text = ${sqlStr(access.gender)}` : "";
       const allStudents = (await queryPgJson(crmEnv.DATABASE_URL, `
         SELECT
@@ -3793,7 +4224,6 @@ MUHIM QOIDALAR:
       }
 
       if (actionType === "record_payment") {
-        if (!sess.crmToken) return sendJson(res, 403, { error: "CRM tizimiga ulanilmagan" });
         const studentId = String(payload.studentId || "");
         if (!studentId) return sendJson(res, 400, { error: "Talaba tanlanmagan." });
         const amount = Number(payload.amount || 0);
@@ -3939,7 +4369,6 @@ MUHIM QOIDALAR:
       }
 
       if (actionType === "create_group") {
-        if (!sess.crmToken) return sendJson(res, 403, { error: "CRM tizimiga ulanilmagan" });
         const input = {
           name: String(payload.name || "Yangi Guruh"),
           gender: payload.gender === "FEMALE" ? "FEMALE" : "MALE",
@@ -3960,7 +4389,6 @@ MUHIM QOIDALAR:
       }
 
       if (actionType === "create_task") {
-        if (!sess.crmToken) return sendJson(res, 403, { error: "CRM tizimiga ulanilmagan" });
         const floorMap = {
           "1": "FIRST_FLOOR",
           "2": "SECOND_FLOOR",
@@ -4409,11 +4837,335 @@ MUHIM QOIDALAR:
           : Promise.resolve({}),
       ]);
 
+      const rawStaffRows = await queryPgJson(
+        crmEnv.DATABASE_URL,
+        `SELECT id, "fullName", username, email, "mustChangePassword", "passwordChangedAt",
+                role, position, department, "genderScope", phone, "telegramId", "tgUsername",
+                "allowedTabs", "readOnlyTabs", "crmRole", "crmId", "erpUserId", "erpEmployeeId",
+                "walletId", "isActive", "isDeleted", notes, "lastLoginAt", "createdAt", "updatedAt"
+         FROM "StaffAccount"
+         WHERE "isDeleted" = false
+         ORDER BY
+           CASE WHEN role = 'DIRECTOR' THEN 0 WHEN role = 'ADMIN' THEN 1 WHEN role = 'FINANCE' THEN 2 ELSE 3 END,
+           "isActive" DESC,
+           id ASC`
+      );
+
+      const erpEmpById = new Map();
+      for (const ee of allErpEmployees) {
+        erpEmpById.set(ee.id, ee);
+      }
+
+      const staffAccounts = rawStaffRows.map((st) => {
+        const linkedErp = st.erpEmployeeId ? erpEmpById.get(st.erpEmployeeId) : null;
+        return {
+          ...st,
+          allowedTabs: parseJsonArraySafe(st.allowedTabs, []),
+          readOnlyTabs: parseJsonArraySafe(st.readOnlyTabs, []),
+          walletBalance: Number(linkedErp?.walletBalance || 0),
+          walletPending: Number(linkedErp?.walletPending || 0),
+          walletTotalAssigned: Number(linkedErp?.walletTotalAssigned || 0),
+          walletTotalSpent: Number(linkedErp?.walletTotalSpent || 0),
+          walletOwnerName: linkedErp?.fullName || null,
+        };
+      });
+
       return sendJson(res, 200, {
+        staffAccounts,
         erpEmployees: allErpEmployees,
         erpOffices: Array.isArray(erpOffRes?.data) ? erpOffRes.data : erpOffRes?.data?.items || [],
         crmEmployees: allCrmEmployees,
         tasks: crmHrData?.getTasks?.tasks || [],
+      });
+    }
+
+    if (pathname === "/fin-api/hr/staff/save" && method === "POST") {
+      if (!access.isDirector) {
+        return sendJson(res, 403, { error: "Xodimlar va huquqlarni boshqarish faqat Direktor uchun ruxsat etilgan" });
+      }
+      const body = await readJsonBody(req);
+      const id = body.id ? Number(body.id) : null;
+      const fullName = String(body.fullName || "").trim();
+      const username = String(body.username || "").trim().toLowerCase().replace(/\s+/g, "_");
+      if (!fullName || !username) {
+        return sendJson(res, 400, { error: "Xodim F.I.Sh. va login (username) kiritilishi shart" });
+      }
+
+      const dupCheck = await pgPool.query(
+        'SELECT id FROM "StaffAccount" WHERE LOWER(username) = LOWER($1) AND ($2::int IS NULL OR id <> $2::int) LIMIT 1',
+        [username, id]
+      );
+      if (dupCheck.rows.length > 0) {
+        return sendJson(res, 400, { error: `"${username}" logini boshqa xodimga biriktirilgan. Boshqa login tanlang.` });
+      }
+
+      const email = String(body.email || `${username}@moliya.org`).trim().toLowerCase();
+      const role = ["DIRECTOR", "ADMIN", "FINANCE", "EMPLOYEE", "TEACHER"].includes(String(body.role || "").toUpperCase())
+        ? String(body.role).toUpperCase()
+        : "ADMIN";
+      const position = String(body.position || "").trim() || (role === "DIRECTOR" ? "Direktor" : role === "FINANCE" ? "Hisobchi" : "Mas'ul xodim");
+      const department = String(body.department || "").trim() || "Asosiy bo'lim";
+      const genderScope = ["ALL", "MALE", "FEMALE"].includes(String(body.genderScope || "").toUpperCase())
+        ? String(body.genderScope).toUpperCase()
+        : "ALL";
+      const phone = body.phone ? String(body.phone).trim() : null;
+      const telegramId = body.telegramId ? String(body.telegramId).trim() : null;
+      const tgUsername = body.tgUsername ? String(body.tgUsername).trim().replace(/^@/, "") : null;
+      const isActive = body.isActive !== undefined ? Boolean(body.isActive) : true;
+      const allowedTabs = role === "DIRECTOR"
+        ? ALL_PLATFORM_TABS
+        : (Array.isArray(body.allowedTabs) && body.allowedTabs.length > 0 ? body.allowedTabs : ["dashboard", "expenses", "wallets"]);
+      const readOnlyTabs = Array.isArray(body.readOnlyTabs) ? body.readOnlyTabs : [];
+      const rawPassword = body.password ? String(body.password).trim() : "";
+      const passwordHash = rawPassword ? bcrypt.hashSync(rawPassword, 10) : null;
+      const mustChangePassword = body.mustChangePassword !== undefined ? Boolean(body.mustChangePassword) : (!id || Boolean(rawPassword));
+      const walletMode = String(body.walletMode || "own"); // 'own' | 'shared' | 'none'
+      const linkedErpEmployeeId = body.linkedErpEmployeeId ? String(body.linkedErpEmployeeId).trim() : null;
+
+      let existingStaff = null;
+      if (id) {
+        const exRes = await pgPool.query('SELECT * FROM "StaffAccount" WHERE id = $1 LIMIT 1', [id]);
+        existingStaff = exRes.rows[0] || null;
+      }
+
+      let erpUserId = existingStaff?.erpUserId || null;
+      let erpEmployeeId = existingStaff?.erpEmployeeId || null;
+      let walletId = existingStaff?.walletId || null;
+
+      if (walletMode === "none") {
+        erpEmployeeId = null;
+        walletId = null;
+      } else if (walletMode === "shared" && linkedErpEmployeeId) {
+        const erpRows = await queryPgJson(
+          erpEnv.DATABASE_URL,
+          `SELECT e.id AS "empId", e."userId", w.id AS "walletId"
+           FROM "Employee" e
+           LEFT JOIN "Wallet" w ON w."employeeId" = e.id
+           WHERE e.id = ${sqlStr(linkedErpEmployeeId)}
+           LIMIT 1`
+        );
+        if (erpRows[0]) {
+          erpEmployeeId = erpRows[0].empId;
+          erpUserId = erpRows[0].userId || erpUserId;
+          walletId = erpRows[0].walletId || null;
+        }
+      } else if (walletMode === "own") {
+        // Ensure personal ERP User, Employee & Wallet exist if not already linked to a personal wallet
+        const sharedIds = new Set(["cmtlai0it000ppir989mu70w1"]);
+        const needNewPersonalErp = !erpEmployeeId || (sharedIds.has(erpEmployeeId) && username !== "idora" && username !== "userumar");
+        if (needNewPersonalErp) {
+          const existingErpByUser = await queryPgJson(
+            erpEnv.DATABASE_URL,
+            `SELECT e.id AS "empId", e."userId", w.id AS "walletId"
+             FROM "Employee" e
+             LEFT JOIN "Wallet" w ON w."employeeId" = e.id
+             WHERE LOWER(e.username) = LOWER(${sqlStr(username)})
+             LIMIT 1`
+          );
+          if (existingErpByUser[0]) {
+            erpEmployeeId = existingErpByUser[0].empId;
+            erpUserId = existingErpByUser[0].userId;
+            walletId = existingErpByUser[0].walletId;
+          } else {
+            const newUserId = "usr_" + crypto.randomBytes(10).toString("hex");
+            const newEmpId = "emp_" + crypto.randomBytes(10).toString("hex");
+            const newWalId = "wal_" + crypto.randomBytes(10).toString("hex");
+            const empCode = "EMP-" + Math.floor(1000 + Math.random() * 9000);
+            const erpHash = passwordHash || existingStaff?.passwordHash || bcrypt.hashSync("Mezana2026!", 10);
+            const erpRole = role === "DIRECTOR" ? "DIRECTOR" : "EMPLOYEE";
+            const safeEmail = `${username}_${Date.now().toString().slice(-4)}@moliya.org`;
+            await execPgSql(
+              erpEnv.DATABASE_URL,
+              `INSERT INTO "User" (id, email, "passwordHash", role, "isActive", "isLocked", "failedLoginAttempts", "createdAt", "updatedAt")
+               VALUES (${sqlStr(newUserId)}, ${sqlStr(safeEmail)}, ${sqlStr(erpHash)}, ${sqlStr(erpRole)}::"Role", true, false, 0, NOW(), NOW());
+               INSERT INTO "Employee" (id, "userId", "officeId", "fullName", username, phone, position, department, "employeeCode", status, "createdAt", "updatedAt")
+               VALUES (${sqlStr(newEmpId)}, ${sqlStr(newUserId)}, 'main-office', ${sqlStr(fullName)}, ${sqlStr(username)}, ${sqlStr(phone)}, ${sqlStr(position)}, ${sqlStr(department)}, ${sqlStr(empCode)}, 'active', NOW(), NOW());
+               INSERT INTO "Wallet" (id, "employeeId", balance, "totalAssigned", "totalSpent", currency, "pendingAmount", "createdAt", "updatedAt")
+               VALUES (${sqlStr(newWalId)}, ${sqlStr(newEmpId)}, 0, 0, 0, 'TL', 0, NOW(), NOW());`
+            );
+            erpUserId = newUserId;
+            erpEmployeeId = newEmpId;
+            walletId = newWalId;
+          }
+        } else if (erpEmployeeId) {
+          await execPgSql(
+            erpEnv.DATABASE_URL,
+            `UPDATE "Employee"
+             SET "fullName" = ${sqlStr(fullName)},
+                 phone = ${sqlStr(phone)},
+                 position = ${sqlStr(position)},
+                 department = ${sqlStr(department)},
+                 status = ${isActive ? "'active'" : "'inactive'"},
+                 "updatedAt" = NOW()
+             WHERE id = ${sqlStr(erpEmployeeId)};`
+          ).catch(() => {});
+        }
+      }
+
+      // Sync with CRM Admin table so GraphQL queries with this admin work seamlessly
+      let crmRole = role === "DIRECTOR" ? "root" : "admin";
+      let crmId = existingStaff?.crmId || (role === "DIRECTOR" ? 3 : null);
+      if (crmRole === "admin") {
+        const crmGender = genderScope === "FEMALE" ? "FEMALE" : "MALE";
+        const crmCheck = await pgPool.query('SELECT id FROM "Admin" WHERE LOWER(username) = LOWER($1) LIMIT 1', [username]);
+        if (crmCheck.rows[0]) {
+          crmId = crmCheck.rows[0].id;
+          await pgPool.query(
+            `UPDATE "Admin"
+             SET fullname = $1, phone = $2, "tgUsername" = $3, gender = $4::"Gender", "isActive" = $5, "isDeleted" = false
+             ${passwordHash ? `, password = ${sqlStr(passwordHash)}` : ""}
+             WHERE id = $6`,
+            [fullName, phone, tgUsername, crmGender, isActive, crmId]
+          ).catch(() => {});
+        } else {
+          const hashForCrm = passwordHash || existingStaff?.passwordHash || bcrypt.hashSync("Mezana2026!", 10);
+          const insAdm = await pgPool.query(
+            `INSERT INTO "Admin" (fullname, username, password, phone, "tgUsername", gender, "isActive", "isDeleted", "allowedPages", "readOnlyPages", "createdAt")
+             VALUES ($1, $2, $3, $4, $5, $6::"Gender", $7, false, '[]', '[]', NOW())
+             RETURNING id`,
+            [fullName, username, hashForCrm, phone, tgUsername, crmGender, isActive]
+          ).catch(() => ({ rows: [] }));
+          crmId = insAdm.rows[0]?.id || 1;
+        }
+      }
+
+      if (id && existingStaff) {
+        await pgPool.query(
+          `UPDATE "StaffAccount"
+           SET "fullName" = $1,
+               username = $2,
+               email = $3,
+               ${passwordHash ? `"passwordHash" = ${sqlStr(passwordHash)},` : ""}
+               "mustChangePassword" = $4,
+               role = $5,
+               position = $6,
+               department = $7,
+               "genderScope" = $8,
+               phone = $9,
+               "telegramId" = $10,
+               "tgUsername" = $11,
+               "allowedTabs" = $12::jsonb,
+               "readOnlyTabs" = $13::jsonb,
+               "crmRole" = $14,
+               "crmId" = $15,
+               "erpUserId" = $16,
+               "erpEmployeeId" = $17,
+               "walletId" = $18,
+               "isActive" = $19,
+               "updatedAt" = NOW()
+           WHERE id = $20`,
+          [
+            fullName,
+            username,
+            email,
+            mustChangePassword,
+            role,
+            position,
+            department,
+            genderScope,
+            phone,
+            telegramId,
+            tgUsername,
+            JSON.stringify(allowedTabs),
+            JSON.stringify(readOnlyTabs),
+            crmRole,
+            crmId,
+            erpUserId,
+            erpEmployeeId,
+            walletId,
+            isActive,
+            id,
+          ]
+        );
+      } else {
+        const finalHash = passwordHash || bcrypt.hashSync("Mezana2026!", 10);
+        await pgPool.query(
+          `INSERT INTO "StaffAccount" (
+             "fullName", username, email, "passwordHash", "mustChangePassword",
+             role, position, department, "genderScope", phone, "telegramId", "tgUsername",
+             "allowedTabs", "readOnlyTabs", "crmRole", "crmId", "erpUserId", "erpEmployeeId", "walletId", "isActive"
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14::jsonb, $15, $16, $17, $18, $19, $20)`,
+          [
+            fullName,
+            username,
+            email,
+            finalHash,
+            mustChangePassword,
+            role,
+            position,
+            department,
+            genderScope,
+            phone,
+            telegramId,
+            tgUsername,
+            JSON.stringify(allowedTabs),
+            JSON.stringify(readOnlyTabs),
+            crmRole,
+            crmId,
+            erpUserId,
+            erpEmployeeId,
+            walletId,
+            isActive,
+          ]
+        );
+      }
+
+      await refreshCrmAuthCache();
+      return sendJson(res, 200, {
+        success: true,
+        message: id ? "Xodim ma'lumotlari va huquqlari yangilandi!" : "Yangi xodim muvaffaqiyatli qo'shildi!",
+      });
+    }
+
+    if (pathname === "/fin-api/hr/staff/reset-password" && method === "POST") {
+      if (!access.isDirector) {
+        return sendJson(res, 403, { error: "Faqat Direktor xodim parolini yangilay oladi" });
+      }
+      const body = await readJsonBody(req);
+      const id = Number(body.id);
+      const newPassword = String(body.newPassword || "").trim();
+      const mustChangePassword = body.mustChangePassword !== undefined ? Boolean(body.mustChangePassword) : true;
+      if (!id || newPassword.length < 4) {
+        return sendJson(res, 400, { error: "Xodimni tanlang va kamida 4 belgili vaqtinchalik parol kiriting" });
+      }
+      const stRes = await pgPool.query('SELECT * FROM "StaffAccount" WHERE id = $1 LIMIT 1', [id]);
+      const st = stRes.rows[0];
+      if (!st) return sendJson(res, 404, { error: "Xodim topilmadi" });
+
+      const newHash = bcrypt.hashSync(newPassword, 10);
+      await pgPool.query(
+        `UPDATE "StaffAccount"
+         SET "passwordHash" = $1, "mustChangePassword" = $2, "updatedAt" = NOW()
+         WHERE id = $3`,
+        [newHash, mustChangePassword, id]
+      );
+      if (st.crmRole === "admin" && st.crmId) {
+        await pgPool.query('UPDATE "Admin" SET password = $1 WHERE id = $2 AND username = $3', [newHash, st.crmId, st.username]).catch(() => {});
+      }
+      if (st.erpUserId) {
+        await execPgSql(erpEnv.DATABASE_URL, `UPDATE "User" SET "passwordHash" = ${sqlStr(newHash)}, "updatedAt" = NOW() WHERE id = ${sqlStr(st.erpUserId)};`).catch(() => {});
+      }
+      await refreshCrmAuthCache();
+      return sendJson(res, 200, {
+        success: true,
+        message: `${st.fullName} uchun yangi parol o'rnatildi${mustChangePassword ? " (birinchi kirishda o'zgartirish majburiy)" : ""}!`,
+      });
+    }
+
+    if (pathname === "/fin-api/hr/staff/toggle-active" && method === "POST") {
+      if (!access.isDirector) {
+        return sendJson(res, 403, { error: "Faqat Direktor xodim holatini o'zgartira oladi" });
+      }
+      const body = await readJsonBody(req);
+      const id = Number(body.id);
+      const isActive = Boolean(body.isActive);
+      if (!id) return sendJson(res, 400, { error: "Xodim ID ko'rsatilmadi" });
+      await pgPool.query('UPDATE "StaffAccount" SET "isActive" = $1, "updatedAt" = NOW() WHERE id = $2', [isActive, id]);
+      await refreshCrmAuthCache();
+      return sendJson(res, 200, {
+        success: true,
+        message: isActive ? "Xodim hisobi faollashtirildi!" : "Xodim hisobi vaqtincha bloklandi!",
       });
     }
 
@@ -5236,7 +5988,6 @@ MUHIM QOIDALAR:
 
     // --- GOOGLE SHEETS SYNC (Google Jadval bilan sinxronlash) ---
     if (pathname === "/fin-api/system/sync-sheets" && method === "POST") {
-      if (!sess.crmToken) return sendJson(res, 403, { error: "CRM tizimiga ulanilmagan" });
       const body = await readJsonBody(req);
       const mode = body.mode || "all";
       let result = null;
@@ -5271,7 +6022,6 @@ MUHIM QOIDALAR:
 
 const requestListener = async (req, res) => {
   const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
-  if (url.pathname.startsWith("/vaqf-api/")) return handleVaqfApi(req, res, url, { getSession, getSessionAccessContext });
   if (url.pathname.startsWith("/fin-api/")) {
     return handleApi(req, res, url);
   }

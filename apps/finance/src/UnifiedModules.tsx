@@ -195,6 +195,7 @@ export function UnifiedModules({
   });
 
   const [hr, setHr] = useState<any>({
+    staffAccounts: [],
     erpEmployees: [],
     erpOffices: [],
     crmEmployees: [],
@@ -238,9 +239,12 @@ export function UnifiedModules({
   const [discSubView, setDiscSubView] = useState<"rooms" | "duty" | "phone">("rooms");
   const [roomSearch, setRoomSearch] = useState("");
 
-  const [hrSubView, setHrSubView] = useState<"erp_emp" | "crm_emp" | "tasks">("erp_emp");
-  const [hrArchiveMode, setHrArchiveMode] = useState<"all" | "active" | "archived">("all");
+  const [hrSubView, setHrSubView] = useState<"staff" | "erp_emp" | "crm_emp" | "tasks">("staff");
+  const [hrArchiveMode, setHrArchiveMode] = useState<"all" | "active" | "archived">("active");
   const [hrSearch, setHrSearch] = useState("");
+  const [staffModal, setStaffModal] = useState<any | null>(null);
+  const [resetPwdModal, setResetPwdModal] = useState<any | null>(null);
+  const [staffBusy, setStaffBusy] = useState(false);
 
   const [orgSubView, setOrgSubView] = useState<"categories" | "offices" | "transactions" | "expenses_archive">("categories");
   const [txTypeFilter, setTxTypeFilter] = useState("");
@@ -2537,9 +2541,73 @@ export function UnifiedModules({
   }
 
   // ===========================================================================
-  // 6. XODIMLAR (FAOL + ARXIV) VA TOPSHIRIQLAR (hr_tasks)
+  // 6. XODIMLAR VA HUQUQLAR BO'LIMI (hr_tasks)
   // ===========================================================================
   if (activeTab === "hr_tasks") {
+    const ALL_MODULE_TABS = [
+      { id: "dashboard", label: "📊 Boshqaruv paneli (Moliya xulosasi)", group: "Moliya" },
+      { id: "payments", label: "💰 Talaba to'lovlari va Tushumlar", group: "Moliya" },
+      { id: "debtors", label: "⚠️ Qarzdor talabalar", group: "Moliya" },
+      { id: "expenses", label: "🧾 Xarajatlar ro'yxati", group: "Moliya" },
+      { id: "wallets", label: "👛 Xodim hamyonlari va kassa", group: "Moliya" },
+      { id: "planning", label: "🎯 Byudjet, Reja va Valyuta", group: "Moliya" },
+      { id: "reports", label: "📈 Moliya hisobotlari", group: "Moliya" },
+      { id: "students_dir", label: "🎓 Talabalar bazasi", group: "O'quv" },
+      { id: "groups_courses", label: "📚 Guruhlar, Ustozlar va Kurslar", group: "O'quv" },
+      { id: "attendance", label: "✅ Dars davomati va sabablar", group: "O'quv" },
+      { id: "canteen_mosque", label: "🍽️ Oshxona, Namoz va Turniket", group: "Kampus" },
+      { id: "discipline_rooms", label: "🛏️ Yotoqxona, Navbatchilik va Telefon", group: "Kampus" },
+      { id: "hr_tasks", label: "👥 Xodimlar va Huquqlar", group: "Boshqaruv" },
+      { id: "org_catalog", label: "🏢 Filiallar, Kategoriyalar va Arxiv", group: "Boshqaruv" },
+      { id: "system_admin", label: "⚙️ Tizim sozlamalari va Audit", group: "Boshqaruv" },
+    ];
+
+    const ALL_TAB_IDS = ALL_MODULE_TABS.map((t) => t.id);
+    const TAB_LABEL_MAP: Record<string, string> = Object.fromEntries(
+      ALL_MODULE_TABS.map((t) => [t.id, t.label.replace(/^[^\s]+\s/, "")])
+    );
+
+    const ROLE_PRESETS: Record<string, { label: string; tabs: string[] }> = {
+      DIRECTOR: {
+        label: "👑 Rahbar / Direktor (Barcha bo'limlar)",
+        tabs: [...ALL_TAB_IDS],
+      },
+      FINANCE: {
+        label: "💼 Hisobchi / Moliya (Moliya + Talabalar)",
+        tabs: ["dashboard", "payments", "debtors", "expenses", "wallets", "planning", "reports", "students_dir"],
+      },
+      ADMIN: {
+        label: "🏫 O'quv / Ma'muriyat (O'quv + Kampus + To'lov)",
+        tabs: ["dashboard", "payments", "debtors", "expenses", "wallets", "students_dir", "groups_courses", "attendance", "canteen_mosque", "discipline_rooms"],
+      },
+      CAMPUS: {
+        label: "🛡️ Kampus va Intizom nazoratchisi",
+        tabs: ["students_dir", "groups_courses", "attendance", "canteen_mosque", "discipline_rooms"],
+      },
+      EXPENSE_ONLY: {
+        label: "👛 Xodim (Faqat o'z hamyoni va xarajatlari)",
+        tabs: ["dashboard", "expenses", "wallets"],
+      },
+    };
+
+    const staffList = (hr.staffAccounts || []).filter((s: any) => {
+      if (hrArchiveMode === "active" && !s.isActive) return false;
+      if (hrArchiveMode === "archived" && s.isActive) return false;
+      if (hrSearch) {
+        const q = hrSearch.toLowerCase();
+        const match =
+          s.fullName?.toLowerCase().includes(q) ||
+          s.username?.toLowerCase().includes(q) ||
+          s.email?.toLowerCase().includes(q) ||
+          s.position?.toLowerCase().includes(q) ||
+          s.department?.toLowerCase().includes(q) ||
+          s.phone?.toLowerCase().includes(q) ||
+          s.tgUsername?.toLowerCase().includes(q);
+        if (!match) return false;
+      }
+      return true;
+    });
+
     const erpList = (hr.erpEmployees || []).filter((e: any) => {
       if (hrArchiveMode === "active" && e.deletedAt) return false;
       if (hrArchiveMode === "archived" && !e.deletedAt) return false;
@@ -2550,49 +2618,185 @@ export function UnifiedModules({
       return true;
     });
 
+    const openNewStaffModal = () => {
+      setStaffModal({
+        id: "",
+        fullName: "",
+        username: "",
+        email: "",
+        password: "",
+        mustChangePassword: true,
+        role: "ADMIN",
+        position: "Xodim",
+        department: "Ma'muriyat",
+        genderScope: "ALL",
+        phone: "",
+        telegramId: "",
+        tgUsername: "",
+        walletMode: "own",
+        linkedErpEmployeeId: "",
+        allowedTabs: ["dashboard", "payments", "debtors", "expenses", "wallets", "students_dir", "groups_courses", "attendance", "canteen_mosque", "discipline_rooms"],
+        isActive: true,
+      });
+    };
+
+    const openEditStaffModal = (s: any) => {
+      setStaffModal({
+        id: s.id,
+        fullName: s.fullName || "",
+        username: s.username || "",
+        email: s.email || "",
+        password: "",
+        mustChangePassword: Boolean(s.mustChangePassword),
+        role: s.role || "EMPLOYEE",
+        position: s.position || "Xodim",
+        department: s.department || "Ma'muriyat",
+        genderScope: s.genderScope || "ALL",
+        phone: s.phone || "",
+        telegramId: s.telegramId || "",
+        tgUsername: s.tgUsername || "",
+        walletMode: s.linkedErpEmployeeId ? "shared" : "none",
+        linkedErpEmployeeId: s.linkedErpEmployeeId || "",
+        allowedTabs: Array.isArray(s.allowedTabs) && s.allowedTabs.length > 0 ? s.allowedTabs : [...ALL_TAB_IDS],
+        isActive: s.isActive !== false,
+      });
+    };
+
+    const generateRandomPassword = () => {
+      const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789";
+      let pass = "Mz-";
+      for (let i = 0; i < 6; i++) {
+        pass += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return pass;
+    };
+
+    const handleSaveStaff = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!staffModal) return;
+      if (!staffModal.allowedTabs || staffModal.allowedTabs.length === 0) {
+        notify("Kamida 1 ta bo'limga kirish huquqini belgilang", "err");
+        return;
+      }
+      setStaffBusy(true);
+      try {
+        await apiFetch("/fin-api/hr/staff/save", {
+          method: "POST",
+          body: JSON.stringify(staffModal),
+        });
+        notify(staffModal.id ? "Xodim ma'lumotlari va huquqlari yangilandi!" : "Yangi xodim muvaffaqiyatli qo'shildi!");
+        setStaffModal(null);
+        await loadDomain();
+      } catch (err: any) {
+        notify(err.message || "Saqlashda xatolik", "err");
+      } finally {
+        setStaffBusy(false);
+      }
+    };
+
+    const handleResetStaffPassword = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!resetPwdModal) return;
+      setStaffBusy(true);
+      try {
+        await apiFetch("/fin-api/hr/staff/reset-password", {
+          method: "POST",
+          body: JSON.stringify({
+            id: resetPwdModal.staff.id,
+            newPassword: resetPwdModal.newPassword,
+            mustChangePassword: resetPwdModal.mustChangePassword,
+          }),
+        });
+        notify(`${resetPwdModal.staff.fullName} uchun yangi parol o'rnatildi!`);
+        setResetPwdModal(null);
+        await loadDomain();
+      } catch (err: any) {
+        notify(err.message || "Parolni yangilashda xatolik", "err");
+      } finally {
+        setStaffBusy(false);
+      }
+    };
+
+    const handleToggleStaffActive = async (s: any) => {
+      try {
+        await apiFetch("/fin-api/hr/staff/toggle-active", {
+          method: "POST",
+          body: JSON.stringify({ id: s.id, isActive: !s.isActive }),
+        });
+        notify(!s.isActive ? `${s.fullName} faollashtirildi` : `${s.fullName} vaqtincha bloklandi`);
+        await loadDomain();
+      } catch (err: any) {
+        notify(err.message || "Xatolik", "err");
+      }
+    };
+
+    const activeStaffCount = (hr.staffAccounts || []).filter((x: any) => x.isActive !== false).length;
+    const archivedStaffCount = (hr.staffAccounts || []).filter((x: any) => x.isActive === false).length;
+    const mustChangeCount = (hr.staffAccounts || []).filter((x: any) => x.mustChangePassword).length;
+    const withWalletCount = (hr.staffAccounts || []).filter((x: any) => x.walletId).length;
+
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
         <div className="kpi-grid">
-          <div className="glass-card kpi-card" onClick={() => setHrSubView("erp_emp")} style={{ cursor: "pointer" }}>
-            <div className="kpi-label"><Users size={15} color="#10b981" /> MOLIYA BO'LIMI XODIMLARI</div>
-            <div className="kpi-value">{(hr.erpEmployees || []).length} ta</div>
+          <div className="glass-card kpi-card" onClick={() => { setHrSubView("staff"); setHrArchiveMode("active"); }} style={{ cursor: "pointer" }}>
+            <div className="kpi-label"><Users size={15} color="#10b981" /> TIZIM XODIMLARI VA HUQUQLAR</div>
+            <div className="kpi-value">{activeStaffCount} ta faol</div>
             <div className="kpi-sub">
-              Faol: {(hr.erpEmployees || []).filter((x: any) => !x.deletedAt).length} • Arxiv: {(hr.erpEmployees || []).filter((x: any) => x.deletedAt).length}
+              Jami: {(hr.staffAccounts || []).length} ta • Nofaol/Arxiv: {archivedStaffCount} ta
             </div>
           </div>
-          <div className="glass-card kpi-card" onClick={() => setHrSubView("crm_emp")} style={{ cursor: "pointer" }}>
-            <div className="kpi-label"><UserCheck size={15} color="#06b6d4" /> O'QUV MARKAZI XODIMLARI</div>
-            <div className="kpi-value">{(hr.crmEmployees || []).length} ta</div>
-            <div className="kpi-sub">Ichki xo'jalik va xizmat xodimlari</div>
+          <div className="glass-card kpi-card" onClick={() => setHrSubView("staff")} style={{ cursor: "pointer" }}>
+            <div className="kpi-label"><ShieldAlert size={15} color="#f59e0b" /> PAROL VA XAVFSIZLIK</div>
+            <div className="kpi-value">{mustChangeCount} ta</div>
+            <div className="kpi-sub">1-kirishda parolini yangilashi kerak bo'lganlar</div>
+          </div>
+          <div className="glass-card kpi-card" onClick={() => setHrSubView("erp_emp")} style={{ cursor: "pointer" }}>
+            <div className="kpi-label"><UserCheck size={15} color="#06b6d4" /> HAMYONGA EGA XODIMLAR</div>
+            <div className="kpi-value">{withWalletCount} ta</div>
+            <div className="kpi-sub">Moliya hamyoni biriktirilgan mas'ullar</div>
           </div>
           <div className="glass-card kpi-card" onClick={() => setHrSubView("tasks")} style={{ cursor: "pointer" }}>
             <div className="kpi-label"><CheckCircle2 size={15} color="#8b5cf6" /> XODIM VAZIFALARI</div>
             <div className="kpi-value">{(hr.tasks || []).length} ta</div>
-            <div className="kpi-sub">Biriktirilgan topshiriqlar va arxiv</div>
+            <div className="kpi-sub">Biriktirilgan topshiriqlar va nazorat</div>
           </div>
         </div>
 
         <div className="glass-card" style={{ padding: 18 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button className={`btn ${hrSubView === "staff" ? "btn-primary" : ""}`} onClick={() => setHrSubView("staff")}>
+                👥 Xodimlar va Huquqlar ({(hr.staffAccounts || []).length})
+              </button>
               <button className={`btn ${hrSubView === "erp_emp" ? "btn-primary" : ""}`} onClick={() => setHrSubView("erp_emp")}>
-                Moliya bo'limi xodimlari ({(hr.erpEmployees || []).length})
+                👛 Moliya hamyonlari ({(hr.erpEmployees || []).length})
               </button>
               <button className={`btn ${hrSubView === "crm_emp" ? "btn-primary" : ""}`} onClick={() => setHrSubView("crm_emp")}>
-                O'quv markazi xodimlari ({(hr.crmEmployees || []).length})
+                🏫 Ichki xizmat xodimlari ({(hr.crmEmployees || []).length})
               </button>
               <button className={`btn ${hrSubView === "tasks" ? "btn-primary" : ""}`} onClick={() => setHrSubView("tasks")}>
-                Topshiriqlar ({(hr.tasks || []).length})
+                📋 Topshiriqlar ({(hr.tasks || []).length})
               </button>
             </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <input className="input" placeholder="Xodim qidirish..." value={hrSearch} onChange={(e) => setHrSearch(e.target.value)} style={{ width: 200 }} />
-              {hrSubView === "erp_emp" && (
-                <select className="select" value={hrArchiveMode} onChange={(e) => setHrArchiveMode(e.target.value as any)} style={{ width: 170 }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <input
+                className="input"
+                placeholder="Ism, login, lavozim, tel..."
+                value={hrSearch}
+                onChange={(e) => setHrSearch(e.target.value)}
+                style={{ width: 220 }}
+              />
+              {(hrSubView === "staff" || hrSubView === "erp_emp") && (
+                <select className="select" value={hrArchiveMode} onChange={(e) => setHrArchiveMode(e.target.value as any)} style={{ width: 175 }}>
+                  <option value="active">🟢 Faqat faol xodimlar</option>
+                  <option value="archived">📦 Nofaol / Arxiv</option>
                   <option value="all">🌐 Barchasi (Faol + Arxiv)</option>
-                  <option value="active">🟢 Faqat faollar</option>
-                  <option value="archived">📦 O'chirilgan arxiv</option>
                 </select>
+              )}
+              {hrSubView === "staff" && (
+                <button className="btn btn-primary" onClick={openNewStaffModal}>
+                  <Plus size={15} /> Yangi xodim qo'shish
+                </button>
               )}
               {hrSubView === "tasks" && (
                 <button
@@ -2611,9 +2815,228 @@ export function UnifiedModules({
                   <Plus size={15} /> Vazifa biriktirish
                 </button>
               )}
-              <button className="btn" onClick={loadDomain}><RefreshCw size={14} /></button>
+              <button className="btn" onClick={loadDomain} title="Yangilash"><RefreshCw size={14} /></button>
             </div>
           </div>
+
+          {hrSubView === "staff" && (
+            <div className="table-wrap">
+              <table className="fin-table">
+                <thead>
+                  <tr>
+                    <th>Xodim / Lavozim</th>
+                    <th>Login va Parol holati</th>
+                    <th>Rol va Qamrov</th>
+                    <th>Ruxsat berilgan bo'limlar (Huquqlar)</th>
+                    <th>Moliya Hamyoni</th>
+                    <th>Aloqa / Telegram</th>
+                    <th>Holati</th>
+                    <th style={{ textAlign: "right" }}>Amallar</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {staffList.map((s: any) => {
+                    const tabs: string[] = Array.isArray(s.allowedTabs) ? s.allowedTabs : [];
+                    const isFullAccess = tabs.length >= ALL_TAB_IDS.length - 1 || s.role === "DIRECTOR";
+                    return (
+                      <tr key={s.id} style={{ opacity: s.isActive === false ? 0.65 : 1 }}>
+                        <td>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <div
+                              className="stu-avatar"
+                              style={{
+                                width: 38,
+                                height: 38,
+                                borderRadius: 11,
+                                fontSize: 13,
+                                fontWeight: 700,
+                                background:
+                                  s.role === "DIRECTOR"
+                                    ? "rgba(245, 158, 11, 0.18)"
+                                    : s.genderScope === "FEMALE"
+                                    ? "rgba(236, 72, 153, 0.18)"
+                                    : "rgba(6, 182, 212, 0.18)",
+                                color:
+                                  s.role === "DIRECTOR"
+                                    ? "#fbbf24"
+                                    : s.genderScope === "FEMALE"
+                                    ? "#f472b6"
+                                    : "#22d3ee",
+                              }}
+                            >
+                              {String(s.fullName || "X")
+                                .split(" ")
+                                .filter(Boolean)
+                                .slice(0, 2)
+                                .map((w: string) => w[0]?.toUpperCase())
+                                .join("")}
+                            </div>
+                            <div>
+                              <div style={{ fontWeight: 700, fontSize: 13.5 }}>{s.fullName}</div>
+                              <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
+                                {s.position || "Xodim"} • {s.department || "Ma'muriyat"}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td>
+                          <div style={{ fontWeight: 700, color: "#38bdf8", fontFamily: "monospace", fontSize: 13 }}>
+                            @{s.username}
+                          </div>
+                          <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>
+                            {s.email || "—"}
+                          </div>
+                          {s.mustChangePassword ? (
+                            <span className="badge badge-amber" style={{ fontSize: 10.5 }}>
+                              ⚠️ 1-kirishda parol yangilanadi
+                            </span>
+                          ) : (
+                            <span className="badge badge-emerald" style={{ fontSize: 10.5 }}>
+                              🔒 Shaxsiy parol o'rnatilgan
+                            </span>
+                          )}
+                        </td>
+                        <td>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-start" }}>
+                            <span
+                              className={`badge ${
+                                s.role === "DIRECTOR"
+                                  ? "badge-amber"
+                                  : s.role === "FINANCE"
+                                  ? "badge-emerald"
+                                  : s.role === "ADMIN"
+                                  ? "badge-cyan"
+                                  : "badge-slate"
+                              }`}
+                            >
+                              {s.role === "DIRECTOR"
+                                ? "👑 Rahbar (Director)"
+                                : s.role === "FINANCE"
+                                ? "💼 Moliya / Hisobchi"
+                                : s.role === "ADMIN"
+                                ? "🛡️ Boshqaruvchi (Admin)"
+                                : s.role === "TEACHER"
+                                ? "📚 Ustoz / O'qituvchi"
+                                : "👤 Xodim"}
+                            </span>
+                            <span
+                              className={`badge ${
+                                s.genderScope === "FEMALE"
+                                  ? "badge-rose"
+                                  : s.genderScope === "MALE"
+                                  ? "badge-cyan"
+                                  : "badge-slate"
+                              }`}
+                              style={{ fontSize: 10.5 }}
+                            >
+                              {s.genderScope === "FEMALE"
+                                ? "👧 Faqat qizlar bo'limi"
+                                : s.genderScope === "MALE"
+                                ? "👦 Faqat o'g'il bolalar"
+                                : "🌐 Barcha o'quvchilar"}
+                            </span>
+                          </div>
+                        </td>
+                        <td style={{ maxWidth: 290 }}>
+                          {isFullAccess ? (
+                            <span className="badge badge-emerald">
+                              ✅ Barcha bo'limlar ({ALL_TAB_IDS.length} ta modul)
+                            </span>
+                          ) : (
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                              {tabs.slice(0, 5).map((tId) => (
+                                <span key={tId} className="badge badge-slate" style={{ fontSize: 10.5 }}>
+                                  {TAB_LABEL_MAP[tId] || tId}
+                                </span>
+                              ))}
+                              {tabs.length > 5 && (
+                                <span className="badge badge-cyan" style={{ fontSize: 10.5 }}>
+                                  +{tabs.length - 5} ta bo'lim
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                        <td>
+                          {s.walletId ? (
+                            <div>
+                              <div style={{ fontWeight: 700, color: s.walletBalance < 0 ? "#fb7185" : "#34d399" }}>
+                                {fmtTL(s.walletBalance)}
+                              </div>
+                              <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                                Sarflangan: {fmtTL(s.walletTotalSpent)}
+                              </div>
+                            </div>
+                          ) : (
+                            <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>Hamyon yo'q</span>
+                          )}
+                        </td>
+                        <td>
+                          <div style={{ fontSize: 12 }}>
+                            {s.tgUsername ? (
+                              <span style={{ color: "#38bdf8" }}>@{s.tgUsername.replace(/^@/, "")}</span>
+                            ) : s.telegramId ? (
+                              <span>TG ID: {s.telegramId}</span>
+                            ) : (
+                              "—"
+                            )}
+                          </div>
+                          <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{s.phone || ""}</div>
+                        </td>
+                        <td>
+                          {s.isActive !== false ? (
+                            <span className="badge badge-emerald">Faol</span>
+                          ) : (
+                            <span className="badge badge-rose">Bloklangan</span>
+                          )}
+                        </td>
+                        <td style={{ textAlign: "right" }}>
+                          <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, flexWrap: "wrap" }}>
+                            <button
+                              className="btn btn-sm"
+                              onClick={() => openEditStaffModal(s)}
+                              title="Tahrirlash va Huquqlarni boshqarish"
+                            >
+                              <Edit3 size={13} /> Huquqlar
+                            </button>
+                            <button
+                              className="btn btn-sm"
+                              onClick={() =>
+                                setResetPwdModal({
+                                  staff: s,
+                                  newPassword: generateRandomPassword(),
+                                  mustChangePassword: true,
+                                })
+                              }
+                              title="Vaqtinchalik yoki yangi parol berish"
+                            >
+                              🔑 Parol
+                            </button>
+                            <button
+                              className="btn btn-sm"
+                              style={{
+                                color: s.isActive !== false ? "#fb7185" : "#34d399",
+                              }}
+                              onClick={() => handleToggleStaffActive(s)}
+                            >
+                              {s.isActive !== false ? "Bloklash" : "Faollashtirish"}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {staffList.length === 0 && (
+                    <tr>
+                      <td colSpan={8} style={{ textAlign: "center", padding: 32, color: "var(--text-muted)" }}>
+                        Tanlangan filtr bo'yicha xodimlar topilmadi
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {hrSubView === "erp_emp" && (
             <div className="table-wrap">
@@ -2783,6 +3206,401 @@ export function UnifiedModules({
             </div>
           )}
         </div>
+
+        {/* YANGI XODIM QO'SHISH YOKI TAHRIRLASH MODALI */}
+        {staffModal && (
+          <div className="modal-backdrop" onClick={() => setStaffModal(null)}>
+            <div
+              className="modal-box modal-card animate-in"
+              style={{ maxWidth: 780, width: "95%", maxHeight: "90vh", overflowY: "auto" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                <div>
+                  <h3 style={{ margin: 0 }}>
+                    {staffModal.id ? `Xodimni tahrirlash: ${staffModal.fullName}` : "✨ Yangi xodim qo'shish va huquqlar berish"}
+                  </h3>
+                  <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 3 }}>
+                    Login, boshlang'ich parol, lavozim, jins qamrovi hamda tizim bo'limlariga kirish huquqlarini belgilang
+                  </div>
+                </div>
+                <button type="button" className="btn btn-sm" onClick={() => setStaffModal(null)}>✕</button>
+              </div>
+
+              <form onSubmit={handleSaveStaff} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                <div className="grid-2">
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600 }}>F.I.Sh. (To'liq ism-sharifi) *</label>
+                    <input
+                      className="input"
+                      required
+                      placeholder="Masalan: Abdulloh Karimov"
+                      value={staffModal.fullName}
+                      onChange={(e) => setStaffModal({ ...staffModal, fullName: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600 }}>Tizimga kirish logini (Username) *</label>
+                    <input
+                      className="input"
+                      required
+                      placeholder="Masalan: abdulloh"
+                      value={staffModal.username}
+                      onChange={(e) =>
+                        setStaffModal({
+                          ...staffModal,
+                          username: e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ""),
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+
+                {/* PAROL VA BIRINCHI KIRISHDA ALMASHTIRISH */}
+                <div
+                  style={{
+                    padding: 12,
+                    borderRadius: 12,
+                    background: "rgba(245, 158, 11, 0.08)",
+                    border: "1px solid rgba(245, 158, 11, 0.25)",
+                  }}
+                >
+                  <div className="grid-2" style={{ alignItems: "end" }}>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 600 }}>
+                        {staffModal.id ? "Yangi parol berish (ixtiyoriy — bo'sh qolsa o'zgarmaydi)" : "Boshlang'ich vaqtinchalik parol *"}
+                      </label>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <input
+                          type="text"
+                          className="input"
+                          required={!staffModal.id}
+                          placeholder={staffModal.id ? "O'zgartirish uchun yangi parol yozing..." : "Kamida 4 ta belgi"}
+                          value={staffModal.password}
+                          onChange={(e) => setStaffModal({ ...staffModal, password: e.target.value })}
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          onClick={() =>
+                            setStaffModal({
+                              ...staffModal,
+                              password: generateRandomPassword(),
+                              mustChangePassword: true,
+                            })
+                          }
+                          title="Tasodifiy parol yaratish"
+                        >
+                          🎲 Generatsiya
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <label
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          cursor: "pointer",
+                          fontSize: 12.5,
+                          fontWeight: 600,
+                          padding: "8px 10px",
+                          borderRadius: 8,
+                          background: "rgba(15, 23, 42, 0.45)",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={Boolean(staffModal.mustChangePassword)}
+                          onChange={(e) => setStaffModal({ ...staffModal, mustChangePassword: e.target.checked })}
+                        />
+                        <span>🔒 Xodim 1-marta kirganida parolni o'zi yangilasin</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ROL, LAVOZIM, BO'LIM VA JINS QAMROVI */}
+                <div className="grid-2">
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600 }}>Tizimdagi asosiy roli *</label>
+                    <select
+                      className="select"
+                      value={staffModal.role}
+                      onChange={(e) => {
+                        const newRole = e.target.value;
+                        const presetTabs =
+                          newRole === "DIRECTOR"
+                            ? ROLE_PRESETS.DIRECTOR.tabs
+                            : newRole === "FINANCE"
+                            ? ROLE_PRESETS.FINANCE.tabs
+                            : newRole === "ADMIN"
+                            ? ROLE_PRESETS.ADMIN.tabs
+                            : newRole === "TEACHER"
+                            ? ROLE_PRESETS.CAMPUS.tabs
+                            : ROLE_PRESETS.EXPENSE_ONLY.tabs;
+                        setStaffModal({
+                          ...staffModal,
+                          role: newRole,
+                          allowedTabs: presetTabs,
+                        });
+                      }}
+                    >
+                      <option value="DIRECTOR">👑 Rahbar / Direktor (To'liq vakolat)</option>
+                      <option value="FINANCE">💼 Moliya / Hisobchi</option>
+                      <option value="ADMIN">🛡️ Boshqaruvchi / Ma'muriyat (Admin)</option>
+                      <option value="EMPLOYEE">👤 Xodim / Mas'ul</option>
+                      <option value="TEACHER">📚 Ustoz / Tarbiyachi</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600 }}>O'quvchilar jinsi bo'yicha ko'rish chegarasi *</label>
+                    <select
+                      className="select"
+                      value={staffModal.genderScope}
+                      onChange={(e) => setStaffModal({ ...staffModal, genderScope: e.target.value })}
+                    >
+                      <option value="ALL">🌐 Barcha o'quvchilar (O'g'il + Qiz)</option>
+                      <option value="MALE">👦 Faqat o'g'il bolalar (Erkaklar bo'limi)</option>
+                      <option value="FEMALE">👧 Faqat qiz bolalar (Ayollar bo'limi)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid-2">
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600 }}>Lavozimi</label>
+                    <input
+                      className="input"
+                      placeholder="Masalan: O'quv ishlari mas'uli, Kassir, Nazoratchi..."
+                      value={staffModal.position}
+                      onChange={(e) => setStaffModal({ ...staffModal, position: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600 }}>Bo'lim (Departament)</label>
+                    <input
+                      className="input"
+                      placeholder="Masalan: Rahbariyat, Moliya, O'quv bo'limi, Ayollar bo'limi..."
+                      value={staffModal.department}
+                      onChange={(e) => setStaffModal({ ...staffModal, department: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                {/* MOLIYA HAMYONI VA ALOQA */}
+                <div className="grid-2">
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600 }}>Moliya hamyoni (Xarajat va kassa uchun)</label>
+                    <select
+                      className="select"
+                      value={staffModal.walletMode}
+                      onChange={(e) => setStaffModal({ ...staffModal, walletMode: e.target.value })}
+                    >
+                      <option value="own">👛 Shaxsiy moliya hamyoni ochilsin / biriktirilsin</option>
+                      <option value="shared">🔗 Mavjud moliya hamyoniga ulash</option>
+                      <option value="none">🚫 Moliya hamyoni kerak emas</option>
+                    </select>
+                  </div>
+                  {staffModal.walletMode === "shared" ? (
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 600 }}>Qaysi moliya xodimining hamyoni?</label>
+                      <select
+                        className="select"
+                        value={staffModal.linkedErpEmployeeId}
+                        onChange={(e) => setStaffModal({ ...staffModal, linkedErpEmployeeId: e.target.value })}
+                      >
+                        <option value="">Hamyon tanlang...</option>
+                        {(hr.erpEmployees || [])
+                          .filter((x: any) => !x.deletedAt)
+                          .map((emp: any) => (
+                            <option key={emp.id} value={emp.id}>
+                              {emp.fullName} (@{emp.username}) — {fmtTL(emp.walletBalance)}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                  ) : (
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 600 }}>Elektron pochta (ixtiyoriy)</label>
+                      <input
+                        className="input"
+                        placeholder="user@mezana.uz"
+                        value={staffModal.email}
+                        onChange={(e) => setStaffModal({ ...staffModal, email: e.target.value })}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid-2">
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600 }}>Telefon raqami</label>
+                    <input
+                      className="input"
+                      placeholder="+90 5... yoki +998 9..."
+                      value={staffModal.phone}
+                      onChange={(e) => setStaffModal({ ...staffModal, phone: e.target.value })}
+                    />
+                  </div>
+                  <div className="grid-2" style={{ gap: 8 }}>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 600 }}>Telegram @username</label>
+                      <input
+                        className="input"
+                        placeholder="username"
+                        value={staffModal.tgUsername}
+                        onChange={(e) => setStaffModal({ ...staffModal, tgUsername: e.target.value.replace(/^@/, "") })}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 600 }}>Telegram ID (Bot uchun)</label>
+                      <input
+                        className="input"
+                        placeholder="Masalan: 7638562008"
+                        value={staffModal.telegramId}
+                        onChange={(e) => setStaffModal({ ...staffModal, telegramId: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* BO'LIMLARGA KIRISH HUQUQLARI (GRANULAR PERMISSIONS) */}
+                <div
+                  style={{
+                    padding: 14,
+                    borderRadius: 12,
+                    background: "rgba(15, 23, 42, 0.55)",
+                    border: "1px solid rgba(148, 163, 184, 0.18)",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 13 }}>🛡️ Ruxsat berilgan tizim bo'limlari ({(staffModal.allowedTabs || []).length} / {ALL_TAB_IDS.length})</div>
+                      <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
+                        Xodim tizimga kirganida faqat quyida belgilangan oynalarni ko'ra oladi
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {Object.entries(ROLE_PRESETS).map(([key, preset]) => (
+                        <button
+                          key={key}
+                          type="button"
+                          className="btn btn-sm"
+                          style={{ fontSize: 11 }}
+                          onClick={() => setStaffModal({ ...staffModal, allowedTabs: [...preset.tabs] })}
+                        >
+                          {preset.label.split(" (")[0]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 8 }}>
+                    {ALL_MODULE_TABS.map((mod) => {
+                      const checked = (staffModal.allowedTabs || []).includes(mod.id);
+                      return (
+                        <label
+                          key={mod.id}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                            padding: "8px 10px",
+                            borderRadius: 8,
+                            cursor: "pointer",
+                            fontSize: 12,
+                            background: checked ? "rgba(16, 185, 129, 0.14)" : "rgba(30, 41, 59, 0.45)",
+                            border: checked ? "1px solid rgba(16, 185, 129, 0.4)" : "1px solid rgba(148, 163, 184, 0.12)",
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => {
+                              const curr: string[] = staffModal.allowedTabs || [];
+                              const next = e.target.checked
+                                ? Array.from(new Set([...curr, mod.id]))
+                                : curr.filter((x) => x !== mod.id);
+                              setStaffModal({ ...staffModal, allowedTabs: next });
+                            }}
+                          />
+                          <span style={{ fontWeight: checked ? 600 : 400 }}>{mod.label}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13 }}>
+                    <input
+                      type="checkbox"
+                      checked={staffModal.isActive !== false}
+                      onChange={(e) => setStaffModal({ ...staffModal, isActive: e.target.checked })}
+                    />
+                    <span>Hisob faol (tizimga kira oladi)</span>
+                  </label>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button type="button" className="btn" onClick={() => setStaffModal(null)}>
+                      Bekor qilish
+                    </button>
+                    <button type="submit" className="btn btn-primary" disabled={staffBusy}>
+                      {staffBusy ? "Saqlanmoqda..." : staffModal.id ? "💾 O'zgarishlarni saqlash" : "✨ Xodimni yaratish"}
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* PAROLNI YANGILASH / BIRINCHI KIRISH PAROLI BERISH MODALI */}
+        {resetPwdModal && (
+          <div className="modal-backdrop" onClick={() => setResetPwdModal(null)}>
+            <div className="modal-box modal-card animate-in" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+              <h3 style={{ marginTop: 0 }}>🔑 Xodimga yangi parol berish</h3>
+              <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginBottom: 14 }}>
+                <b>{resetPwdModal.staff?.fullName}</b> (<code>@{resetPwdModal.staff?.username}</code>) uchun yangi parol belgilang:
+              </div>
+              <form onSubmit={handleResetStaffPassword} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600 }}>Yangi parol *</label>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <input
+                      type="text"
+                      className="input"
+                      required
+                      value={resetPwdModal.newPassword}
+                      onChange={(e) => setResetPwdModal({ ...resetPwdModal, newPassword: e.target.value })}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      onClick={() => setResetPwdModal({ ...resetPwdModal, newPassword: generateRandomPassword() })}
+                    >
+                      🎲
+                    </button>
+                  </div>
+                </div>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 12.5 }}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(resetPwdModal.mustChangePassword)}
+                    onChange={(e) => setResetPwdModal({ ...resetPwdModal, mustChangePassword: e.target.checked })}
+                  />
+                  <span>Xodim tizimga birinchi marta kirganida ushbu parolni o'zgartirishi shart bo'lsin</span>
+                </label>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
+                  <button type="button" className="btn" onClick={() => setResetPwdModal(null)}>Bekor qilish</button>
+                  <button type="submit" className="btn btn-primary" disabled={staffBusy}>
+                    {staffBusy ? "Saqlanmoqda..." : "🔑 Parolni o'rnatish"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
         {taskModal && (
           <div className="modal-backdrop" onClick={() => setTaskModal(null)}>

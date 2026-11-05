@@ -524,6 +524,8 @@ function App() {
   } | null>(null);
 
   const [walletTxModal, setWalletTxModal] = useState<{ wallet: any; items: any[] } | null>(null);
+  const [changePwdModalOpen, setChangePwdModalOpen] = useState(false);
+  const [pwdForm, setPwdForm] = useState({ newPassword: "", confirmPassword: "", busy: false, error: "" });
 
   // Command Palette (Ctrl+K) & AI Drawer & Mobile Menu
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -580,13 +582,6 @@ function App() {
   const checkAuth = useCallback(async () => {
     try {
       const d = await apiFetch("/fin-api/auth/me");
-      if (d?.authenticated) {
-        const nextUrl = new URLSearchParams(window.location.search).get("next");
-        if (nextUrl && nextUrl.startsWith("/vaqf")) {
-          window.location.href = nextUrl;
-          return;
-        }
-      }
       setAuth({ loading: false, ...d });
     } catch {
       setAuth({ loading: false, authenticated: false });
@@ -757,13 +752,12 @@ function App() {
         body: JSON.stringify({ identifier: loginForm.identifier, password: loginForm.password }),
       });
       setLoginForm((s) => ({ ...s, error: "", busy: false }));
-      const nextUrl = new URLSearchParams(window.location.search).get("next");
-      if (nextUrl && nextUrl.startsWith("/vaqf")) {
-        window.location.href = nextUrl;
-        return;
-      }
       setAuth({ loading: false, ...d });
-      notify("Moliya markaziga muvaffaqiyatli kirdingiz!");
+      if (d?.user?.mustChangePassword || d?.access?.mustChangePassword) {
+        notify("Xush kelibsiz! Davom etish uchun yangi shaxsiy parol o'rnating.");
+      } else {
+        notify("Tizimga muvaffaqiyatli kirdingiz!");
+      }
     } catch (err: any) {
       setLoginForm((s) => ({ ...s, error: err.message, busy: false }));
     }
@@ -1471,6 +1465,34 @@ function App() {
     });
   }, [requestsMatchingNonStatus, reqFilter.status]);
 
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pwdForm.newPassword || pwdForm.newPassword.trim().length < 4) {
+      setPwdForm((s) => ({ ...s, error: "Yangi parol kamida 4 ta belgidan iborat bo'lishi kerak" }));
+      return;
+    }
+    if (pwdForm.newPassword !== pwdForm.confirmPassword) {
+      setPwdForm((s) => ({ ...s, error: "Kiritilgan parollar bir-biriga mos kelmadi" }));
+      return;
+    }
+    setPwdForm((s) => ({ ...s, busy: true, error: "" }));
+    try {
+      const d = await apiFetch("/fin-api/auth/change-password", {
+        method: "POST",
+        body: JSON.stringify({
+          newPassword: pwdForm.newPassword,
+          confirmPassword: pwdForm.confirmPassword,
+        }),
+      });
+      setPwdForm({ newPassword: "", confirmPassword: "", busy: false, error: "" });
+      setChangePwdModalOpen(false);
+      setAuth({ loading: false, ...d });
+      notify("Parolingiz muvaffaqiyatli yangilandi!");
+    } catch (err: any) {
+      setPwdForm((s) => ({ ...s, busy: false, error: err.message || "Parolni saqlashda xatolik" }));
+    }
+  };
+
   if (auth.loading) {
     return (
       <div style={{ display: "flex", height: "100vh", alignItems: "center", justifyContent: "center" }}>
@@ -1557,6 +1579,89 @@ function App() {
     );
   }
 
+  if (auth.user?.mustChangePassword || auth.access?.mustChangePassword) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+        <div className="hi-tech-bg" />
+        <div className="hi-tech-grid" />
+        <div className="glass-card animate-in" style={{ maxWidth: 460, width: "100%", padding: 32 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
+            <div className="brand-orb" style={{ background: "linear-gradient(135deg, #f59e0b, #10b981)" }}>🔒</div>
+            <div>
+              <h1 style={{ fontSize: 19, fontWeight: 800 }}>SHAXSIY PAROL O'RNATISH</h1>
+              <p style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>
+                Xush kelibsiz, <b>{auth.user?.name || "Xodim"}</b>!
+              </p>
+            </div>
+          </div>
+
+          <div
+            style={{
+              padding: "12px 14px",
+              borderRadius: 10,
+              background: "rgba(245, 158, 11, 0.12)",
+              border: "1px solid rgba(245, 158, 11, 0.3)",
+              fontSize: 12.5,
+              color: "var(--text-primary)",
+              marginBottom: 18,
+              lineHeight: 1.5,
+            }}
+          >
+            Tizimga birinchi marta kirganingiz (yoki vaqtinchalik parol berilgani) sababli, xavfsizlik uchun o'zingizning yangi shaxsiy parolingizni o'rnating.
+          </div>
+
+          <form onSubmit={handleChangePassword} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div className="form-field">
+              <label className="form-label">Yangi shaxsiy parol *</label>
+              <input
+                type="password"
+                className="input"
+                placeholder="Kamida 4 ta belgi kiriting..."
+                value={pwdForm.newPassword}
+                onChange={(e) => setPwdForm({ ...pwdForm, newPassword: e.target.value })}
+                autoFocus
+                required
+              />
+            </div>
+            <div className="form-field">
+              <label className="form-label">Yangi parolni tasdiqlang *</label>
+              <input
+                type="password"
+                className="input"
+                placeholder="Parolni qayta kiriting..."
+                value={pwdForm.confirmPassword}
+                onChange={(e) => setPwdForm({ ...pwdForm, confirmPassword: e.target.value })}
+                required
+              />
+            </div>
+
+            {pwdForm.error && (
+              <div
+                style={{
+                  padding: "10px 12px",
+                  borderRadius: 10,
+                  background: "rgba(244,63,94,0.14)",
+                  border: "1px solid rgba(244,63,94,0.35)",
+                  color: "#fb7185",
+                  fontSize: 13,
+                }}
+              >
+                {pwdForm.error}
+              </div>
+            )}
+
+            <button type="submit" className="btn btn-primary" disabled={pwdForm.busy} style={{ marginTop: 4, padding: 12 }}>
+              {pwdForm.busy ? "Saqlanmoqda..." : "💾 Yangi parolni saqlash va Tizimga kirish"}
+            </button>
+            <button type="button" className="btn" onClick={handleLogout} style={{ padding: 10 }}>
+              Chiqish
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   const u = overview?.unified || {};
   const crm = overview?.crm || {};
   const erp = overview?.erp || {};
@@ -1575,10 +1680,10 @@ function App() {
   };
   const canSeeTab = (tabId: string) => {
     if (access.isDirector) return true;
-    if (["planning", "reports", "org_catalog", "system_admin"].includes(tabId)) return false;
     if (Array.isArray(access.allowedTabs) && access.allowedTabs.length > 0) {
       return access.allowedTabs.includes(tabId);
     }
+    if (["planning", "reports", "org_catalog", "system_admin"].includes(tabId)) return false;
     return true;
   };
 
@@ -1674,16 +1779,16 @@ function App() {
             </button>
           )}
 
-          {access.isDirector && (
-            <>
-              <button className={`nav-btn ${activeTab === "planning" ? "active" : ""}`} onClick={() => setActiveTab("planning")}>
-                <Layers size={17} /> Daromad, Byudjet va Kurs
-              </button>
+          {canSeeTab("planning") && (
+            <button className={`nav-btn ${activeTab === "planning" ? "active" : ""}`} onClick={() => setActiveTab("planning")}>
+              <Layers size={17} /> Daromad, Byudjet va Kurs
+            </button>
+          )}
 
-              <button className={`nav-btn ${activeTab === "reports" ? "active" : ""}`} onClick={() => setActiveTab("reports")}>
-                <FileSpreadsheet size={17} /> Pul oqimi hisoboti
-              </button>
-            </>
+          {canSeeTab("reports") && (
+            <button className={`nav-btn ${activeTab === "reports" ? "active" : ""}`} onClick={() => setActiveTab("reports")}>
+              <FileSpreadsheet size={17} /> Pul oqimi hisoboti
+            </button>
           )}
 
           <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--text-muted)", padding: "12px 10px 4px", letterSpacing: "0.06em" }}>
@@ -1724,18 +1829,18 @@ function App() {
           </div>
           {canSeeTab("hr_tasks") && (
             <button className={`nav-btn ${activeTab === "hr_tasks" ? "active" : ""}`} onClick={() => setActiveTab("hr_tasks")}>
-              <UserCheck size={17} /> Xodimlar va Vazifalar
+              <UserCheck size={17} /> Xodimlar va Huquqlar
             </button>
           )}
-          {access.isDirector && (
-            <>
-              <button className={`nav-btn ${activeTab === "org_catalog" ? "active" : ""}`} onClick={() => setActiveTab("org_catalog")}>
-                <Globe size={17} /> Filiallar va Xarajat turlari
-              </button>
-              <button className={`nav-btn ${activeTab === "system_admin" ? "active" : ""}`} onClick={() => setActiveTab("system_admin")}>
-                <ShieldAlert size={17} /> Boshqaruv, Yil va Tarix
-              </button>
-            </>
+          {canSeeTab("org_catalog") && (
+            <button className={`nav-btn ${activeTab === "org_catalog" ? "active" : ""}`} onClick={() => setActiveTab("org_catalog")}>
+              <Globe size={17} /> Filiallar va Xarajat turlari
+            </button>
+          )}
+          {canSeeTab("system_admin") && (
+            <button className={`nav-btn ${activeTab === "system_admin" ? "active" : ""}`} onClick={() => setActiveTab("system_admin")}>
+              <ShieldAlert size={17} /> Boshqaruv, Yil va Tarix
+            </button>
           )}
         </div>
 
@@ -1751,11 +1856,68 @@ function App() {
               )}
             </div>
           </div>
-          <button className="btn btn-sm btn-danger" onClick={handleLogout} title="Chiqish">
-            <LogOut size={14} />
-          </button>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button
+              className="btn btn-sm"
+              onClick={() => {
+                setPwdForm({ newPassword: "", confirmPassword: "", busy: false, error: "" });
+                setChangePwdModalOpen(true);
+              }}
+              title="Parolni o'zgartirish"
+            >
+              🔑
+            </button>
+            <button className="btn btn-sm btn-danger" onClick={handleLogout} title="Chiqish">
+              <LogOut size={14} />
+            </button>
+          </div>
         </div>
       </aside>
+
+      {/* Voluntary Password Change Modal */}
+      {changePwdModalOpen && (
+        <div className="modal-backdrop" onClick={() => setChangePwdModalOpen(false)}>
+          <div className="modal-box modal-card animate-in" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0 }}>🔑 Parolni o'zgartirish</h3>
+            <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginBottom: 14 }}>
+              <b>{auth.user?.name}</b> hisobingiz uchun yangi parol kiriting:
+            </div>
+            <form onSubmit={handleChangePassword} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600 }}>Yangi parol *</label>
+                <input
+                  type="password"
+                  className="input"
+                  required
+                  placeholder="Kamida 4 ta belgi"
+                  value={pwdForm.newPassword}
+                  onChange={(e) => setPwdForm({ ...pwdForm, newPassword: e.target.value })}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600 }}>Yangi parolni tasdiqlang *</label>
+                <input
+                  type="password"
+                  className="input"
+                  required
+                  placeholder="Parolni qayta kiriting"
+                  value={pwdForm.confirmPassword}
+                  onChange={(e) => setPwdForm({ ...pwdForm, confirmPassword: e.target.value })}
+                />
+              </div>
+              {pwdForm.error && (
+                <div style={{ color: "#fb7185", fontSize: 12.5 }}>{pwdForm.error}</div>
+              )}
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
+                <button type="button" className="btn" onClick={() => setChangePwdModalOpen(false)}>Bekor qilish</button>
+                <button type="submit" className="btn btn-primary" disabled={pwdForm.busy}>
+                  {pwdForm.busy ? "Saqlanmoqda..." : "💾 Parolni yangilash"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Main Content */}
       <div className="main-area">
@@ -1837,16 +1999,6 @@ function App() {
             <button className="btn btn-sm" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} title="Mavzuni o'zgartirish">
               {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
             </button>
-            {(access.vaqf?.canView || access.vaqf?.canAccess) && (
-              <a
-                href="/vaqf/"
-                className="vaqf-switch-btn"
-                title="Ezan Vakf? ? Vaqf mulk va inventarizatsiya tizimi"
-              >
-                <img src="/ezan-logo.svg" alt="Ezan Vakf?" style={{ width: 18, height: 22, objectFit: "contain", display: "block" }} />
-                <span className="vaqf-switch-label">Vaqf</span>
-              </a>
-            )}
           </div>
         </header>
 
