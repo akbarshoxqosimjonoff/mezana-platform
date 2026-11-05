@@ -732,7 +732,7 @@ export async function getDonationDetail(donationId, vAccess = {}) {
   };
 }
 
-export async function listDonations({ institutionId = null, kind = null, restricted = null, vAccess = {} } = {}) {
+export async function listDonations({ institutionId = null, kind = null, restricted = null, source = null, vAccess = {} } = {}) {
   const params = [];
   const conds = [];
   if (institutionId && institutionId !== "all") {
@@ -742,6 +742,10 @@ export async function listDonations({ institutionId = null, kind = null, restric
   if (kind) {
     params.push(String(kind));
     conds.push(`dn.kind = $${params.length}`);
+  }
+  if (source) {
+    params.push(String(source));
+    conds.push(`dn.source = $${params.length}`);
   }
   if (restricted !== null && restricted !== undefined && restricted !== "") {
     params.push(restricted === true || restricted === "true");

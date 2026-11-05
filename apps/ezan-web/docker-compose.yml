@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ezan_web_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ezan_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ezan_local_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-ezan_web}
+    ports:
+      - "127.0.0.1:5437:5432"
+    volumes:
+      - ezan_web_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-ezan_user} -d $${POSTGRES_DB:-ezan_web}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  ezan_web_pgdata:

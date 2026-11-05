@@ -63,7 +63,7 @@ export function DonationsRegistryPanel({
   permissions: any;
   notify: (msg: string, type?: "ok" | "err") => void;
 }) {
-  const [subTab, setSubTab] = useState<"donations" | "restricted" | "donors">("donations");
+  const [subTab, setSubTab] = useState<"donations" | "restricted" | "online" | "donors">("donations");
   const [donations, setDonations] = useState<any[]>([]);
   const [donors, setDonors] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -199,7 +199,7 @@ export function DonationsRegistryPanel({
     }
   };
 
-  const displayedDonations = subTab === "restricted" ? donations.filter((d) => d.restricted) : donations;
+  const displayedDonations = subTab === "restricted" ? donations.filter((d) => d.restricted) : subTab === "online" ? donations.filter((d) => d.source === "online") : donations;
 
   return (
     <div className="animate-in">
@@ -233,6 +233,12 @@ export function DonationsRegistryPanel({
               onClick={() => setSubTab("restricted")}
             >
               🎯 Maqsadli / Şartlı ({donations.filter((d) => d.restricted).length})
+            </button>
+            <button
+              className={`btn btn-sm ${subTab === "online" ? "btn-primary" : ""}`}
+              onClick={() => setSubTab("online")}
+            >
+              🌐 Onlayn ({donations.filter((d) => d.source === "online").length})
             </button>
             <button
               className={`btn btn-sm ${subTab === "donors" ? "btn-primary" : ""}`}
@@ -293,7 +299,7 @@ export function DonationsRegistryPanel({
                         )}
                       </td>
                       <td>
-                        <span className="badge badge-cyan">{d.kind}</span>
+                        <span className="badge badge-cyan">{d.kind}</span> {d.source === "online" && <span className="badge badge-emerald" style={{ marginLeft: 4 }}>🌐 Onlayn</span>}
                         {Array.isArray(d.items) && d.items.length > 0 && (
                           <div style={{ fontSize: 11.5, marginTop: 4 }}>
                             {d.items.map((it: any) => (

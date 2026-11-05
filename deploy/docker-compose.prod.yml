@@ -1,0 +1,61 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ezan_web_prod_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ezan_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-ezan_web}
+    volumes:
+      - ezan_web_prod_pgdata:/var/lib/postgresql/data
+    networks:
+      - ezan_internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-ezan_user} -d $${POSTGRES_DB:-ezan_web}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build:
+      context: ../apps/ezan-web
+      dockerfile: Dockerfile
+    container_name: ezan_web_prod_app
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - ../apps/ezan-web/.env
+    ports:
+      - "127.0.0.1:3005:3005"
+    networks:
+      - ezan_internal
+
+  backup:
+    image: postgres:16-alpine
+    container_name: ezan_web_prod_backup
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-ezan_user}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB:-ezan_web}
+      BACKUP_REMOTE_DIR: ${BACKUP_REMOTE_DIR:-/backups/remote}
+    volumes:
+      - ./backups:/backups
+      - ./scripts:/scripts:ro
+    entrypoint: ["/bin/sh", "-c", "while true; do /scripts/daily-backup.sh; sleep 86400; done"]
+    networks:
+      - ezan_internal
+
+networks:
+  ezan_internal:
+    driver: bridge
+
+volumes:
+  ezan_web_prod_pgdata:

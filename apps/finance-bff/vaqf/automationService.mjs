@@ -2519,7 +2519,251 @@ export async function enqueueWeeklyDirectorSummary({ weekKey = null } = {}) {
 // ============================================================================
 // BACKGROUND WORKER LOOP (10s Outbox Worker + Daily 09:00 & Monday 09:00 Cron)
 // ============================================================================
+
+// ============================================================================
+// EZAN VAKFI SAYTI (apps/ezan-web) -> ICHKI VAQF TIZIMI SINXRONLASH (HAR DAQIQA)
+// ============================================================================
+export const ONLINE_DONATION_PURPOSE_MAP = {
+  "GENEL-BAGIS": { purpose: "Onlayn bağış: Genel Bağış", restricted: false },
+  "EGITIM-BURS": { purpose: "Onlayn bağış: Mezana Akademisi Öğrenci Bursu", restricted: true },
+  "RAMAZAN-IFTAR": { purpose: "Onlayn bağış: Ramazan İftar ve Kumanya Kampanyası", restricted: true },
+  "ZEKAT-FONU": { purpose: "Onlayn bağış: Zekât ve Fitre Fonu", restricted: true },
+};
+
+let lastOnlineSyncSuccessAt = Date.now();
+let lastOnlineSyncCursor = 0;
+
+export function signEzanSyncRequest(timestamp, method, pathAndQuery, rawBody = "", secret = null) {
+  const key =
+    secret ||
+    process.env.EZAN_SYNC_SECRET ||
+    bffEnv.EZAN_SYNC_SECRET ||
+    platformEnv.EZAN_SYNC_SECRET ||
+    "ezan-vaqf-internal-sync-secret-2027";
+  const payload = `${timestamp}.${String(method).toUpperCase()}.${pathAndQuery}.${rawBody}`;
+  return crypto.createHmac("sha256", key).update(payload).digest("hex");
+}
+
+function encryptSimplePiiForSync(plainText) {
+  if (!plainText || !String(plainText).trim()) return null;
+  const rawSecret =
+    process.env.VAQF_PII_KEY ||
+    process.env.VAQF_PII_ENCRYPTION_KEY ||
+    bffEnv.VAQF_PII_KEY ||
+    platformEnv.VAQF_PII_KEY ||
+    process.env.SESSION_SECRET ||
+    "mezana-vaqf-kvkk-fallback-key-change-in-env";
+  const key = crypto.createHash("sha256").update(String(rawSecret).trim()).digest();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const enc = Buffer.concat([cipher.update(String(plainText).trim(), "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `v1:${iv.toString("base64")}:${tag.toString("base64")}:${enc.toString("base64")}`;
+}
+
+function maskEmailForSync(email) {
+  if (!email || !String(email).includes("@")) return null;
+  const [u, d] = String(email).trim().split("@");
+  return `${u.slice(0, 2)}***@${d}`;
+}
+
+function last4DigitsForSync(phone) {
+  if (!phone) return null;
+  const digits = String(phone).replace(/\s+/g, "");
+  return digits ? digits.slice(-4) : null;
+}
+
+export async function processOnlineDonationsBatch(items = []) {
+  const ackRefs = [];
+  let inserted = 0;
+  let updatedRefunds = 0;
+
+  for (const item of items) {
+    const extRef = String(item.external_ref || "").trim();
+    if (!extRef) continue;
+
+    await withTransaction(async (tx) => {
+      // 1. Donor topish (telefon oxirgi 4 raqami yoki masked email bo'yicha) yoki yangi yaratish
+      let donorId = null;
+      const dInfo = item.donor || {};
+      const phoneLast4 = last4DigitsForSync(dInfo.phone);
+      const emailMasked = maskEmailForSync(dInfo.email);
+
+      if (!dInfo.is_anonymous && (phoneLast4 || emailMasked)) {
+        const foundDonor = await tx.query(
+          `SELECT id FROM vaqf.donors
+           WHERE (phone_last4 IS NOT NULL AND phone_last4 = $1)
+              OR (email_masked IS NOT NULL AND email_masked = $2)
+           ORDER BY id DESC LIMIT 1`,
+          [phoneLast4 || "__none__", emailMasked || "__none__"]
+        );
+        if (foundDonor.rows[0]?.id) {
+          donorId = foundDonor.rows[0].id;
+        }
+      }
+
+      if (!donorId) {
+        const fullName = dInfo.is_anonymous
+          ? "Anonim Bağışçı"
+          : String(dInfo.full_name || "Onlayn Bağışçı").trim();
+        const insDonor = await tx.query(
+          `INSERT INTO vaqf.donors (
+             type, full_name, phone_encrypted, phone_last4, email_encrypted, email_masked,
+             is_anonymous, kvkk_consent_at, notes, created_by, created_by_name
+           ) VALUES ('person', $1, $2, $3, $4, $5, $6, $7, 'Ezan Vakfi sayti orqali onlayn xayriya', 'ezan-web-sync', 'Onlayn Sayt')
+           RETURNING id`,
+          [
+            fullName,
+            encryptSimplePiiForSync(dInfo.phone),
+            phoneLast4,
+            encryptSimplePiiForSync(dInfo.email),
+            emailMasked,
+            Boolean(dInfo.is_anonymous),
+            item.kvkk_consent ? new Date().toISOString() : null,
+          ]
+        );
+        donorId = insDonor.rows[0]?.id || null;
+      }
+
+      // 2. Xaritalash jadvalidan purpose va restricted olish
+      const mapped = ONLINE_DONATION_PURPOSE_MAP[item.purpose_code] || {
+        purpose: item.purpose && String(item.purpose).startsWith("Onlayn bağış:")
+          ? String(item.purpose)
+          : `Onlayn bağış: ${item.purpose || item.purpose_code || "Genel Bağış"}`,
+        restricted: Boolean(item.restricted),
+      };
+
+      const donationNo = String(item.public_no || `ONL-${extRef.slice(0, 8).toUpperCase()}`);
+      const amount = Number(item.amount || 0);
+      const amountTry = Number(item.amount_try || amount);
+      const currency = String(item.currency || "TRY");
+      const receivedAt = item.received_at
+        ? String(item.received_at).slice(0, 10)
+        : new Date().toISOString().slice(0, 10);
+
+      if (item.status === "refunded") {
+        // Refund kelsa, mavjud yozuvni cancelled qilamiz yoki cancelled holatda yozamiz
+        const cancelReason = item.refund_reason || "Onlayn to'lov provayder orqali qaytarildi (refunded)";
+        const upd = await tx.query(
+          `UPDATE vaqf.donations
+           SET status = 'cancelled',
+               cancelled_reason = $2,
+               updated_at = NOW()
+           WHERE external_ref = $1
+           RETURNING id`,
+          [extRef, cancelReason]
+        );
+        if (upd.rowCount === 0) {
+          await tx.query(
+            `INSERT INTO vaqf.donations (
+               donation_no, donor_id, institution_id, kind, amount, currency, amount_try,
+               purpose, restricted, received_at, status, cancelled_reason, source, external_ref,
+               created_by, created_by_name
+             ) VALUES ($1, $2, 1, 'cash', $3, $4, $5, $6, $7, $8, 'cancelled', $9, 'online', $10, 'ezan-web-sync', 'Onlayn Sayt')
+             ON CONFLICT (external_ref) DO UPDATE SET
+               status = 'cancelled',
+               cancelled_reason = EXCLUDED.cancelled_reason,
+               updated_at = NOW()`,
+            [donationNo, donorId, amount, currency, amountTry, mapped.purpose, mapped.restricted, receivedAt, cancelReason, extRef]
+          );
+        }
+        updatedRefunds++;
+      } else {
+        // Paid holatda INSERT ... ON CONFLICT DO NOTHING
+        const ins = await tx.query(
+          `INSERT INTO vaqf.donations (
+             donation_no, donor_id, institution_id, kind, amount, currency, amount_try,
+             purpose, restricted, received_at, status, source, external_ref,
+             created_by, created_by_name
+           ) VALUES ($1, $2, 1, 'cash', $3, $4, $5, $6, $7, $8, 'recorded', 'online', $9, 'ezan-web-sync', 'Onlayn Sayt')
+           ON CONFLICT (external_ref) DO NOTHING
+           RETURNING id`,
+          [donationNo, donorId, amount, currency, amountTry, mapped.purpose, mapped.restricted, receivedAt, extRef]
+        );
+        if (ins.rowCount > 0) {
+          inserted++;
+        }
+      }
+
+      ackRefs.push(extRef);
+    });
+  }
+
+  return { inserted, updatedRefunds, ackRefs };
+}
+
+export async function syncOnlineDonationsFromEzanWeb({
+  baseUrl = process.env.EZAN_WEB_INTERNAL_URL || bffEnv.EZAN_WEB_INTERNAL_URL || "http://127.0.0.1:3005",
+  fetchImpl = fetch,
+  simulateOutageMinutes = null,
+} = {}) {
+  try {
+    if (simulateOutageMinutes && simulateOutageMinutes > 15) {
+      lastOnlineSyncSuccessAt = Date.now() - simulateOutageMinutes * 60 * 1000;
+      throw new Error("Simulated sync outage (>15m)");
+    }
+
+    const pathGet = `/api/internal/donations?cursor=${lastOnlineSyncCursor}`;
+    const tsGet = String(Math.floor(Date.now() / 1000));
+    const sigGet = signEzanSyncRequest(tsGet, "GET", pathGet, "");
+
+    const res = await fetchImpl(`${baseUrl}${pathGet}`, {
+      method: "GET",
+      headers: {
+        "X-Timestamp": tsGet,
+        "X-Signature": sigGet,
+      },
+    });
+
+    if (!res.ok) {
+      throw new Error(`Ezan web sync GET failed with status ${res.status}`);
+    }
+
+    const data = await res.json();
+    const items = Array.isArray(data.items) ? data.items : [];
+    const batchResult = await processOnlineDonationsBatch(items);
+
+    if (batchResult.ackRefs.length > 0) {
+      const pathAck = "/api/internal/donations/ack";
+      const rawAck = JSON.stringify({ ids: batchResult.ackRefs });
+      const tsAck = String(Math.floor(Date.now() / 1000));
+      const sigAck = signEzanSyncRequest(tsAck, "POST", pathAck, rawAck);
+
+      await fetchImpl(`${baseUrl}${pathAck}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Timestamp": tsAck,
+          "X-Signature": sigAck,
+        },
+        body: rawAck,
+      });
+    }
+
+    if (data.nextCursor) {
+      lastOnlineSyncCursor = Number(data.nextCursor);
+    }
+    lastOnlineSyncSuccessAt = Date.now();
+    return { ok: true, ...batchResult };
+  } catch (err) {
+    const elapsedMinutes = (Date.now() - lastOnlineSyncSuccessAt) / (60 * 1000);
+    if (elapsedMinutes > 15) {
+      const hourBucket = new Date().toISOString().slice(0, 13);
+      await enqueueOutboxNotification(null, {
+        event_type: "online_donations_sync_down",
+        recipient_ref: "role:director",
+        title: "Onlayn xayriyalar sinxronlashi uzildi",
+        body: `⚠️ <b>Ezan Vakfı saytidan onlayn xayriyalar sinxronlashi ${Math.round(elapsedMinutes)} daqiqadan beri ishlamayapti!</b>\nSabab: ${err?.message || "Noma'lum xato"}`,
+        payload: { elapsed_minutes: Math.round(elapsedMinutes), error: err?.message },
+        dedupe_key: `online_sync_down:${hourBucket}`,
+      });
+    }
+    return { ok: false, error: err?.message || String(err) };
+  }
+}
+
 let workerInterval = null;
+let lastOnlineSyncMinute = '';
 let lastDailyCheckDate = "";
 let lastWeeklySummaryDate = "";
 
@@ -2529,6 +2773,11 @@ export function startVaqfBackgroundWorkers() {
   workerInterval = setInterval(async () => {
     try {
       await processOutboxBatch();
+      const currentMinuteKey = new Date().toISOString().slice(0, 16);
+      if (lastOnlineSyncMinute !== currentMinuteKey) {
+        lastOnlineSyncMinute = currentMinuteKey;
+        await syncOnlineDonationsFromEzanWeb();
+      }
 
       const now = new Date();
       const istParts = new Intl.DateTimeFormat("en-GB", {
