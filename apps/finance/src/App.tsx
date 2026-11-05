@@ -525,7 +525,7 @@ function App() {
 
   const [walletTxModal, setWalletTxModal] = useState<{ wallet: any; items: any[] } | null>(null);
   const [changePwdModalOpen, setChangePwdModalOpen] = useState(false);
-  const [pwdForm, setPwdForm] = useState({ newPassword: "", confirmPassword: "", busy: false, error: "" });
+  const [pwdForm, setPwdForm] = useState({ newUsername: "", newPassword: "", confirmPassword: "", busy: false, error: "" });
 
   // Command Palette (Ctrl+K) & AI Drawer & Mobile Menu
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -582,6 +582,16 @@ function App() {
   const checkAuth = useCallback(async () => {
     try {
       const d = await apiFetch("/fin-api/auth/me");
+      if (d?.authenticated && !(d?.user?.mustChangePassword || d?.access?.mustChangePassword)) {
+        const nextUrl = new URLSearchParams(window.location.search).get("next");
+        if (nextUrl && nextUrl.startsWith("/vaqf")) {
+          window.location.href = nextUrl;
+          return;
+        }
+      }
+      if (d?.user?.mustChangePassword || d?.access?.mustChangePassword) {
+        setPwdForm((s) => ({ ...s, newUsername: d?.user?.identifier || d?.access?.username || "" }));
+      }
       setAuth({ loading: false, ...d });
     } catch {
       setAuth({ loading: false, authenticated: false });
@@ -752,9 +762,23 @@ function App() {
         body: JSON.stringify({ identifier: loginForm.identifier, password: loginForm.password }),
       });
       setLoginForm((s) => ({ ...s, error: "", busy: false }));
+      if (!(d?.user?.mustChangePassword || d?.access?.mustChangePassword)) {
+        const nextUrl = new URLSearchParams(window.location.search).get("next");
+        if (nextUrl && nextUrl.startsWith("/vaqf")) {
+          window.location.href = nextUrl;
+          return;
+        }
+      }
       setAuth({ loading: false, ...d });
       if (d?.user?.mustChangePassword || d?.access?.mustChangePassword) {
-        notify("Xush kelibsiz! Davom etish uchun yangi shaxsiy parol o'rnating.");
+        setPwdForm({
+          newUsername: d?.user?.identifier || d?.access?.username || "",
+          newPassword: "",
+          confirmPassword: "",
+          busy: false,
+          error: "",
+        });
+        notify("Xush kelibsiz! Davom etish uchun shaxsiy login va parolingizni o'rnating.");
       } else {
         notify("Tizimga muvaffaqiyatli kirdingiz!");
       }
@@ -1467,6 +1491,11 @@ function App() {
 
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
+    const cleanUser = String(pwdForm.newUsername || "").trim().toLowerCase().replace(/[^a-z0-9._-]/g, "");
+    if (cleanUser && cleanUser.length < 3) {
+      setPwdForm((s) => ({ ...s, error: "Login (username) kamida 3 ta belgidan iborat bo'lishi kerak" }));
+      return;
+    }
     if (!pwdForm.newPassword || pwdForm.newPassword.trim().length < 4) {
       setPwdForm((s) => ({ ...s, error: "Yangi parol kamida 4 ta belgidan iborat bo'lishi kerak" }));
       return;
@@ -1480,16 +1509,17 @@ function App() {
       const d = await apiFetch("/fin-api/auth/change-password", {
         method: "POST",
         body: JSON.stringify({
+          newUsername: cleanUser || undefined,
           newPassword: pwdForm.newPassword,
           confirmPassword: pwdForm.confirmPassword,
         }),
       });
-      setPwdForm({ newPassword: "", confirmPassword: "", busy: false, error: "" });
+      setPwdForm({ newUsername: "", newPassword: "", confirmPassword: "", busy: false, error: "" });
       setChangePwdModalOpen(false);
-      setAuth({ loading: false, ...d });
-      notify("Parolingiz muvaffaqiyatli yangilandi!");
+      setAuth({ loading: false, ...(d?.session || d) });
+      notify("Shaxsiy login va parolingiz muvaffaqiyatli saqlandi!");
     } catch (err: any) {
-      setPwdForm((s) => ({ ...s, busy: false, error: err.message || "Parolni saqlashda xatolik" }));
+      setPwdForm((s) => ({ ...s, busy: false, error: err.message || "Saqlashda xatolik" }));
     }
   };
 
@@ -1588,7 +1618,7 @@ function App() {
           <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
             <div className="brand-orb" style={{ background: "linear-gradient(135deg, #f59e0b, #10b981)" }}>🔒</div>
             <div>
-              <h1 style={{ fontSize: 19, fontWeight: 800 }}>SHAXSIY PAROL O'RNATISH</h1>
+              <h1 style={{ fontSize: 19, fontWeight: 800 }}>SHAXSIY LOGIN VA PAROL O'RNATISH</h1>
               <p style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>
                 Xush kelibsiz, <b>{auth.user?.name || "Xodim"}</b>!
               </p>
@@ -1607,10 +1637,26 @@ function App() {
               lineHeight: 1.5,
             }}
           >
-            Tizimga birinchi marta kirganingiz (yoki vaqtinchalik parol berilgani) sababli, xavfsizlik uchun o'zingizning yangi shaxsiy parolingizni o'rnating.
+            Tizimga birinchi marta kirganingiz sababli, o'zingizga qulay bo'lgan <b>yangi login (username)</b> hamda <b>shaxsiy parolingizni</b> o'rnating.
           </div>
 
           <form onSubmit={handleChangePassword} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div className="form-field">
+              <label className="form-label">Shaxsiy login (username) *</label>
+              <input
+                type="text"
+                className="input"
+                placeholder="Masalan: muhammadali"
+                value={pwdForm.newUsername}
+                onChange={(e) =>
+                  setPwdForm({
+                    ...pwdForm,
+                    newUsername: e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ""),
+                  })
+                }
+                required
+              />
+            </div>
             <div className="form-field">
               <label className="form-label">Yangi shaxsiy parol *</label>
               <input
@@ -1651,7 +1697,7 @@ function App() {
             )}
 
             <button type="submit" className="btn btn-primary" disabled={pwdForm.busy} style={{ marginTop: 4, padding: 12 }}>
-              {pwdForm.busy ? "Saqlanmoqda..." : "💾 Yangi parolni saqlash va Tizimga kirish"}
+              {pwdForm.busy ? "Saqlanmoqda..." : "💾 Login va parolni saqlash"}
             </button>
             <button type="button" className="btn" onClick={handleLogout} style={{ padding: 10 }}>
               Chiqish
@@ -1860,10 +1906,16 @@ function App() {
             <button
               className="btn btn-sm"
               onClick={() => {
-                setPwdForm({ newPassword: "", confirmPassword: "", busy: false, error: "" });
+                setPwdForm({
+                  newUsername: auth.user?.identifier || access.username || "",
+                  newPassword: "",
+                  confirmPassword: "",
+                  busy: false,
+                  error: "",
+                });
                 setChangePwdModalOpen(true);
               }}
-              title="Parolni o'zgartirish"
+              title="Login va parolni o'zgartirish"
             >
               🔑
             </button>
@@ -1878,11 +1930,26 @@ function App() {
       {changePwdModalOpen && (
         <div className="modal-backdrop" onClick={() => setChangePwdModalOpen(false)}>
           <div className="modal-box modal-card animate-in" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ marginTop: 0 }}>🔑 Parolni o'zgartirish</h3>
+            <h3 style={{ marginTop: 0 }}>🔑 Login va Parolni o'zgartirish</h3>
             <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginBottom: 14 }}>
-              <b>{auth.user?.name}</b> hisobingiz uchun yangi parol kiriting:
+              <b>{auth.user?.name}</b> hisobingiz uchun login va yangi parol kiriting:
             </div>
             <form onSubmit={handleChangePassword} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600 }}>Login (username) *</label>
+                <input
+                  type="text"
+                  className="input"
+                  required
+                  value={pwdForm.newUsername}
+                  onChange={(e) =>
+                    setPwdForm({
+                      ...pwdForm,
+                      newUsername: e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ""),
+                    })
+                  }
+                />
+              </div>
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600 }}>Yangi parol *</label>
                 <input
@@ -1999,6 +2066,16 @@ function App() {
             <button className="btn btn-sm" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} title="Mavzuni o'zgartirish">
               {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
             </button>
+            {(access.vaqf?.canView || access.vaqf?.canAccess) && (
+              <a
+                href="/vaqf/"
+                className="vaqf-switch-btn"
+                title="Ezan Vakfı — Vaqf mulk va inventarizatsiya tizimi"
+              >
+                <img src="/ezan-logo.svg" alt="Ezan Vakfı" style={{ width: 18, height: 22, objectFit: "contain", display: "block" }} />
+                <span className="vaqf-switch-label">Vaqf</span>
+              </a>
+            )}
           </div>
         </header>
 

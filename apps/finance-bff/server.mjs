@@ -10,7 +10,10 @@ import { fileURLToPath } from "node:url";
 import bcrypt from "/srv/data/mezana-space/var/www/mezana-crm/backend/node_modules/bcrypt/bcrypt.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+import { handleVaqfApi } from "./vaqf/routes.mjs";
+import { vaqfAccess } from "./vaqf/service.mjs";
 const STATIC_DIR = path.resolve(__dirname, "../finance/dist");
+const VAQF_STATIC_DIR = path.resolve(__dirname, "../vaqf/dist");
 const SESSIONS_FILE = path.resolve(__dirname, ".sessions.json");
 
 function parseEnvFile(filePath) {
@@ -403,6 +406,27 @@ const INITIAL_STAFF_SEEDS = [
     walletId: "cmty5vlux00mywf502nmm7odd",
     isActive: false,
   },
+  {
+    fullName: "Muhammadali Hikmatullayev",
+    username: "hikmatullayev",
+    email: "hikmatullayev@moliya.org",
+    passwordHash: bcrypt.hashSync("Hikmat2026!", 10),
+    mustChangePassword: true,
+    role: "ADMIN",
+    position: "Idora mas'uli",
+    department: "Idora",
+    genderScope: "MALE",
+    phone: "",
+    telegramId: "",
+    tgUsername: "",
+    allowedTabs: ALL_PLATFORM_TABS,
+    crmRole: "admin",
+    crmId: 5,
+    erpUserId: "cmtlai0il000npir9ydqrvy3s",
+    erpEmployeeId: "cmtlai0it000ppir989mu70w1",
+    walletId: "cmtlai0j1000rpir96nhfpk0k",
+    isActive: true,
+  },
 ];
 
 async function ensureStaffAccountsTable() {
@@ -440,6 +464,11 @@ async function ensureStaffAccountsTable() {
     `);
 
     for (const s of INITIAL_STAFF_SEEDS) {
+      const existing = await pgPool.query(
+        'SELECT id FROM "StaffAccount" WHERE LOWER(username) = LOWER($1) OR LOWER("fullName") = LOWER($2) LIMIT 1',
+        [s.username, s.fullName]
+      );
+      if (existing.rows.length > 0) continue;
       await pgPool.query(
         `INSERT INTO "StaffAccount" (
            "fullName", username, email, "passwordHash", "mustChangePassword", role,
@@ -635,6 +664,7 @@ function getSessionAccessContext(sess) {
       position: null,
       department: null,
       username: null,
+      vaqf: { canView: false, canEdit: false, canApprove: false },
     };
   }
 
@@ -738,6 +768,7 @@ function getSessionAccessContext(sess) {
     position: staff?.position || null,
     department: staff?.department || null,
     username: staff?.username || crmUsername || null,
+    vaqf: vaqfAccess(sess, { isDirector }),
   };
 }
 
@@ -1740,9 +1771,12 @@ const MIME_TYPES = {
 };
 
 async function serveStatic(req, res, pathname) {
-  let relPath = pathname === "/" ? "/index.html" : pathname;
-  let filePath = path.join(STATIC_DIR, decodeURIComponent(relPath));
-  if (!filePath.startsWith(STATIC_DIR)) {
+  const isVaqf = pathname === "/vaqf" || pathname.startsWith("/vaqf/");
+  const baseDir = isVaqf ? VAQF_STATIC_DIR : STATIC_DIR;
+  let relPath = isVaqf ? (pathname.slice(5) || "/index.html") : (pathname === "/" ? "/index.html" : pathname);
+  if (relPath === "/") relPath = "/index.html";
+  let filePath = path.join(baseDir, decodeURIComponent(relPath));
+  if (!filePath.startsWith(baseDir)) {
     res.writeHead(403);
     res.end("Forbidden");
     return;
@@ -1761,7 +1795,7 @@ async function serveStatic(req, res, pathname) {
     res.end(content);
   } catch {
     try {
-      const indexHtml = await fsp.readFile(path.join(STATIC_DIR, "index.html"));
+      const indexHtml = await fsp.readFile(path.join(baseDir, "index.html"));
       res.writeHead(200, {
         "Content-Type": "text/html; charset=utf-8",
         "Cache-Control": "no-cache",
@@ -1965,10 +1999,11 @@ async function handleApi(req, res, url) {
 
     if (pathname === "/fin-api/auth/change-password" && method === "POST") {
       const body = await readJsonBody(req);
+      const rawUsername = String(body.newUsername || "").trim().toLowerCase().replace(/[^a-z0-9._-]/g, "");
       const newPassword = String(body.newPassword || "").trim();
       const confirmPassword = String(body.confirmPassword || newPassword).trim();
-      if (newPassword.length < 6) {
-        return sendJson(res, 400, { error: "Yangi parol kamida 6 ta belgidan iborat bo'lishi kerak" });
+      if (newPassword.length < 4) {
+        return sendJson(res, 400, { error: "Yangi parol kamida 4 ta belgidan iborat bo'lishi kerak" });
       }
       if (newPassword !== confirmPassword) {
         return sendJson(res, 400, { error: "Yangi parol va tasdiqlash paroli bir-biriga mos kelmadi" });
@@ -1978,22 +2013,41 @@ async function handleApi(req, res, url) {
       const newHash = bcrypt.hashSync(newPassword, 10);
 
       if (staff) {
+        let finalUsername = staff.username;
+        if (rawUsername && rawUsername !== staff.username.toLowerCase()) {
+          if (rawUsername.length < 3) {
+            return sendJson(res, 400, { error: "Yangi login (username) kamida 3 ta belgidan iborat bo'lishi kerak" });
+          }
+          const dupCheck = await pgPool.query(
+            'SELECT id FROM "StaffAccount" WHERE LOWER(username) = $1 AND id <> $2 LIMIT 1',
+            [rawUsername, staff.id]
+          );
+          if (dupCheck.rows.length > 0) {
+            return sendJson(res, 400, { error: `"${rawUsername}" logini boshqa xodim tomonidan band qilingan. Boshqa login tanlang.` });
+          }
+          finalUsername = rawUsername;
+        }
+
         await pgPool.query(
           `UPDATE "StaffAccount"
-           SET "passwordHash" = $1,
+           SET username = $1,
+               "passwordHash" = $2,
                "mustChangePassword" = false,
                "passwordChangedAt" = NOW(),
                "updatedAt" = NOW()
-           WHERE id = $2`,
-          [newHash, staff.id]
+           WHERE id = $3`,
+          [finalUsername, newHash, staff.id]
         );
         if (staff.crmRole === "admin" && staff.crmId) {
           await pgPool.query('UPDATE "Admin" SET password = $1 WHERE id = $2 AND username = $3', [newHash, staff.crmId, staff.username]).catch(() => {});
         } else if (staff.crmRole === "root" && staff.crmId) {
           await pgPool.query('UPDATE "Root" SET password = $1 WHERE id = $2 AND username = $3', [newHash, staff.crmId, staff.username]).catch(() => {});
         }
-        if (staff.erpUserId) {
-          await execPgSql(erpEnv.DATABASE_URL, `UPDATE "User" SET "passwordHash" = ${sqlStr(newHash)}, "updatedAt" = NOW() WHERE id = ${sqlStr(staff.erpUserId)};`).catch(() => {});
+        if (staff.erpUserId && staff.email && !["idora@moliya.org", "umarxon@moliya.org"].includes(String(staff.email).toLowerCase())) {
+          await execPgSql(erpEnv.DATABASE_URL, `UPDATE "User" SET "passwordHash" = ${sqlStr(newHash)}, "updatedAt" = NOW() WHERE id = ${sqlStr(staff.erpUserId)} AND LOWER(email) = LOWER(${sqlStr(staff.email)});`).catch(() => {});
+        }
+        if (sess.user) {
+          sess.user.identifier = finalUsername;
         }
       } else if (sess.crmUser?.id) {
         const tbl = sess.crmUser.role === "root" ? '"Root"' : '"Admin"';
@@ -2003,13 +2057,13 @@ async function handleApi(req, res, url) {
       await refreshCrmAuthCache();
       if (sess.crmUser) {
         sess.crmToken = mintCrmToken(sess.crmUser);
-        saveSessions();
       }
+      saveSessions();
 
       return sendJson(res, 200, {
+        ...publicSessionView(sess),
         success: true,
-        message: "Shaxsiy parolingiz muvaffaqiyatli o'rnatildi!",
-        session: publicSessionView(sess),
+        message: "Shaxsiy login va parolingiz muvaffaqiyatli o'rnatildi!",
       });
     }
 
@@ -6022,6 +6076,7 @@ MUHIM QOIDALAR:
 
 const requestListener = async (req, res) => {
   const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+  if (url.pathname.startsWith("/vaqf-api/")) return handleVaqfApi(req, res, url, { getSession, getSessionAccessContext });
   if (url.pathname.startsWith("/fin-api/")) {
     return handleApi(req, res, url);
   }
