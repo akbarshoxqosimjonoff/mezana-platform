@@ -161,6 +161,24 @@ export function SiteShell({
           <div>
             <h2 className="font-heading font-bold text-lg text-white mb-2">{dict.siteName}</h2>
             <p className="text-sm text-slate-300 leading-relaxed mb-4">{dict.tagline}</p>
+            <form action="/api/contact" method="POST" className="mt-3 flex gap-2" data-testid="newsletter-form">
+              <input type="hidden" name="kind" value="newsletter" />
+              <input type="hidden" name="locale" value={locale} />
+              <div className="cf-turnstile" data-sitekey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || ""} />
+              <input type="hidden" name="cf-turnstile-response" value={process.env.NODE_ENV === "development" ? "dev-turnstile-ok" : ""} />
+              <label htmlFor="footer-newsletter-email" className="sr-only">{dict.email}</label>
+              <input
+                id="footer-newsletter-email"
+                name="email"
+                type="email"
+                required
+                placeholder="Bülten e-posta..."
+                className="flex-1 rounded-lg bg-white/10 border border-white/20 px-3 py-1.5 text-xs text-white placeholder:text-slate-300"
+              />
+              <button type="submit" className="px-3 py-1.5 rounded-lg bg-accent text-brand font-bold text-xs">
+                Abone Ol
+              </button>
+            </form>
             {/* Ijtimoiy tarmoqlar: faqat to'ldirilgan bo'lsagina ko'rinadi */}
             {activeSocials.length > 0 && (
               <div className="mt-4">

@@ -1,8 +1,22 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import crypto from "node:crypto";
+import fs from "node:fs";
 import path from "node:path";
 
 const SCREENSHOT_DIR = path.resolve(__dirname, "../docs/screenshots");
+
+function readEnvValue(key: string): string {
+  const envPath = path.resolve(__dirname, "../.env");
+  if (!fs.existsSync(envPath)) return process.env[key] || "";
+  const lines = fs.readFileSync(envPath, "utf8").split(/\r?\n/);
+  for (const line of lines) {
+    if (line.startsWith(`${key}=`)) {
+      return line.slice(key.length + 1).trim();
+    }
+  }
+  return process.env[key] || "";
+}
 
 test.describe("Ezan Vakfı Sayti — E2E, Til almashtirish, RTL, Xayriya oqimi, Axe va Skrinshotlar", () => {
   test("1. Til almashtirgich ezan_lang cookie qo'yadi, sahifa tarjimasiga o'tadi va ar da dir='rtl' bo'ladi", async ({
@@ -26,7 +40,7 @@ test.describe("Ezan Vakfı Sayti — E2E, Til almashtirish, RTL, Xayriya oqimi, 
     await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
   });
 
-  test("2. To'liq xayriya oqimi (3 qadam + mock provayder + webhook -> Rahmat sahifasi)", async ({
+  test("2. To'liq xayriya oqimi: productionda mock-complete 404 qaytaradi, imzoli webhook esa xayriyani tasdiqlaydi", async ({
     page,
     request
   }) => {
@@ -40,11 +54,11 @@ test.describe("Ezan Vakfı Sayti — E2E, Til almashtirish, RTL, Xayriya oqimi, 
     const kvkkBox = page.getByTestId("kvkk-checkbox");
     await expect(kvkkBox).not.toBeChecked();
 
-    // API orqali mock checkout + webhook va Rahmat sahifasini tekshirish
     const createRes = await request.post("/api/donations", {
       data: {
         locale: "tr",
         frequency: "one_time",
+        turnstileToken: "XXXX.DUMMY.TOKEN.XXXX",
         items: [{ campaignSlug: "mezana-akademisi-egitim-bursu", amount: 500 }],
         donor: {
           fullName: "E2E Test Bağışçı",
@@ -57,14 +71,35 @@ test.describe("Ezan Vakfı Sayti — E2E, Til almashtirish, RTL, Xayriya oqimi, 
     });
     expect(createRes.status()).toBe(201);
     const created = await createRes.json();
+    expect(created.donation.is_test).toBe(true);
 
+    // Production serverda mock-complete 404 qaytarishi shart
     const mockRes = await request.post("/api/donations/mock-complete", {
       data: {
         donationExternalId: created.donation.external_id,
         publicNo: created.donation.public_no
       }
     });
-    expect(mockRes.ok()).toBe(true);
+    expect(mockRes.status()).toBe(404);
+
+    // Imzoli webhook orqali to'lovni tasdiqlash
+    const webhookSecret = readEnvValue("PAYMENT_WEBHOOK_SECRET");
+    const rawPayload = JSON.stringify({
+      eventId: `e2e_evt_${created.donation.external_id}`,
+      paymentId: `e2e_pay_${created.donation.public_no}`,
+      donationExternalId: created.donation.external_id,
+      status: "paid"
+    });
+    const sig = crypto.createHmac("sha256", webhookSecret).update(rawPayload).digest("hex");
+
+    const webhookRes = await request.post("/api/donations/webhook", {
+      headers: {
+        "Content-Type": "application/json",
+        "x-webhook-signature": sig
+      },
+      data: rawPayload
+    });
+    expect(webhookRes.ok()).toBe(true);
 
     await page.goto(`/tr/tesekkurler?donation=${created.donation.public_no}`, {
       waitUntil: "domcontentloaded"

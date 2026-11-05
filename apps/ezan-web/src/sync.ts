@@ -1,13 +1,15 @@
 import crypto from "node:crypto";
 import { dbQuery, ensureSchema } from "./db/schema";
-import { seedDatabase } from "./db/seed";
-import { mapCampaignToInternalPurpose } from "./lib/config";
+import { mapCampaignToInternalPurpose, requireEnvSecret } from "./lib/config";
 
 export function getSyncSecret(): string {
-  return process.env.EZAN_SYNC_SECRET || "ezan-vaqf-internal-sync-secret-2027";
+  return requireEnvSecret("EZAN_SYNC_SECRET", 32);
 }
 
 export function computeInternalHmac(timestamp: string, method: string, pathAndQuery: string, rawBody = "", secret = getSyncSecret()): string {
+  if (!secret || secret.trim().length < 32) {
+    throw new Error("Configuration error: EZAN_SYNC_SECRET must be set and at least 32 characters long.");
+  }
   const payload = `${timestamp}.${method.toUpperCase()}.${pathAndQuery}.${rawBody}`;
   return crypto.createHmac("sha256", secret).update(payload).digest("hex");
 }
@@ -21,6 +23,8 @@ export function verifyInternalSyncAuth(params: {
   nowMs?: number;
 }): { ok: boolean; error?: string } {
   const { timestampHeader, signatureHeader, method, pathAndQuery, rawBody = "" } = params;
+  const secret = getSyncSecret();
+
   if (!timestampHeader || !signatureHeader) {
     return { ok: false, error: "Missing X-Timestamp or X-Signature header" };
   }
@@ -32,12 +36,12 @@ export function verifyInternalSyncAuth(params: {
 
   const now = params.nowMs ?? Date.now();
   const tsMs = tsNum < 1e12 ? tsNum * 1000 : tsNum;
-  // ?5 daqiqadan eski so'rov rad etiladi
+  // ±5 daqiqadan eski so'rov rad etiladi
   if (Math.abs(now - tsMs) > 5 * 60 * 1000) {
     return { ok: false, error: "Request timestamp expired (> 5 minutes)" };
   }
 
-  const expected = computeInternalHmac(timestampHeader, method, pathAndQuery, rawBody);
+  const expected = computeInternalHmac(timestampHeader, method, pathAndQuery, rawBody, secret);
   try {
     const valid = crypto.timingSafeEqual(Buffer.from(signatureHeader), Buffer.from(expected));
     return valid ? { ok: true } : { ok: false, error: "Invalid HMAC signature" };
@@ -46,9 +50,12 @@ export function verifyInternalSyncAuth(params: {
   }
 }
 
+/**
+ * Faqat haqiqiy (`is_test = FALSE`) va tasdiqlangan (`status IN ('paid', 'refunded')`) xayriyalarni qaytaradi.
+ * Sinov (`is_test = TRUE`) xayriyalari ichki buxgalteriyaga hech qachon uzatilmaydi.
+ */
 export async function listUnsyncedDonationsForVaqf(cursor = 0, limit = 100) {
   await ensureSchema();
-  await seedDatabase();
   const safeLimit = Math.min(100, Math.max(1, Number(limit) || 100));
   const safeCursor = Math.max(0, Number(cursor) || 0);
 
@@ -56,6 +63,7 @@ export async function listUnsyncedDonationsForVaqf(cursor = 0, limit = 100) {
     `SELECT *
      FROM donations
      WHERE id > $1
+       AND is_test = FALSE
        AND status IN ('paid', 'refunded')
        AND synced_to_vaqf_at IS NULL
      ORDER BY id ASC
@@ -85,10 +93,9 @@ export async function listUnsyncedDonationsForVaqf(cursor = 0, limit = 100) {
       received_at: row.paid_at ? new Date(row.paid_at).toISOString().slice(0, 10) : new Date(row.created_at).toISOString().slice(0, 10),
       refund_reason: row.refund_reason || null,
       kvkk_consent: Boolean(row.kvkk_consent),
-      // Javobda faqat kerakli maydonlar: xayriyachi ismi, telefoni va e-pochtasi, agar KVKK roziligi bo'lsa
       donor: {
         is_anonymous: Boolean(row.is_anonymous || !hasKvkk),
-        full_name: hasKvkk ? row.donor_name : "Anonim Ba?????",
+        full_name: hasKvkk ? row.donor_name : "Anonim Bağışçı",
         phone: hasKvkk ? row.donor_phone : null,
         email: hasKvkk ? row.donor_email : null
       }

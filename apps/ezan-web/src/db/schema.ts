@@ -281,4 +281,33 @@ CREATE TABLE IF NOT EXISTS fx_rates_cache (
 export async function ensureSchema(): Promise<void> {
   const pool = getDbPool();
   await pool.query(SCHEMA_SQL);
+  await pool.query(EXTRA_SCHEMA_SQL);
 }
+
+export const EXTRA_SCHEMA_SQL = `
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS is_test BOOLEAN NOT NULL DEFAULT TRUE;
+
+CREATE TABLE IF NOT EXISTS admin_sessions (
+  token_hash VARCHAR(128) PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES cms_users(id) ON DELETE CASCADE,
+  email VARCHAR(160) NOT NULL,
+  role VARCHAR(32) NOT NULL CHECK (role IN ('admin', 'editor', 'translator', 'finance')),
+  totp_verified BOOLEAN NOT NULL DEFAULT FALSE,
+  client_ip VARCHAR(80),
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS admin_audit_logs (
+  id SERIAL PRIMARY KEY,
+  actor_user_id INTEGER,
+  actor_email VARCHAR(160) NOT NULL,
+  actor_role VARCHAR(32) NOT NULL,
+  action VARCHAR(80) NOT NULL,
+  target_ref VARCHAR(200),
+  reason TEXT,
+  client_ip VARCHAR(80),
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+`;

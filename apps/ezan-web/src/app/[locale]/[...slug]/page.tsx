@@ -248,6 +248,9 @@ export default async function LocalizedSubPage({
             </div>
             <form action="/api/contact" method="POST" className="pt-4 border-t border-slate-200 space-y-3">
               <input type="hidden" name="kind" value="qurban_notify" />
+              <input type="hidden" name="locale" value={locale} />
+              <div className="cf-turnstile" data-sitekey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || ""} />
+              <input type="hidden" name="cf-turnstile-response" value={process.env.NODE_ENV === "development" ? "dev-turnstile-ok" : ""} />
               <label htmlFor="qurban-email" className="block text-sm font-bold text-brand">
                 {dict.qurbanNotifyBtn} ({dict.email})
               </label>
@@ -323,6 +326,31 @@ export default async function LocalizedSubPage({
           <p className="text-sm text-slate-700 leading-relaxed">
             [TASLIK] Ezan Vakfı ve Mezana Akademisi kurumsal bilgi, faaliyet raporları, KVKK aydınlatma metni ve resmi iletişim bilgileri.
           </p>
+          {routeKey === "contact" && (
+            <form action="/api/contact" method="POST" className="space-y-4 pt-4 border-t border-slate-200" data-testid="contact-form">
+              <input type="hidden" name="kind" value="contact" />
+              <input type="hidden" name="locale" value={locale} />
+              <div className="cf-turnstile" data-sitekey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || ""} />
+              <input type="hidden" name="cf-turnstile-response" value={process.env.NODE_ENV === "development" ? "dev-turnstile-ok" : ""} />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="contact-name" className="block text-xs font-bold text-brand mb-1">{dict.fullName}</label>
+                  <input id="contact-name" name="fullName" type="text" required className="w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm" />
+                </div>
+                <div>
+                  <label htmlFor="contact-email" className="block text-xs font-bold text-brand mb-1">{dict.email}</label>
+                  <input id="contact-email" name="email" type="email" required className="w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm" />
+                </div>
+              </div>
+              <div>
+                <label htmlFor="contact-msg" className="block text-xs font-bold text-brand mb-1">Mesaj</label>
+                <textarea id="contact-msg" name="message" rows={3} required className="w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm" />
+              </div>
+              <button type="submit" className="px-5 py-2.5 rounded-xl bg-accent text-brand font-bold text-sm hover:bg-accent-hover">
+                Gönder
+              </button>
+            </form>
+          )}
           {routeKey === "projects" && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4">
               {data.projects.map((p) => (

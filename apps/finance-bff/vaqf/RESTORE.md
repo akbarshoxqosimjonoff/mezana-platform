@@ -44,3 +44,11 @@ psql "$RAW_URL" -c "DROP SCHEMA vaqf_restore_test CASCADE;"
    ```bash
    pm2 start mezana-finance
    ```
+
+## Migratsiya raqamlari haqida eslatma (`007` dublikati)
+`apps/finance-bff/vaqf/migrations/` papkasida ikkita `007_*` fayli mavjud:
+1. `007_vaqf_bot_backup_monitoring.sql` (6-bosqichda yaratilgan)
+2. `007_vaqf_online_donations.sql` (`site/phase-1` onlayn xayriya sinxronlash bosqichida yaratilgan)
+
+`vaqf.schema_migrations` jadvalida migratsiyalar faylning to'liq nomi (`version`) bo'yicha saqlanadi, shu bois ikkala migratsiya ham bazada muvaffaqiyatli ro'yxatdan o'tgan.
+**Qoida:** Bundan keyingi har qanday yangi migratsiya raqami har doim mavjud eng katta raqamdan `+1` bo'lishi shart (navbatdagisi: `009_...`).

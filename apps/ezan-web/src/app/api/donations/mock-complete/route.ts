@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { processPaymentWebhook, signWebhookPayload } from "../../../../payments/service";
-import { SITE_CONFIG } from "../../../../lib/config";
 
 export async function POST(req: NextRequest) {
-  if (SITE_CONFIG.donationsLive) {
-    return NextResponse.json({ error: "Mock completion disabled in live mode" }, { status: 403 });
+  // mock-complete faqat NODE_ENV=development da mavjud bo'ladi. Productionda 404 qaytaradi (DONATIONS_LIVE qiymatidan qat'i nazar).
+  if (process.env.NODE_ENV !== "development") {
+    return NextResponse.json({ error: "Not Found" }, { status: 404 });
   }
+
   try {
     const body = await req.json();
     const payload = JSON.stringify({

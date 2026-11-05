@@ -4,7 +4,10 @@ import { processPaymentWebhook } from "../../../../payments/service";
 export async function POST(req: NextRequest) {
   try {
     const rawBody = await req.text();
-    const signature = req.headers.get("x-iyz-signature") || req.headers.get("x-webhook-signature");
+    const signature =
+      req.headers.get("x-iyz-signature-v3") ||
+      req.headers.get("x-iyz-signature") ||
+      req.headers.get("x-webhook-signature");
     const result = await processPaymentWebhook({ rawBody, signatureHeader: signature });
     return NextResponse.json(result);
   } catch (err: any) {

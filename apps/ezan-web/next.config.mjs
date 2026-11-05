@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  serverExternalPackages: ["pdfkit", "pg"],
+  serverExternalPackages: ["pdfkit", "pg", "iyzipay"],
   poweredByHeader: false,
   images: {
     formats: ["image/avif", "image/webp"],

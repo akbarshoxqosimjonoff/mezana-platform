@@ -2533,13 +2533,22 @@ export const ONLINE_DONATION_PURPOSE_MAP = {
 let lastOnlineSyncSuccessAt = Date.now();
 let lastOnlineSyncCursor = 0;
 
-export function signEzanSyncRequest(timestamp, method, pathAndQuery, rawBody = "", secret = null) {
+export function getEzanSyncSecret(secretOverride = null) {
   const key =
-    secret ||
-    process.env.EZAN_SYNC_SECRET ||
-    bffEnv.EZAN_SYNC_SECRET ||
-    platformEnv.EZAN_SYNC_SECRET ||
-    "ezan-vaqf-internal-sync-secret-2027";
+    secretOverride !== null && secretOverride !== undefined
+      ? String(secretOverride)
+      : process.env.EZAN_SYNC_SECRET ||
+        bffEnv.EZAN_SYNC_SECRET ||
+        platformEnv.EZAN_SYNC_SECRET ||
+        "";
+  if (!key || String(key).trim().length < 32) {
+    throw new Error("Configuration error: EZAN_SYNC_SECRET must be set and at least 32 characters long.");
+  }
+  return String(key).trim();
+}
+
+export function signEzanSyncRequest(timestamp, method, pathAndQuery, rawBody = "", secret = null) {
+  const key = getEzanSyncSecret(secret);
   const payload = `${timestamp}.${String(method).toUpperCase()}.${pathAndQuery}.${rawBody}`;
   return crypto.createHmac("sha256", key).update(payload).digest("hex");
 }
@@ -2693,7 +2702,7 @@ export async function processOnlineDonationsBatch(items = []) {
 }
 
 export async function syncOnlineDonationsFromEzanWeb({
-  baseUrl = process.env.EZAN_WEB_INTERNAL_URL || bffEnv.EZAN_WEB_INTERNAL_URL || "http://127.0.0.1:3005",
+  baseUrl = process.env.EZAN_SITE_URL || bffEnv.EZAN_SITE_URL || platformEnv.EZAN_SITE_URL || process.env.EZAN_WEB_INTERNAL_URL || bffEnv.EZAN_WEB_INTERNAL_URL || "http://127.0.0.1:3005",
   fetchImpl = fetch,
   simulateOutageMinutes = null,
 } = {}) {

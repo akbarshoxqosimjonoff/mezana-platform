@@ -33,3 +33,7 @@ Ezan Vakfı (`ezanvakfi.org`) va Azon Vaqfi (`azonvaqfi.org`) uchun ikki domenli
 ## Testlar
 - Unit testlar: `npm test`
 - E2E va Accessibility testlar: `npm run test:e2e`
+## Muhim Texnik Eslatmalar
+1. **Rate Limit (Bitta instansiya):** `src/lib/security.ts` dagi `checkRateLimit` xotiradagi `Map` tuzilmasidan foydalanadi va mijoz IP manzilini `cf-connecting-ip` sarlavhasidan oladi. Bitta VPS / konteyner instansiyasi uchun bu yetarli. Agar kelajakda bir nechta instansiya (horizontal scaling) ishlatilsa, Redis-ga asoslangan rate-limitga o'tiladi.
+2. **Seed faqat CLI orqali:** Boshlang'ich `[TASLIK]` ma'lumotlarni bazaga yozish faqat `npm run db:seed` orqali bajariladi; runtime'da (`/admin` yoki API so'rovlarida) `seedDatabase()` chaqirilmaydi.
+3. **Ichki Vaqf migratsiyalari:** `apps/finance-bff/vaqf/migrations/` ichida `007_vaqf_bot_backup_monitoring.sql` va `007_vaqf_online_donations.sql` mavjud (`schema_migrations` da to'liq fayl nomi bilan saqlangan). Keyingi migratsiyalar mavjud eng katta raqamdan `+1` (`009_...`) bilan nomlanadi.

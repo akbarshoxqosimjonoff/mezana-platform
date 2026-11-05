@@ -7,10 +7,28 @@ import {
   processOnlineDonationsBatch,
   syncOnlineDonationsFromEzanWeb,
   signEzanSyncRequest,
+  getEzanSyncSecret,
 } from "./automationService.mjs";
 import { listDonations } from "./governanceService.mjs";
 
+const createdExtRefs = [];
+
 test.after(async () => {
+  if (createdExtRefs.length > 0) {
+    const donRes = await query(
+      `DELETE FROM vaqf.donations WHERE external_ref = ANY($1::text[]) RETURNING donor_id`,
+      [createdExtRefs]
+    );
+    const donorIds = donRes.rows.map((r) => r.donor_id).filter(Boolean);
+    if (donorIds.length > 0) {
+      await query(
+        `DELETE FROM vaqf.donors d
+         WHERE d.id = ANY($1::int[])
+           AND NOT EXISTS (SELECT 1 FROM vaqf.donations x WHERE x.donor_id = d.id)`,
+        [donorIds]
+      );
+    }
+  }
   await db.rawPool.end();
 });
 
@@ -24,8 +42,15 @@ test("1. Migratsiya 007_vaqf_online_donations.sql: vaqf.donations da source va e
   assert.equal(cols.rows.length, 2);
 });
 
-test("2. Bir xayriya ikki marta kelsa (ON CONFLICT DO NOTHING), vaqf.donations da faqat bitta yozuv yaratiladi", async () => {
+test("2. EZAN_SYNC_SECRET yo'q yoki 32 belgidan qisqa bo'lsa, getEzanSyncSecret va signEzanSyncRequest xato beradi", () => {
+  assert.throws(() => getEzanSyncSecret(""), /at least 32 characters/);
+  assert.throws(() => getEzanSyncSecret("short-key"), /at least 32 characters/);
+  assert.throws(() => signEzanSyncRequest("1700000000", "GET", "/api/internal/donations", "", "short"), /at least 32 characters/);
+});
+
+test("3. Bir xayriya ikki marta kelsa (ON CONFLICT DO NOTHING), vaqf.donations da faqat bitta yozuv yaratiladi", async () => {
   const extRef = `ext-test-${crypto.randomUUID()}`;
+  createdExtRefs.push(extRef);
   const pubNo = `EZ-2027-${Math.floor(100000 + Math.random() * 899999)}`;
 
   const sampleItem = {
@@ -66,8 +91,9 @@ test("2. Bir xayriya ikki marta kelsa (ON CONFLICT DO NOTHING), vaqf.donations d
   assert.ok(onlineList.some((d) => d.external_ref === extRef));
 });
 
-test("3. Refund kelsa, mavjud onlayn xayriya 'cancelled' holatiga o'tadi va cancelled_reason yoziladi", async () => {
+test("4. Refund kelsa, mavjud onlayn xayriya 'cancelled' holatiga o'tadi va cancelled_reason yoziladi", async () => {
   const extRef = `ext-refund-${crypto.randomUUID()}`;
+  createdExtRefs.push(extRef);
   const pubNo = `EZ-2027-${Math.floor(100000 + Math.random() * 899999)}`;
 
   await processOnlineDonationsBatch([
@@ -110,7 +136,7 @@ test("3. Refund kelsa, mavjud onlayn xayriya 'cancelled' holatiga o'tadi va canc
   assert.match(check.rows[0].cancelled_reason, /qaytarildi/);
 });
 
-test("4. Sinxronlash 15 daqiqadan ko'p uzilsa, direktorga outbox orqali bitta ogohlantirish tushadi", async () => {
+test("5. Sinxronlash 15 daqiqadan ko'p uzilsa, direktorga outbox orqali bitta ogohlantirish tushadi", async () => {
   const res = await syncOnlineDonationsFromEzanWeb({
     simulateOutageMinutes: 20,
   });

@@ -1,22 +1,22 @@
 import { dbQuery, ensureSchema } from "../db/schema";
-import { seedDatabase } from "../db/seed";
 import { Locale } from "../i18n/country-locale";
+import { isAdminIpAllowed, verifyCloudflareAccessJwt } from "../lib/security";
 
 export type CmsRole = "admin" | "editor" | "translator" | "finance";
 
 export const PAYLOAD_COLLECTIONS = [
   { slug: "pages", label: "Sayfalar (Pages)", localized: true, supportsDraft: true, supportsVersions: true },
   { slug: "projects", label: "Projeler ve Faaliyetler", localized: true, supportsDraft: true, supportsVersions: true },
-  { slug: "campaigns", label: "Ba??? Kampanyalar?", localized: true, supportsDraft: true, supportsVersions: true },
+  { slug: "campaigns", label: "Bağış Kampanyaları", localized: true, supportsDraft: true, supportsVersions: true },
   { slug: "news", label: "Haberler ve Duyurular", localized: true, supportsDraft: true, supportsVersions: true },
   { slug: "videos", label: "Videolar (YouTube Lite)", localized: true, supportsDraft: false, supportsVersions: false },
-  { slug: "reports", label: "?effafl?k Raporlar? (PDF)", localized: true, supportsDraft: false, supportsVersions: false },
-  { slug: "faqs", label: "S?k?a Sorulan Sorular", localized: true, supportsDraft: false, supportsVersions: false },
-  { slug: "team", label: "Y?netim Kurulu ve Ekip", localized: true, supportsDraft: false, supportsVersions: false },
+  { slug: "reports", label: "Şeffaflık Raporları (PDF)", localized: true, supportsDraft: false, supportsVersions: false },
+  { slug: "faqs", label: "Sıkça Sorulan Sorular", localized: true, supportsDraft: false, supportsVersions: false },
+  { slug: "team", label: "Yönetim Kurulu ve Ekip", localized: true, supportsDraft: false, supportsVersions: false },
   { slug: "media", label: "Medya (Alt Metin Zorunlu)", localized: true, supportsDraft: false, supportsVersions: false },
-  { slug: "qurbanCountries", label: "Kurban ?lkeleri (2. A?ama)", localized: true, supportsDraft: false, supportsVersions: false },
-  { slug: "qurbanPrices", label: "Kurban Hisse Fiyatlar? (2. A?ama)", localized: true, supportsDraft: false, supportsVersions: false },
-  { slug: "siteSettings", label: "Site Ayarlar? (Global)", localized: true, supportsDraft: false, supportsVersions: true }
+  { slug: "qurbanCountries", label: "Kurban Ülkeleri (2. Aşama)", localized: true, supportsDraft: false, supportsVersions: false },
+  { slug: "qurbanPrices", label: "Kurban Hisse Fiyatları (2. Aşama)", localized: true, supportsDraft: false, supportsVersions: false },
+  { slug: "siteSettings", label: "Site Ayarları (Global)", localized: true, supportsDraft: false, supportsVersions: true }
 ] as const;
 
 export function canRolePerform(role: CmsRole, action: "read" | "edit_content" | "edit_translation" | "view_donations" | "manage_settings"): boolean {
@@ -33,28 +33,44 @@ export function canRolePerform(role: CmsRole, action: "read" | "edit_content" | 
   return false;
 }
 
-export function isAdminAccessAllowed(headers: {
-  clientIp?: string | null;
+/**
+ * Admin tarmoq / Cloudflare Access qatlami:
+ * - IP faqat `cf-connecting-ip` dan olinadi va faqat `peerIp` Cloudflare CIDR diapazonidan kelgan bo'lsa ishoniladi;
+ * - IP bo'lmasa, rad etiladi (`false`);
+ * - Cloudflare Access ishlatilsa, JWT imzosi team domenining JWKS'i bilan tekshiriladi.
+ */
+export async function verifyAdminNetworkLayer(params: {
+  cfConnectingIp?: string | null;
+  peerIp?: string | null;
   cfAccessJwt?: string | null;
-}): boolean {
-  const allowedIpsRaw = process.env.ADMIN_ALLOWED_IPS || "127.0.0.1,::1,192.168.1.10";
-  const requireCfAccess = process.env.ADMIN_REQUIRE_CF_ACCESS === "true";
+  jwksKeysOverride?: any[];
+}): Promise<{ allowed: boolean; reason?: string }> {
+  const ipOk = isAdminIpAllowed({
+    cfConnectingIp: params.cfConnectingIp,
+    peerIp: params.peerIp
+  });
 
-  if (requireCfAccess) {
-    return Boolean(headers.cfAccessJwt && headers.cfAccessJwt.length > 10);
+  if (!ipOk) {
+    return { allowed: false, reason: "Untrusted peer IP or client IP not in ADMIN_ALLOWED_IPS" };
   }
 
-  if (!headers.clientIp) return true;
-  const allowedList = allowedIpsRaw.split(",").map((i) => i.trim());
-  return allowedList.includes("*") || allowedList.includes(headers.clientIp);
+  if (process.env.ADMIN_REQUIRE_CF_ACCESS === "true" || params.cfAccessJwt) {
+    const jwtCheck = await verifyCloudflareAccessJwt(params.cfAccessJwt, {
+      jwksKeysOverride: params.jwksKeysOverride
+    });
+    if (!jwtCheck.valid) {
+      return { allowed: false, reason: jwtCheck.error || "Cloudflare Access JWT invalid" };
+    }
+  }
+
+  return { allowed: true };
 }
 
-let seededOnce = false;
-async function ensureCmsData() {
-  if (!seededOnce) {
+let schemaEnsured = false;
+async function ensureCmsSchemaOnly() {
+  if (!schemaEnsured) {
     await ensureSchema();
-    await seedDatabase();
-    seededOnce = true;
+    schemaEnsured = true;
   }
 }
 
@@ -64,7 +80,7 @@ export function pickLocalized(field: Record<string, string> | null | undefined, 
 }
 
 export async function getPublicSiteData(locale: Locale) {
-  await ensureCmsData();
+  await ensureCmsSchemaOnly();
 
   const [settingsRes, campaignsRes, projectsRes, newsRes, videosRes, faqsRes, qurbanRes] = await Promise.all([
     dbQuery(`SELECT value FROM cms_site_settings WHERE key = 'siteSettings' LIMIT 1`),
@@ -78,14 +94,13 @@ export async function getPublicSiteData(locale: Locale) {
 
   const rawSettings = settingsRes.rows[0]?.value || {};
   const socialLinks = rawSettings.socialLinks || {};
-  // Bo'sh ijtimoiy tarmoq havolalarini filtrlaymiz (bo'sh bo'lsa ikonka ko'rinmaydi)
   const activeSocials = Object.entries(socialLinks).filter(
     ([, url]) => typeof url === "string" && url.trim().length > 0
   ) as [string, string][];
 
   return {
     settings: {
-      foundationName: pickLocalized(rawSettings.foundationName, locale) || "Ezan Vakf?",
+      foundationName: pickLocalized(rawSettings.foundationName, locale) || "Ezan Vakfı",
       contact: rawSettings.contact || {},
       bankAccounts: Array.isArray(rawSettings.bankAccounts) ? rawSettings.bankAccounts : [],
       activeSocials,
@@ -143,7 +158,8 @@ export async function getPublicSiteData(locale: Locale) {
     })),
     qurbanCountries: qurbanRes.rows.map((q) => ({
       code: q.code,
-      active: Boolean(q.active),
+      active: Boolean(q.active,
+      ),
       name: pickLocalized(q.name, locale)
     }))
   };

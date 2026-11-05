@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createDonationOrder } from "../../../payments/service";
-import { checkRateLimit, sanitizeLogObject } from "../../../lib/security";
+import { checkRateLimit, getRateLimitClientIp, sanitizeLogObject, verifyTurnstileToken } from "../../../lib/security";
 
 export async function POST(req: NextRequest) {
-  const ip = req.headers.get("cf-connecting-ip") || req.headers.get("x-forwarded-for") || "127.0.0.1";
+  const ip = getRateLimitClientIp(req.headers);
   const rl = checkRateLimit(`donate:${ip}`, 20, 60_000);
   if (!rl.allowed) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
@@ -21,6 +21,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Turnstile tekshiruvi (Xayriya 2-qadam formasi uchun)
+    const turnstileToken =
+      body.turnstileToken || (process.env.NODE_ENV === "development" ? "dev-turnstile-ok" : "");
+    const turnstileValid = await verifyTurnstileToken(turnstileToken);
+    if (!turnstileValid) {
+      return NextResponse.json({ error: "Turnstile verification failed" }, { status: 400 });
+    }
+
     const result = await createDonationOrder({
       originHost: host,
       locale: body.locale || "tr",
@@ -34,6 +42,7 @@ export async function POST(req: NextRequest) {
       sanitizeLogObject({
         publicNo: result.donation.public_no,
         amountTry: result.donation.amount_try,
+        isTest: result.donation.is_test,
         donorEmail: body.donor?.email,
         donorPhone: body.donor?.phone,
         clientIp: ip

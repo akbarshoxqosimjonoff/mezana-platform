@@ -59,6 +59,7 @@ export function DonationFlowWidget({
   const [wantReceipt, setWantReceipt] = useState(true);
   // KVKK roziligi (alohida checkbox, oldindan belgilanmagan)
   const [kvkkConsent, setKvkkConsent] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState<string>(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ? "" : "dev-turnstile-ok");
 
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -115,6 +116,7 @@ export function DonationFlowWidget({
         body: JSON.stringify({
           locale,
           frequency,
+          turnstileToken,
           items: effectiveItems.map((i) => ({ campaignSlug: i.campaignSlug, amount: i.amount })),
           donor: {
             fullName: isAnonymous ? "Anonim Bağışçı" : fullName,
@@ -182,30 +184,32 @@ export function DonationFlowWidget({
 
       {step === 1 && (
         <div className="space-y-5" data-testid="donation-step-1">
-          <div className="flex gap-2" role="group" aria-label="Donation frequency">
-            <button
-              type="button"
-              onClick={() => setFrequency("one_time")}
-              className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-sm border transition-colors ${
-                frequency === "one_time"
-                  ? "bg-brand text-white border-brand"
-                  : "bg-slate-50 text-slate-800 border-slate-300 hover:bg-slate-100"
-              }`}
-            >
-              {dict.donateOneTime}
-            </button>
-            <button
-              type="button"
-              onClick={() => setFrequency("monthly")}
-              className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-sm border transition-colors ${
-                frequency === "monthly"
-                  ? "bg-brand text-white border-brand"
-                  : "bg-slate-50 text-slate-800 border-slate-300 hover:bg-slate-100"
-              }`}
-            >
-              {dict.donateMonthly}
-            </button>
-          </div>
+          {SITE_CONFIG.recurringEnabled && (
+            <div className="flex gap-2" role="group" aria-label="Donation frequency">
+              <button
+                type="button"
+                onClick={() => setFrequency("one_time")}
+                className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-sm border transition-colors ${
+                  frequency === "one_time"
+                    ? "bg-brand text-white border-brand"
+                    : "bg-slate-50 text-slate-800 border-slate-300 hover:bg-slate-100"
+                }`}
+              >
+                {dict.donateOneTime}
+              </button>
+              <button
+                type="button"
+                onClick={() => setFrequency("monthly")}
+                className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-sm border transition-colors ${
+                  frequency === "monthly"
+                    ? "bg-brand text-white border-brand"
+                    : "bg-slate-50 text-slate-800 border-slate-300 hover:bg-slate-100"
+                }`}
+              >
+                {dict.donateMonthly}
+              </button>
+            </div>
+          )}
 
           <div>
             <label htmlFor="campaign-select" className="block text-sm font-bold text-brand mb-1.5">
@@ -395,6 +399,16 @@ export function DonationFlowWidget({
             <label htmlFor="kvkk-check" className="text-xs sm:text-sm font-medium text-slate-800">
               {dict.kvkkConsent} *
             </label>
+          </div>
+
+          {/* Cloudflare Turnstile himoyasi (2-qadam xayriya formasi) */}
+          <div data-testid="donation-turnstile" className="cf-turnstile" data-sitekey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || ""}>
+            <input
+              type="hidden"
+              name="cf-turnstile-response"
+              value={turnstileToken}
+              onChange={(e) => setTurnstileToken(e.target.value)}
+            />
           </div>
 
           <div className="flex items-center justify-between gap-3 pt-2">

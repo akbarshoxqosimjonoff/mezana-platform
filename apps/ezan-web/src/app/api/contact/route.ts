@@ -1,16 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dbQuery, ensureSchema } from "../../../db/schema";
-import { checkRateLimit, sanitizeLogObject, verifyTurnstileToken } from "../../../lib/security";
+import { checkRateLimit, getRateLimitClientIp, sanitizeLogObject, verifyTurnstileToken } from "../../../lib/security";
 
 export async function POST(req: NextRequest) {
-  const ip = req.headers.get("cf-connecting-ip") || req.headers.get("x-forwarded-for") || "127.0.0.1";
+  const ip = getRateLimitClientIp(req.headers);
   const rl = checkRateLimit(`contact:${ip}`, 10, 60_000);
   if (!rl.allowed) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
 
-  const body = await req.json();
-  const validTurnstile = await verifyTurnstileToken(body.turnstileToken || "dev-turnstile-ok");
+  let body: Record<string, any> = {};
+  const contentType = req.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    body = await req.json();
+  } else {
+    const form = await req.formData();
+    form.forEach((value, key) => {
+      body[key] = String(value);
+    });
+  }
+
+  // Turnstile kaliti: faqat NODE_ENV=development da "dev-turnstile-ok" fallback ishlaydi
+  const rawTurnstile =
+    body.turnstileToken ||
+    body["cf-turnstile-response"] ||
+    (process.env.NODE_ENV === "development" ? "dev-turnstile-ok" : "");
+
+  const validTurnstile = await verifyTurnstileToken(rawTurnstile);
   if (!validTurnstile) {
     return NextResponse.json({ error: "Turnstile verification failed" }, { status: 400 });
   }

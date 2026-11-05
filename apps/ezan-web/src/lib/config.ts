@@ -1,12 +1,49 @@
 // Markaziy konfiguratsiya va "Hozircha qabul qilingan qarorlar"
-// Har bir qaror bir joyda (env yoki ushbu config) o'zgartiriladi.
+// Hech qanday standart sir (fallback secret) kodda saqlanmaydi.
+
+export function requireEnvSecret(envName: string, minLength = 32): string {
+  const val = process.env[envName];
+  if (!val || typeof val !== "string" || val.trim().length < minLength) {
+    throw new Error(
+      `Configuration error: ${envName} environment variable must be set and at least ${minLength} characters long.`
+    );
+  }
+  return val.trim();
+}
+
+export function validateStartupEnvironment(): void {
+  requireEnvSecret("EZAN_SYNC_SECRET", 32);
+  requireEnvSecret("PAYMENT_WEBHOOK_SECRET", 32);
+  requireEnvSecret("ADMIN_SESSION_SECRET", 32);
+
+  if (process.env.NODE_ENV === "production") {
+    if (!process.env.TURNSTILE_SECRET_KEY || process.env.TURNSTILE_SECRET_KEY.trim().length < 8) {
+      throw new Error("Configuration error: TURNSTILE_SECRET_KEY must be set in production.");
+    }
+  }
+
+  const provider = process.env.PAYMENT_PROVIDER || "mock";
+  if (provider === "iyzico") {
+    requireEnvSecret("IYZICO_API_KEY", 10);
+    requireEnvSecret("IYZICO_SECRET_KEY", 10);
+  }
+}
 
 export const SITE_CONFIG = {
   // 1. 2860-qonun bo'yicha ruxsat: DONATIONS_LIVE=false bo'lsa Sandbox/Sinov rejimi
-  donationsLive: process.env.DONATIONS_LIVE === "true",
+  get donationsLive(): boolean {
+    return process.env.DONATIONS_LIVE === "true";
+  },
 
   // 2. To'lov provayderi: mock | iyzico | paytr | param
-  paymentProvider: (process.env.PAYMENT_PROVIDER || "mock") as "mock" | "iyzico" | "paytr" | "param",
+  get paymentProvider(): "mock" | "iyzico" | "paytr" | "param" {
+    return (process.env.PAYMENT_PROVIDER || "mock") as "mock" | "iyzico" | "paytr" | "param";
+  },
+
+  // Oylik (abonement) xayriya hozircha yashirin (iyzico abonelik keyin qo'shiladi)
+  get recurringEnabled(): boolean {
+    return process.env.RECURRING_ENABLED === "true";
+  },
 
   // 3. Zakot kalkulyatori diniy hisoblash qoidalari (bitta config faylda)
   zakatRules: {
