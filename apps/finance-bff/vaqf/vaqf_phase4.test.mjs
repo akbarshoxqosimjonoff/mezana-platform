@@ -214,6 +214,16 @@ test.before(async () => {
       TEST_TG_OTHER,
     ]
   );
+  await query(
+    `INSERT INTO vaqf.bot_chats (telegram_id, user_ref, started_at, blocked_at, last_seen_at)
+     VALUES
+       ($1, 'director@moliy.org', NOW(), NULL, NOW()),
+       ($2, 'muhammadjon@moliya.org', NOW(), NULL, NOW()),
+       ($3, 'userumar', NOW(), NULL, NOW()),
+       ($4, 'abdurahman', NOW(), NULL, NOW())
+     ON CONFLICT (telegram_id) DO UPDATE SET blocked_at = NULL, last_seen_at = NOW()`,
+    [TEST_TG_DIRECTOR, TEST_TG_STAFF, TEST_TG_MANAGER, TEST_TG_OTHER]
+  );
 });
 
 test.after(async () => {

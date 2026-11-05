@@ -33,21 +33,50 @@ const HAS_UNICODE_FONT = fs.existsSync(FONT_REGULAR) && fs.existsSync(FONT_BOLD)
 // ============================================================================
 // KVKK SHIFRLASH (AES-256-GCM), MASKALASH VA ANONIMLASHTIRISH
 // ============================================================================
-function getPiiKey() {
-  const rawSecret =
+function readEnvValueFromFiles(varName) {
+  for (const p of [
+    "/srv/data/apps/mezana-platform/apps/finance-bff/.env",
+    "/srv/data/apps/mezana-platform/.env.platform.local",
+  ]) {
+    try {
+      const raw = fs.readFileSync(p, "utf8");
+      const m = raw.match(new RegExp(`^${varName}=(.+)$`, "m"));
+      if (m && m[1]) return m[1].trim().replace(/^["']|["']$/g, "");
+    } catch {}
+  }
+  return "";
+}
+
+export function getRawPiiSecret(overrideSecret = null) {
+  if (overrideSecret !== null && overrideSecret !== undefined) {
+    return String(overrideSecret).trim();
+  }
+  return (
+    process.env.VAQF_PII_KEY ||
     process.env.VAQF_PII_ENCRYPTION_KEY ||
+    readEnvValueFromFiles("VAQF_PII_KEY") ||
+    readEnvValueFromFiles("VAQF_PII_ENCRYPTION_KEY") ||
     process.env.SESSION_SECRET ||
-    process.env.TELEGRAM_BOT_TOKEN ||
-    "mezana-vaqf-kvkk- fallback-key-change-in-env";
+    "mezana-vaqf-kvkk-fallback-key-change-in-env"
+  );
+}
+
+export function getPiiKey(overrideSecret = null) {
+  const rawSecret = getRawPiiSecret(overrideSecret);
   return crypto.createHash("sha256").update(String(rawSecret)).digest();
 }
 
-export function encryptPii(plainText) {
+export function getPiiKeyFingerprint(overrideSecret = null) {
+  const rawSecret = getRawPiiSecret(overrideSecret);
+  return crypto.createHash("sha256").update(String(rawSecret)).digest("hex").slice(0, 12);
+}
+
+export function encryptPii(plainText, overrideSecret = null) {
   if (plainText === undefined || plainText === null || String(plainText).trim() === "") {
     return null;
   }
   const text = String(plainText).trim();
-  const key = getPiiKey();
+  const key = getPiiKey(overrideSecret);
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
   const enc = Buffer.concat([cipher.update(text, "utf8"), cipher.final()]);
@@ -55,12 +84,12 @@ export function encryptPii(plainText) {
   return `v1:${iv.toString("base64")}:${tag.toString("base64")}:${enc.toString("base64")}`;
 }
 
-export function decryptPii(cipherText) {
+export function decryptPii(cipherText, overrideSecret = null) {
   if (!cipherText || typeof cipherText !== "string") return null;
   if (!cipherText.startsWith("v1:")) return null;
   try {
     const [, ivB64, tagB64, dataB64] = cipherText.split(":");
-    const key = getPiiKey();
+    const key = getPiiKey(overrideSecret);
     const iv = Buffer.from(ivB64, "base64");
     const tag = Buffer.from(tagB64, "base64");
     const data = Buffer.from(dataB64, "base64");

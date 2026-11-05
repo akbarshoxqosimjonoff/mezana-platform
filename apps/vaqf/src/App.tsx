@@ -61,6 +61,8 @@ import {
   SchedulesAndRemindersSection,
   UnauthenticatedQrLandingCard,
   TelegramMiniAppScannerPage,
+  VaqfBotBannerAndLinkBar,
+  SystemHealthAndMultiImportSection,
 } from "./AutomationModule";
 import {
   DonationsRegistryPanel,
@@ -1127,6 +1129,16 @@ export function App() {
         </header>
 
         <main className="content-wrap">
+          <VaqfBotBannerAndLinkBar
+            botStatus={auth.botStatus}
+            onRefreshBotStatus={async () => {
+              try {
+                const bs = await apiFetch("/vaqf-api/me/bot-status");
+                setAuth((prev: any) => ({ ...prev, botStatus: bs }));
+              } catch {}
+            }}
+            notify={notify}
+          />
           {/* ============================================================== */}
           {/* 1. BOSH SAHIFA (DASHBOARD) */}
           {/* ============================================================== */}
@@ -2892,6 +2904,10 @@ export function App() {
                   </div>
                 </div>
               )}
+              <SystemHealthAndMultiImportSection
+                isDirector={false}
+                notify={notify}
+              />
             </div>
           )}
 
@@ -3179,7 +3195,13 @@ export function App() {
           )}
 
           {page === "roles_settings" && (
-            <RolesAndSettingsSection institutions={institutions} notify={notify} />
+            <>
+              <RolesAndSettingsSection institutions={institutions} notify={notify} />
+              <SystemHealthAndMultiImportSection
+                isDirector={Boolean(auth.vaqfAccess?.isDirector || auth.vaqfAccess?.canManageRoles)}
+                notify={notify}
+              />
+            </>
           )}
 
           {page === "donations" && (
