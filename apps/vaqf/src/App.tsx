@@ -50,7 +50,18 @@ import {
   UserCheck,
   UserMinus,
   Wrench,
+  Calendar,
+  Sparkles,
+  Link2,
 } from "lucide-react";
+import {
+  NotificationsBellPopover,
+  DirectorDashboardSection,
+  PendingFinanceExpensesSection,
+  SchedulesAndRemindersSection,
+  UnauthenticatedQrLandingCard,
+  TelegramMiniAppScannerPage,
+} from "./AutomationModule";
 
 type VaqfPage =
   | "dashboard"
@@ -63,6 +74,9 @@ type VaqfPage =
   | "approvals"
   | "my_assets"
   | "faults_offboarding"
+  | "pending_expenses"
+  | "schedules"
+  | "tg_miniapp"
   | "reports"
   | "roles_settings"
   | "locations"
@@ -117,6 +131,8 @@ const EVENT_LABELS: Record<string, string> = {
   repair_completed: "Ta'mirdan qaytdi (TMR)",
   written_off: "Hisobdan chiqarildi (HCH)",
   fault_reported: "Nosozlik haqida xabar berildi",
+  expense_linked: "Moliya xarajati bog'landi",
+  schedule_completed: "Texnik ko'rik / muddat bajarildi",
 };
 
 const fmtTRY = (val: number | string | null | undefined) => {
@@ -135,10 +151,12 @@ const fmtMoney = (val: number | string | null | undefined, cur = "TRY") => {
 };
 
 async function apiFetch(path: string, options: RequestInit = {}) {
+  const tgInitData = (window as any).Telegram?.WebApp?.initData || "";
   const res = await fetch(path, {
     credentials: "include",
     headers: {
       "Content-Type": "application/json",
+      ...(tgInitData ? { "X-Telegram-Init-Data": tgInitData } : {}),
       ...(options.headers || {}),
     },
     ...options,
@@ -181,7 +199,8 @@ export function App() {
 
   // Reference data
   const [institutions, setInstitutions] = useState<any[]>([]);
-  const [selectedInstitutionId, setSelectedInstitutionId] = useState<number>(1);
+  const [selectedInstitutionId, setSelectedInstitutionId] = useState<number | string>(1);
+  const activeNumericInstId = Number(selectedInstitutionId) || 1;
   const [locations, setLocations] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [staffList, setStaffList] = useState<any[]>([]);
@@ -304,6 +323,11 @@ export function App() {
 
   // URL Deep-Link Handler: /vaqf/count/:id, /vaqf/a/:inventoryNo or /vaqf/assets/:id
   const parseUrlRoute = useCallback(async (meData?: any) => {
+    const searchParams = new URLSearchParams(window.location.search);
+    if (searchParams.get("tg_miniapp") === "1") {
+      setPage("tg_miniapp");
+      return true;
+    }
     const p = window.location.pathname;
     const countMatch = p.match(/^\/vaqf\/count\/(\d+)\/?$/);
     if (countMatch) {
@@ -358,7 +382,7 @@ export function App() {
   const loadReferenceData = useCallback(async () => {
     const [instRes, locRes, catRes] = await Promise.all([
       apiFetch("/vaqf-api/institutions"),
-      apiFetch(`/vaqf-api/locations?institution_id=${selectedInstitutionId}`),
+      apiFetch(`/vaqf-api/locations?institution_id=${activeNumericInstId}`),
       apiFetch("/vaqf-api/categories"),
     ]);
     setInstitutions(instRes.items || []);
@@ -369,16 +393,18 @@ export function App() {
       if (l.kind === "building" || l.kind === "floor") exp[l.id] = true;
     }
     setExpandedLocs((prev) => ({ ...exp, ...prev }));
-  }, [selectedInstitutionId]);
+  }, [activeNumericInstId]);
 
   const loadSummary = useCallback(async () => {
-    const s = await apiFetch(`/vaqf-api/reports/summary?institution_id=${selectedInstitutionId}`);
+    const s = await apiFetch(`/vaqf-api/reports/summary?institution_id=${activeNumericInstId}`);
     setSummary(s);
-  }, [selectedInstitutionId]);
+  }, [activeNumericInstId]);
 
   const loadAssets = useCallback(async () => {
     const q = new URLSearchParams();
-    q.set("institution_id", String(selectedInstitutionId));
+    if (selectedInstitutionId !== "all") {
+      q.set("institution_id", String(selectedInstitutionId));
+    }
     if (filters.search) q.set("search", filters.search);
     if (filters.location_id) q.set("location_id", filters.location_id);
     if (filters.category_id) q.set("category_id", filters.category_id);
@@ -414,6 +440,15 @@ export function App() {
         await parseUrlRoute(me);
       } catch (err: any) {
         if (err.status === 401) {
+          const qrMatch = window.location.pathname.match(/^\/vaqf\/a\/([^/]+)\/?$/);
+          if (qrMatch) {
+            setAuth({
+              loading: false,
+              authenticated: false,
+              unauthQrCode: decodeURIComponent(qrMatch[1]),
+            });
+            return;
+          }
           const returnPath = window.location.pathname + window.location.search;
           window.location.href = `/?next=${encodeURIComponent(returnPath)}`;
           return;
@@ -490,7 +525,7 @@ export function App() {
         tracking: newForm.tracking,
         quantity: newForm.tracking === "individual" ? 1 : Number(newForm.quantity || 1),
         unit: newForm.unit || "dona",
-        institution_id: selectedInstitutionId,
+        institution_id: activeNumericInstId,
         location_id: newForm.location_id ? Number(newForm.location_id) : null,
         responsible_name: newForm.responsible_name || null,
         responsible_ref: newForm.responsible_ref || null,
@@ -736,6 +771,22 @@ export function App() {
     );
   }
 
+  if (auth.unauthQrCode) {
+    return <UnauthenticatedQrLandingCard inventoryNo={auth.unauthQrCode} />;
+  }
+
+  if (page === "tg_miniapp") {
+    return (
+      <TelegramMiniAppScannerPage
+        notify={notify}
+        onExitMiniApp={() => {
+          setPage("dashboard");
+          window.history.replaceState({}, "", "/vaqf/");
+        }}
+      />
+    );
+  }
+
   if (auth.forbidden) {
     return (
       <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 24 }}>
@@ -856,9 +907,13 @@ export function App() {
           <select
             className="select"
             value={selectedInstitutionId}
-            onChange={(e) => setSelectedInstitutionId(Number(e.target.value))}
+            onChange={(e) => {
+              const v = e.target.value;
+              setSelectedInstitutionId(v === "all" ? "all" : Number(v));
+            }}
             style={{ fontWeight: 700, fontSize: 13 }}
           >
+            <option value="all">🏛 Barcha muassasalar</option>
             {institutions.map((inst) => (
               <option key={inst.id} value={inst.id}>
                 {inst.name} ({inst.code})
@@ -888,6 +943,12 @@ export function App() {
                   <Plus size={17} /> Yangi buyum qo'shish
                 </button>
               )}
+              <button className={`nav-btn ${page === "pending_expenses" ? "active" : ""}`} onClick={() => navigatePage("pending_expenses")}>
+                <Sparkles size={17} color="#fbcc42" /> Ro'yxatga olinishi kerak
+              </button>
+              <button className={`nav-btn ${page === "schedules" ? "active" : ""}`} onClick={() => navigatePage("schedules")}>
+                <Calendar size={17} color="#06b6d4" /> Muddatlar va Eslatmalar
+              </button>
               <button className={`nav-btn ${page === "counts" ? "active" : ""}`} onClick={() => navigatePage("counts")}>
                 <ClipboardCheck size={17} /> Inventarizatsiya (Sanoq)
               </button>
@@ -985,6 +1046,10 @@ export function App() {
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <NotificationsBellPopover
+              onNavigate={(p) => navigatePage(p as VaqfPage)}
+              notify={notify}
+            />
             <button className="btn btn-primary" onClick={() => navigatePage("new_asset")}>
               <Plus size={15} /> Yangi buyum
             </button>
@@ -1034,270 +1099,25 @@ export function App() {
           {/* 1. BOSH SAHIFA (DASHBOARD) */}
           {/* ============================================================== */}
           {page === "dashboard" && (
-            <div className="animate-in">
-              <div className="kpi-grid">
-                <div className="kpi-card" style={{ cursor: "pointer" }} onClick={() => navigatePage("assets")}>
-                  <div className="kpi-glow" style={{ background: "#fbcc42" }} />
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: 12.5, color: "var(--text-secondary)", fontWeight: 700 }}>
-                      JAMI MULK VA BUYUMLAR
-                    </span>
-                    <Layers size={18} color="#fbcc42" />
-                  </div>
-                  <div className="kpi-value" style={{ color: "#fbcc42" }}>
-                    {Number(tot.total_items || 0).toLocaleString("en-US")} <span style={{ fontSize: 15, fontWeight: 600 }}>birlik</span>
-                  </div>
-                  <div className="kpi-sub">
-                    <span>Jami kartochkalar: <strong>{tot.total_cards || 0} ta</strong></span>
-                    <span className="badge badge-amber">{tot.batch_cards_count || 0} ta partiya</span>
-                  </div>
-                </div>
-
-                <div className="kpi-card" style={{ cursor: "pointer" }} onClick={() => navigatePage("assets")}>
-                  <div className="kpi-glow" style={{ background: "#10b981" }} />
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: 12.5, color: "var(--text-secondary)", fontWeight: 700 }}>
-                      UMUMIY XARID QIYMATI
-                    </span>
-                    <Activity size={18} color="#10b981" />
-                  </div>
-                  <div className="kpi-value" style={{ color: "#10b981" }}>
-                    {fmtTRY(tot.total_value_try)}
-                  </div>
-                  <div className="kpi-sub">
-                    <span>USD hisobida: <strong>{fmtUSD(tot.total_value_usd)}</strong></span>
-                    <span className="badge badge-emerald">Hadya: {tot.donation_count || 0} ta</span>
-                  </div>
-                </div>
-
-                <div
-                  className="kpi-card"
-                  style={{ cursor: "pointer" }}
-                  onClick={() => {
-                    setFilters((f) => ({ ...f, location_id: "unassigned", page: 1 }));
-                    navigatePage("assets");
-                  }}
-                >
-                  <div className="kpi-glow" style={{ background: "#f59e0b" }} />
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: 12.5, color: "var(--text-secondary)", fontWeight: 700 }}>
-                      JOYI BELGILANMAGANLAR
-                    </span>
-                    <Building2 size={18} color="#f59e0b" />
-                  </div>
-                  <div className="kpi-value" style={{ color: Number(tot.unassigned_location_count || 0) > 0 ? "#f59e0b" : "#10b981" }}>
-                    {tot.unassigned_location_count || 0} ta
-                  </div>
-                  <div className="kpi-sub">
-                    <span>Xona yoki omborga biriktirilmagan</span>
-                  </div>
-                </div>
-
-                <div
-                  className="kpi-card"
-                  style={{ cursor: "pointer" }}
-                  onClick={() => {
-                    setFilters((f) => ({ ...f, responsible: "unassigned", page: 1 }));
-                    navigatePage("assets");
-                  }}
-                >
-                  <div className="kpi-glow" style={{ background: "#f43f5e" }} />
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: 12.5, color: "var(--text-secondary)", fontWeight: 700 }}>
-                      JAVOBGARI BELGILANMAGAN
-                    </span>
-                    <Users size={18} color="#f43f5e" />
-                  </div>
-                  <div className="kpi-value" style={{ color: Number(tot.unassigned_responsible_count || 0) > 0 ? "#f43f5e" : "#10b981" }}>
-                    {tot.unassigned_responsible_count || 0} ta
-                  </div>
-                  <div className="kpi-sub">
-                    <span>Javobgar xodim biriktirilmagan</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="resp-grid-2" style={{ marginBottom: 20 }}>
-                {/* Holat bo'yicha taqsimot */}
-                <div className="glass-card">
-                  <div className="section-header">
-                    <div className="section-title">
-                      <PieChart size={18} color="#fbcc42" /> Holat bo'yicha taqsimot
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                    {Object.entries(STATUS_META).map(([stKey, meta]) => {
-                      const row = (summary?.byStatus || []).find((r: any) => r.status === stKey) || {
-                        cards_count: 0,
-                        items_count: 0,
-                        value_try: 0,
-                        value_usd: 0,
-                      };
-                      return (
-                        <div
-                          key={stKey}
-                          onClick={() => {
-                            setFilters((f) => ({ ...f, status: stKey, page: 1 }));
-                            navigatePage("assets");
-                          }}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                            padding: "10px 14px",
-                            borderRadius: 12,
-                            background: "rgba(15,23,42,0.4)",
-                            border: "1px solid var(--border-subtle)",
-                            cursor: "pointer",
-                          }}
-                        >
-                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                            <span style={{ width: 10, height: 10, borderRadius: "50%", background: meta.color }} />
-                            <span style={{ fontWeight: 600, fontSize: 13.5 }}>{meta.label}</span>
-                          </div>
-                          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                            <span style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>
-                              {row.items_count || 0} dona ({row.cards_count || 0} karta)
-                            </span>
-                            <span className={`badge ${meta.badge}`}>{fmtTRY(row.value_try)}</span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Kategoriyalar bo'yicha */}
-                <div className="glass-card">
-                  <div className="section-header">
-                    <div className="section-title">
-                      <Layers size={18} color="#06b6d4" /> Kategoriyalar kesimida
-                    </div>
-                    <button className="btn btn-sm" onClick={() => navigatePage("categories")}>
-                      Barchasi
-                    </button>
-                  </div>
-                  {(summary?.byCategory || []).length === 0 ? (
-                    <div style={{ padding: 28, textAlign: "center", color: "var(--text-muted)", fontSize: 13.5 }}>
-                      Hozircha mulk kartochkalari kiritilmagan. "Yangi buyum" tugmasi orqali boshlang.
-                    </div>
-                  ) : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                      {(summary?.byCategory || []).slice(0, 7).map((c: any) => (
-                        <div
-                          key={c.category_id}
-                          onClick={() => {
-                            setFilters((f) => ({ ...f, category_id: String(c.category_id), page: 1 }));
-                            navigatePage("assets");
-                          }}
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            padding: "9px 12px",
-                            borderRadius: 10,
-                            background: "rgba(15,23,42,0.35)",
-                            border: "1px solid var(--border-subtle)",
-                            cursor: "pointer",
-                          }}
-                        >
-                          <div>
-                            <div style={{ fontWeight: 600, fontSize: 13.5 }}>{c.category_name}</div>
-                            <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
-                              {c.cards_count} ta kartochka • Jami {c.items_count} birlik
-                            </div>
-                          </div>
-                          <div style={{ textAlign: "right" }}>
-                            <div style={{ fontWeight: 700, fontSize: 13, color: "#10b981" }}>{fmtTRY(c.value_try)}</div>
-                            {c.value_usd > 0 && <div style={{ fontSize: 11.5, color: "#06b6d4" }}>{fmtUSD(c.value_usd)}</div>}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Oxirgi qo'shilgan buyumlar */}
-              <div className="glass-card">
-                <div className="section-header">
-                  <div className="section-title">
-                    <History size={18} color="#10b981" /> Oxirgi qo'shilgan buyumlar
-                  </div>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button className="btn btn-sm btn-primary" onClick={() => navigatePage("new_asset")}>
-                      <Plus size={14} /> Buyum qo'shish
-                    </button>
-                    <button className="btn btn-sm" onClick={() => navigatePage("assets")}>
-                      Ro'yxatga o'tish
-                    </button>
-                  </div>
-                </div>
-                <div className="table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Inventar №</th>
-                        <th>Nomi</th>
-                        <th>Kategoriya</th>
-                        <th>Miqdori</th>
-                        <th>Joy / Xona</th>
-                        <th>Javobgar</th>
-                        <th>Holati</th>
-                        <th>Qiymati</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(summary?.recentAssets || []).length === 0 ? (
-                        <tr>
-                          <td colSpan={8} style={{ textAlign: "center", padding: 28, color: "var(--text-muted)" }}>
-                            Hozircha buyumlar yo'q
-                          </td>
-                        </tr>
-                      ) : (
-                        (summary?.recentAssets || []).map((a: any) => (
-                          <tr key={a.id} style={{ cursor: "pointer" }} onClick={() => openAssetCard(a.id)}>
-                            <td>
-                              <strong style={{ color: "#fbcc42", fontFamily: "monospace", fontSize: 13 }}>
-                                {a.inventory_no}
-                              </strong>
-                            </td>
-                            <td>
-                              <div style={{ fontWeight: 700 }}>{a.name}</div>
-                              {(a.brand || a.model) && (
-                                <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
-                                  {[a.brand, a.model].filter(Boolean).join(" ")}
-                                </div>
-                              )}
-                            </td>
-                            <td>{a.category_name}</td>
-                            <td>
-                              <span className={`badge ${a.tracking === "batch" ? "badge-violet" : "badge-slate"}`}>
-                                {a.quantity} {a.unit}
-                              </span>
-                            </td>
-                            <td>{a.location_name || <span style={{ color: "#f59e0b" }}>Belgilanmagan</span>}</td>
-                            <td>{a.responsible_name || <span style={{ color: "#f43f5e" }}>Belgilanmagan</span>}</td>
-                            <td>
-                              <span className={`badge ${STATUS_META[a.status]?.badge || "badge-slate"}`}>
-                                {STATUS_META[a.status]?.label || a.status}
-                              </span>
-                            </td>
-                            <td>
-                              {a.purchase_price !== null ? (
-                                <strong>{fmtMoney(Number(a.purchase_price) * Number(a.quantity || 1), a.currency)}</strong>
-                              ) : (
-                                <span style={{ color: "var(--text-muted)" }}>—</span>
-                              )}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
+            <DirectorDashboardSection
+              institutionId={selectedInstitutionId}
+              onNavigate={(p) => navigatePage(p as VaqfPage)}
+              onFilterAssets={(patch) => {
+                setFilters((f) => ({
+                  ...f,
+                  search: patch.search ?? "",
+                  location_id: patch.location_id ?? "",
+                  category_id: patch.category_id ?? "",
+                  status: patch.status ?? "",
+                  condition: patch.condition ?? "",
+                  tracking: patch.tracking ?? "",
+                  acquisition_type: patch.acquisition_type ?? "",
+                  responsible: patch.responsible ?? "",
+                  page: 1,
+                }));
+                navigatePage("assets");
+              }}
+            />
           )}
 
           {/* ============================================================== */}
@@ -1788,6 +1608,20 @@ export function App() {
                           {activeAsset.warranty_until_str ? ` (Kafolat: ${activeAsset.warranty_until_str})` : ""}
                         </div>
                       </div>
+                      {activeAsset.expense_ref && (
+                        <div style={{ gridColumn: "1 / -1" }}>
+                          <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>Bog'langan moliya xarajati</div>
+                          <div style={{ marginTop: 4 }}>
+                            <a
+                              href={`/?expense_id=${encodeURIComponent(activeAsset.expense_ref)}`}
+                              className="badge badge-amber"
+                              style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5 }}
+                            >
+                              <Link2 size={13} /> Moliyada ko'rish (Xarajat ID: {activeAsset.expense_ref})
+                            </a>
+                          </div>
+                        </div>
+                      )}
                       {(activeAsset.brand || activeAsset.model || activeAsset.serial_no) && (
                         <div style={{ gridColumn: "1 / -1" }}>
                           <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>Brend / Model / Seriya raqami</div>
@@ -3235,7 +3069,7 @@ export function App() {
           {/* ============================================================== */}
           {page === "counts" && (
             <DirectorInventoryCountsSection
-              selectedInstitutionId={selectedInstitutionId}
+              selectedInstitutionId={activeNumericInstId}
               locations={locations}
               categories={categories}
               staffList={staffList}
@@ -3251,7 +3085,7 @@ export function App() {
           {page === "documents" && (
             <DocumentsAndApprovalsSection
               mode="documents"
-              institutionId={selectedInstitutionId}
+              institutionId={activeNumericInstId}
               institutions={institutions}
               flatLocations={flatLocationOptions}
               staffList={staffList}
@@ -3264,7 +3098,7 @@ export function App() {
           {page === "approvals" && (
             <DocumentsAndApprovalsSection
               mode="approvals"
-              institutionId={selectedInstitutionId}
+              institutionId={activeNumericInstId}
               institutions={institutions}
               flatLocations={flatLocationOptions}
               staffList={staffList}
@@ -3278,7 +3112,7 @@ export function App() {
 
           {page === "faults_offboarding" && (
             <FaultsAndOffboardingSection
-              institutionId={selectedInstitutionId}
+              institutionId={activeNumericInstId}
               institutions={institutions}
               flatLocations={flatLocationOptions}
               staffList={staffList}
@@ -3286,8 +3120,30 @@ export function App() {
             />
           )}
 
+          {page === "pending_expenses" && (
+            <PendingFinanceExpensesSection
+              categories={categories}
+              locations={locations}
+              staffList={staffList}
+              isDirector={Boolean(auth.vaqfAccess?.isDirector || auth.vaqfAccess?.canManageRoles)}
+              notify={notify}
+              onOpenAsset={openAssetCard}
+            />
+          )}
+
+          {page === "schedules" && (
+            <SchedulesAndRemindersSection
+              institutionId={selectedInstitutionId}
+              assets={assetsData.items || []}
+              locations={locations}
+              staffList={staffList}
+              canEdit={Boolean(auth.vaqfAccess?.canEdit)}
+              notify={notify}
+            />
+          )}
+
           {page === "reports" && (
-            <LifecycleReportsSection institutionId={selectedInstitutionId} notify={notify} />
+            <LifecycleReportsSection institutionId={activeNumericInstId} notify={notify} />
           )}
 
           {page === "roles_settings" && (
@@ -3302,7 +3158,7 @@ export function App() {
               initialAssets={[activeAsset]}
               initialFromPersonRef={activeAsset.responsible_ref || ""}
               initialFromPersonName={activeAsset.responsible_name || ""}
-              institutionId={selectedInstitutionId}
+              institutionId={activeNumericInstId}
               institutions={institutions}
               flatLocations={flatLocationOptions}
               staffList={staffList}

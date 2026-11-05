@@ -5,6 +5,7 @@ import "dotenv/config";
 import { Bot } from "grammy";
 import { prisma } from "./db/client.js";
 import { registerLateArrivalFlow, startLatePoller } from "./late/flow.js";
+import { registerVaqfBotFlow, checkUserVaqfAccess } from "./vaqf/flow.js";
 import {
   AUTHORIZED_USERS,
   notifyDirectorsOfPendingUser,
@@ -28,6 +29,11 @@ bot.use(async (ctx, next) => {
 
   // Authorized user -> full access
   if (auth) {
+    await next();
+    return;
+  }
+  const vaqfAcc = await checkUserVaqfAccess(telegramId);
+  if (vaqfAcc.hasAccess) {
     await next();
     return;
   }
@@ -261,7 +267,10 @@ bot.command(["start", "menu"], async (ctx) => {
 // 1. Register late arrival callbacks & night reply handler
 registerLateArrivalFlow(bot);
 
-// 2. Register Production AI Expense flow linked to the unified system accounts
+// 2. Register Vaqf inventory & asset management flow
+registerVaqfBotFlow(bot);
+
+// 3. Register Production AI Expense flow linked to the unified system accounts
 registerExpenseSandboxFlow(bot);
 
 bot.catch((err) => {

@@ -8,6 +8,7 @@ import { query, withTransaction, getCrmPool, getErpPool } from "./db.mjs";
 import { syncCrmRoomsToLocations } from "./migrate.mjs";
 import { QrCode, Ecc } from "./qrcodegen.mjs";
 import { resolveSyncVaqfRole } from "./lifecycleService.mjs";
+import { ensureWarrantyScheduleForAsset } from "./automationService.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "../../..");
@@ -782,7 +783,7 @@ export async function getAssetDetail(idOrCode, { byCode = false } = {}) {
   }
   if (!assetRow) throw httpError(404, "Mulk kartochkasi topilmadi");
 
-  const [photosRes, docsRes, eventsRes, lifecycleDocsRes, activeAssignsRes] = await Promise.all([
+  const [photosRes, docsRes, eventsRes, lifecycleDocsRes, activeAssignsRes, schedulesRes] = await Promise.all([
     query(
       `SELECT id, asset_id, file_name, mime_type, file_size, caption, is_primary, uploaded_by, uploaded_by_name, created_at
        FROM vaqf.asset_photos
@@ -836,6 +837,16 @@ export async function getAssetDetail(idOrCode, { byCode = false } = {}) {
        ORDER BY asg.assigned_at DESC`,
       [assetRow.id]
     ).catch(() => ({ rows: [] })),
+    query(
+      `SELECT
+         s.*,
+         TO_CHAR(s.next_due, 'YYYY-MM-DD') AS next_due_str,
+         (s.next_due - (NOW() AT TIME ZONE 'Europe/Istanbul')::date)::int AS days_until_due
+       FROM vaqf.schedules s
+       WHERE s.asset_id = $1 AND s.is_active = TRUE
+       ORDER BY s.next_due ASC`,
+      [assetRow.id]
+    ).catch(() => ({ rows: [] })),
   ]);
 
   return {
@@ -860,6 +871,7 @@ export async function getAssetDetail(idOrCode, { byCode = false } = {}) {
       ...a,
       pdf_url: a.assign_doc_id ? `/vaqf-api/documents/${a.assign_doc_id}/pdf` : null,
     })),
+    schedules: schedulesRes.rows,
   };
 }
 
@@ -964,6 +976,9 @@ export async function createAsset(body, actor) {
       note: "Yangi mulk kartochkasi yaratildi",
       actor,
     });
+    if (row.warranty_until) {
+      await ensureWarrantyScheduleForAsset(tx, row, actor);
+    }
     return row.id;
   });
 
@@ -1099,6 +1114,13 @@ export async function updateAsset(id, body, actor) {
       note: body.event_note || "Kartochka tahrirlandi",
       actor,
     });
+
+    if (newDiff.warranty_until !== undefined && patch.warranty_until) {
+      const updAssetRes = await tx.query(`SELECT * FROM vaqf.assets WHERE id = $1`, [assetId]);
+      if (updAssetRes.rows[0]) {
+        await ensureWarrantyScheduleForAsset(tx, updAssetRes.rows[0], actor);
+      }
+    }
   });
 
   return getAssetDetail(assetId);

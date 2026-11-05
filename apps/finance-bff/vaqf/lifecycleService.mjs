@@ -11,6 +11,7 @@ import {
   listResponsibleStaff,
   recordAssetEvent,
 } from "./service.mjs";
+import { enqueueOutboxNotification } from "./automationService.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "../../..");
@@ -1535,12 +1536,33 @@ export async function submitDocument(docId, body = {}, actor) {
   }
 
   const needsApproval = await doesDocumentRequireDirectorApproval(doc);
+  const itemsSummary = (doc.items || [])
+    .map((it) => `${it.asset_name} (${it.inventory_no})`)
+    .join(", ")
+    .slice(0, 300);
 
   if (needsApproval) {
-    await query(
-      `UPDATE vaqf.documents SET status = 'pending_approval', updated_at = NOW() WHERE id = $1`,
-      [id]
-    );
+    await withTransaction(async (tx) => {
+      await tx.query(
+        `UPDATE vaqf.documents SET status = 'pending_approval', updated_at = NOW() WHERE id = $1`,
+        [id]
+      );
+      await enqueueOutboxNotification(tx, {
+        eventType: "approval_needed",
+        recipientRef: "role:director",
+        dedupeKey: `approval_needed:${id}`,
+        payload: {
+          doc_id: id,
+          doc_no: doc.doc_no,
+          type: doc.type,
+          reason: doc.reason || doc.metadata?.writeoff_reason || null,
+          created_by_name: doc.created_by_name || actor?.actorName || "Mas'ul",
+          items_summary: itemsSummary,
+          total_value_try: doc.total_value_try,
+          total_value_usd: doc.total_value_usd,
+        },
+      });
+    });
     return getDocumentDetail(id);
   }
 
@@ -1561,6 +1583,21 @@ export async function submitDocument(docId, body = {}, actor) {
          WHERE id = $3`,
         [actor?.actorId || null, actor?.actorName || "Mas'ul", id]
       );
+      if (doc.to_person_ref || doc.to_person_name) {
+        await enqueueOutboxNotification(tx, {
+          eventType: "assigned_to_you",
+          recipientRef: doc.to_person_ref || doc.to_person_name,
+          dedupeKey: `assigned_to_you:${id}`,
+          payload: {
+            doc_id: id,
+            doc_no: doc.doc_no,
+            to_person_ref: doc.to_person_ref,
+            to_person_name: doc.to_person_name,
+            from_person_name: doc.from_person_name || actor?.actorName || "Vaqf mas'uli",
+            items_summary: itemsSummary,
+          },
+        });
+      }
     });
     return getDocumentDetail(id);
   }
@@ -1715,6 +1752,18 @@ export async function approveDocument(docId, body = {}, actor, vAccess = {}) {
        WHERE id = $3`,
       [actor?.actorId || null, actor?.actorName || "Direktor", id]
     );
+    await enqueueOutboxNotification(tx, {
+      eventType: "document_decided",
+      recipientRef: doc.created_by || doc.created_by_name || "role:inventory_manager",
+      dedupeKey: `doc_decided:${id}:approved`,
+      payload: {
+        doc_id: id,
+        doc_no: doc.doc_no,
+        type: doc.type,
+        decision: "approved",
+        decided_by_name: actor?.actorName || "Direktor",
+      },
+    });
   });
 
   return getDocumentDetail(id);
@@ -1734,17 +1783,32 @@ export async function rejectDocument(docId, body = {}, actor, vAccess = {}) {
     throw httpError(400, "Rad etish sababini kiriting");
   }
 
-  await query(
-    `UPDATE vaqf.documents
-     SET status = 'rejected',
-         rejected_by = $1,
-         rejected_by_name = $2,
-         rejected_at = NOW(),
-         rejected_reason = $3,
-         updated_at = NOW()
-     WHERE id = $4`,
-    [actor?.actorId || null, actor?.actorName || "Direktor", reason, id]
-  );
+  await withTransaction(async (tx) => {
+    await tx.query(
+      `UPDATE vaqf.documents
+       SET status = 'rejected',
+           rejected_by = $1,
+           rejected_by_name = $2,
+           rejected_at = NOW(),
+           rejected_reason = $3,
+           updated_at = NOW()
+       WHERE id = $4`,
+      [actor?.actorId || null, actor?.actorName || "Direktor", reason, id]
+    );
+    await enqueueOutboxNotification(tx, {
+      eventType: "document_decided",
+      recipientRef: doc.created_by || doc.created_by_name || "role:inventory_manager",
+      dedupeKey: `doc_decided:${id}:rejected`,
+      payload: {
+        doc_id: id,
+        doc_no: doc.doc_no,
+        type: doc.type,
+        decision: "rejected",
+        reason,
+        decided_by_name: actor?.actorName || "Direktor",
+      },
+    });
+  });
 
   return getDocumentDetail(id);
 }
@@ -2106,6 +2170,20 @@ export async function createFaultReport(assetId, body, sess, accessContext) {
         actor.actorName,
       ]
     );
+
+    await enqueueOutboxNotification(tx, {
+      eventType: "fault_reported",
+      recipientRef: "role:inventory_manager",
+      dedupeKey: `fault_reported:${ins.rows[0].id}`,
+      payload: {
+        fault_id: ins.rows[0].id,
+        asset_id: id,
+        inventory_no: asset.inventory_no,
+        asset_name: asset.name,
+        description,
+        reported_by_name: actor.actorName,
+      },
+    });
 
     return ins.rows[0];
   });

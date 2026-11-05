@@ -13,6 +13,7 @@ import {
   listLocations,
 } from "./service.mjs";
 import { resolveFullVaqfAccess } from "./lifecycleService.mjs";
+import { enqueueOutboxNotification } from "./automationService.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "../../..");
@@ -542,6 +543,36 @@ export async function startCount(countId, actor) {
        WHERE id = $1`,
       [cid]
     );
+
+    const assignedLocsRes = await tx.query(
+      `SELECT cl.location_id, cl.assignee_ref, cl.assignee_name, l.name AS location_name
+       FROM vaqf.inventory_count_locations cl
+       JOIN vaqf.locations l ON l.id = cl.location_id
+       WHERE cl.count_id = $1 AND cl.assignee_ref IS NOT NULL AND BTRIM(cl.assignee_ref) != ''`,
+      [cid]
+    );
+    const byAssignee = new Map();
+    for (const r of assignedLocsRes.rows) {
+      const ref = String(r.assignee_ref).trim();
+      if (!byAssignee.has(ref)) {
+        byAssignee.set(ref, { assignee_name: r.assignee_name || ref, locations: [] });
+      }
+      byAssignee.get(ref).locations.push(r.location_name);
+    }
+    for (const [assigneeRef, info] of byAssignee.entries()) {
+      await enqueueOutboxNotification(tx, {
+        eventType: "count_location_assigned",
+        recipientRef: assigneeRef,
+        dedupeKey: `count_loc_assigned:${cid}:${assigneeRef.toLowerCase()}`,
+        payload: {
+          count_id: cid,
+          count_code: cur.code,
+          title: cur.title,
+          assignee_name: info.assignee_name,
+          location_name: info.locations.join(", "),
+        },
+      });
+    }
   });
 
   return getCountDetail(cid, { isDirector: true, canView: true });
@@ -1381,6 +1412,31 @@ export async function submitCountForReview(countId, actor) {
        WHERE id = $1`,
       [cid]
     );
+
+    const statsRes = await tx.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE asset_id IS NOT NULL)::int AS expected_cards,
+         COUNT(*) FILTER (WHERE result IN ('found', 'moved', 'qty_diff', 'damaged'))::int AS present_cards,
+         COUNT(*) FILTER (WHERE result IN ('missing', 'moved', 'extra', 'qty_diff', 'damaged'))::int AS discrepancy_count
+       FROM vaqf.inventory_count_items
+       WHERE count_id = $1`,
+      [cid]
+    );
+    const st = statsRes.rows[0] || {};
+    await enqueueOutboxNotification(tx, {
+      eventType: "count_submitted",
+      recipientRef: "role:director",
+      dedupeKey: `count_submitted:${cid}`,
+      payload: {
+        count_id: cid,
+        count_code: count.code,
+        title: count.title,
+        expected_cards: Number(st.expected_cards || 0),
+        present_cards: Number(st.present_cards || 0),
+        discrepancy_count: Number(st.discrepancy_count || 0),
+        submitted_by: actor?.actorName || "Mas'ul",
+      },
+    });
   });
 
   return getCountDetail(cid, { isDirector: true, canView: true });

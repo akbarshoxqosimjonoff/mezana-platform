@@ -12,6 +12,11 @@ import bcrypt from "/srv/data/mezana-space/var/www/mezana-crm/backend/node_modul
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { handleVaqfApi } from "./vaqf/routes.mjs";
 import { vaqfAccess } from "./vaqf/service.mjs";
+import {
+  captureApprovedFinanceExpenseSafe,
+  getInventoryLinksByExpenseIds,
+  startVaqfBackgroundWorkers,
+} from "./vaqf/automationService.mjs";
 const STATIC_DIR = path.resolve(__dirname, "../finance/dist");
 const VAQF_STATIC_DIR = path.resolve(__dirname, "../vaqf/dist");
 const SESSIONS_FILE = path.resolve(__dirname, ".sessions.json");
@@ -2437,9 +2442,11 @@ async function handleApi(req, res, url) {
         receiptsByExp.get(r.expenseId).push(r);
       }
 
+      const vaqfLinks = await getInventoryLinksByExpenseIds().catch(() => ({}));
       const allItems = rawItems.map((it) => ({
         ...it,
         receipts: receiptsByExp.get(it.id) || [],
+        vaqfInventory: vaqfLinks[it.id] || [],
       }));
 
       const filterStatus = (url.searchParams.get("status") || "").trim().toUpperCase();
@@ -2598,6 +2605,23 @@ async function handleApi(req, res, url) {
         ).catch(() => {});
       }
 
+      if (status === "PAID") {
+        await captureApprovedFinanceExpenseSafe({
+          id: expId,
+          title,
+          description: desc,
+          categoryId,
+          categoryName: catName,
+          amount: amt,
+          currency: cur,
+          amountInDefault,
+          date: expDate,
+          employeeId,
+          buyerName: empName,
+          _simulateVaqfHookError: body._simulateVaqfHookError,
+        });
+      }
+
       return sendJson(res, 201, { id: expId, title, description: desc, amount: amt, currency: cur, amountInDefault, amountUsd, usdRate: currentUsdRate, status, flaggedLowBalance });
     }
 
@@ -2620,6 +2644,27 @@ async function handleApi(req, res, url) {
           erpEnv.DATABASE_URL,
           `UPDATE "Expense" SET "paidAt" = COALESCE("paidAt", NOW()), "approvedAt" = COALESCE("approvedAt", NOW()), "updatedAt" = NOW() WHERE id = ${sqlStr(id)};`
         ).catch(() => {});
+      }
+      if (action === "approve" || action === "pay") {
+        try {
+          const expRows = await queryPgJson(
+            erpEnv.DATABASE_URL,
+            `SELECT e.id, e.title, e.description, e."categoryId", c.name AS "categoryName",
+                    e.amount::float AS amount, e.currency, e."amountInDefault"::float AS "amountInDefault",
+                    TO_CHAR(e.date, 'YYYY-MM-DD') AS "expenseDate", e."employeeId", emp."fullName" AS "buyerName"
+             FROM "Expense" e
+             LEFT JOIN "Category" c ON c.id = e."categoryId"
+             LEFT JOIN "Employee" emp ON emp.id = e."employeeId"
+             WHERE e.id = ${sqlStr(id)} LIMIT 1`
+          );
+          if (expRows[0]) {
+            await captureApprovedFinanceExpenseSafe({
+              ...expRows[0],
+              date: expRows[0].expenseDate,
+              _simulateVaqfHookError: body._simulateVaqfHookError,
+            });
+          }
+        } catch {}
       }
       return sendJson(res, 200, r.data);
     }
@@ -3188,6 +3233,23 @@ async function handleApi(req, res, url) {
                "updatedAt" = NOW()
            WHERE id = ${sqlStr(reqId)};`
         );
+
+        await captureApprovedFinanceExpenseSafe({
+          id: expId,
+          source_type: "expense_request",
+          title: descWithTag.slice(0, 100),
+          description: descWithTag,
+          categoryId,
+          categoryName: reqRow.categoryName,
+          amount: spentTry,
+          currency: "TRY",
+          amountInDefault: spentTry,
+          date: expDate,
+          employeeId,
+          buyerName: reqRow.sourceLabel || reqRow.requesterName || "Xodim",
+          receiptUrl: savedReceiptUrl,
+          _simulateVaqfHookError: body._simulateVaqfHookError,
+        });
 
         notifyDirectorsOnTelegram(
           `💸 <b>Talabnoma bo'yicha xarid bajarildi (${reqCode})</b>\n\n` +
@@ -6103,3 +6165,4 @@ server3003.listen(3003, "0.0.0.0", () => {
 setInterval(() => { pollGateTelegramReplies(pgPool).catch(() => {}); }, 4000);
 setInterval(() => { pollKirishTurnstileLive(pgPool).catch(() => {}); }, 5000);
 setInterval(() => { cleanupOldGatePhotos(pgPool).catch(() => {}); }, 3600000);
+startVaqfBackgroundWorkers();

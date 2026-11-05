@@ -3653,6 +3653,16 @@ function App() {
                                     🔗 Talabnomadan
                                   </span>
                                 )}
+                                {Array.isArray(e.vaqfInventory) && e.vaqfInventory.length > 0 && (
+                                  <a
+                                    href={`/vaqf/a/${encodeURIComponent(e.vaqfInventory[0].inventory_no)}`}
+                                    className="badge badge-emerald"
+                                    style={{ fontSize: 10.5, padding: "1px 7px", textDecoration: "none", cursor: "pointer" }}
+                                    title="Vaqf inventaridagi kartochkani ochish"
+                                  >
+                                    🏛 inventarda: {e.vaqfInventory.map((v: any) => v.inventory_no).join(", ")}
+                                  </a>
+                                )}
                                 {e.flaggedLowBalance && (
                                   <span className="badge badge-rose" style={{ fontSize: 10.5, padding: "1px 7px" }}>
                                     Hamyonda mablag' kam bo'lgan

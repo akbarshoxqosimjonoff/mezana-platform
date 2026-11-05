@@ -497,7 +497,8 @@ export function buildReplyKeyboard(userId: string): Keyboard {
       .text("➕ Xarajat kiritish")
       .text("📝 Talabnoma yaratish")
       .row()
-      .text(`💼 Hisobim (${accLabel})`);
+      .text(`💼 Hisobim (${accLabel})`)
+      .text("🏛 Vaqf");
   } else {
     kb.text("➕ Xarajat kiritish")
       .text("💵 Talaba to'lovi")
@@ -508,7 +509,8 @@ export function buildReplyKeyboard(userId: string): Keyboard {
       .text(`💼 Hisobim (${accLabel})`)
       .text("📊 Oxirgi xarajatlar")
       .row()
-      .text("📂 Kategoriyalar");
+      .text("📂 Kategoriyalar")
+      .text("🏛 Vaqf");
   }
 
   if (CAMERA_OWNER_IDS.has(String(userId))) {
