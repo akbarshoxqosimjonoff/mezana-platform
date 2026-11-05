@@ -7,6 +7,7 @@ import { createRequire } from "node:module";
 import { query, withTransaction, getCrmPool, getErpPool } from "./db.mjs";
 import { syncCrmRoomsToLocations } from "./migrate.mjs";
 import { QrCode, Ecc } from "./qrcodegen.mjs";
+import { resolveSyncVaqfRole } from "./lifecycleService.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "../../..");
@@ -61,22 +62,10 @@ export function httpError(status, message, details = null) {
 
 /**
  * Single centralized Vaqf access control function.
- * Currently grants full rights when accessContext.isDirector === true.
+ * Supports full 3-bosqich roles: director, inventory_manager, accountant, staff.
  */
 export function vaqfAccess(sess, accessContext = null) {
-  if (!sess) {
-    return { canView: false, canEdit: false, canApprove: false, canManageCounts: false, canCount: false };
-  }
-  const isDirector = Boolean(
-    accessContext?.isDirector ??
-      (sess.user?.role === "DIRECTOR" ||
-        sess.erpUser?.role === "DIRECTOR" ||
-        sess.crmUser?.role === "root")
-  );
-  if (isDirector) {
-    return { canView: true, canEdit: true, canApprove: true, canManageCounts: true, canCount: true };
-  }
-  return { canView: false, canEdit: false, canApprove: false, canManageCounts: false, canCount: false };
+  return resolveSyncVaqfRole(sess, accessContext);
 }
 
 export function getActor(sess, accessContext = null) {
@@ -793,7 +782,7 @@ export async function getAssetDetail(idOrCode, { byCode = false } = {}) {
   }
   if (!assetRow) throw httpError(404, "Mulk kartochkasi topilmadi");
 
-  const [photosRes, docsRes, eventsRes] = await Promise.all([
+  const [photosRes, docsRes, eventsRes, lifecycleDocsRes, activeAssignsRes] = await Promise.all([
     query(
       `SELECT id, asset_id, file_name, mime_type, file_size, caption, is_primary, uploaded_by, uploaded_by_name, created_at
        FROM vaqf.asset_photos
@@ -809,13 +798,44 @@ export async function getAssetDetail(idOrCode, { byCode = false } = {}) {
       [assetRow.id]
     ),
     query(
-      `SELECT id, asset_id, event_type, old_value, new_value, note, actor_id, actor_name, created_at
-       FROM vaqf.asset_events
-       WHERE asset_id = $1
-       ORDER BY created_at DESC, id DESC
+      `SELECT
+         ev.id, ev.asset_id, ev.document_id, d.doc_no, d.type AS doc_type,
+         ev.event_type, ev.old_value, ev.new_value, ev.note,
+         ev.actor_id, ev.actor_name, ev.created_at
+       FROM vaqf.asset_events ev
+       LEFT JOIN vaqf.documents d ON d.id = ev.document_id
+       WHERE ev.asset_id = $1
+       ORDER BY ev.created_at DESC, ev.id DESC
        LIMIT 100`,
       [assetRow.id]
     ),
+    query(
+      `SELECT
+         d.id, d.doc_no, d.type, d.status, d.created_by_name,
+         d.from_person_name, d.to_person_name,
+         fl.name AS from_location_name, tl.name AS to_location_name,
+         d.reason, d.created_at, d.completed_at,
+         di.qty::float AS qty, di.condition_before, di.condition_after
+       FROM vaqf.document_items di
+       JOIN vaqf.documents d ON d.id = di.document_id
+       LEFT JOIN vaqf.locations fl ON fl.id = d.from_location_id
+       LEFT JOIN vaqf.locations tl ON tl.id = d.to_location_id
+       WHERE di.asset_id = $1
+       ORDER BY d.created_at DESC, d.id DESC`,
+      [assetRow.id]
+    ).catch(() => ({ rows: [] })),
+    query(
+      `SELECT
+         asg.id, asg.person_ref, asg.person_name,
+         (asg.qty - COALESCE(asg.returned_qty, 0))::float AS qty,
+         asg.assigned_at, TO_CHAR(asg.expected_return_at, 'YYYY-MM-DD') AS expected_return_at,
+         asg.assign_doc_id, d.doc_no
+       FROM vaqf.assignments asg
+       LEFT JOIN vaqf.documents d ON d.id = asg.assign_doc_id
+       WHERE asg.asset_id = $1 AND asg.returned_at IS NULL
+       ORDER BY asg.assigned_at DESC`,
+      [assetRow.id]
+    ).catch(() => ({ rows: [] })),
   ]);
 
   return {
@@ -828,7 +848,18 @@ export async function getAssetDetail(idOrCode, { byCode = false } = {}) {
       ...d,
       url: `/vaqf-api/files/documents/${d.id}`,
     })),
-    events: eventsRes.rows,
+    events: eventsRes.rows.map((ev) => ({
+      ...ev,
+      pdf_url: ev.document_id ? `/vaqf-api/documents/${ev.document_id}/pdf` : null,
+    })),
+    lifecycle_documents: lifecycleDocsRes.rows.map((d) => ({
+      ...d,
+      pdf_url: `/vaqf-api/documents/${d.id}/pdf`,
+    })),
+    active_assignments: activeAssignsRes.rows.map((a) => ({
+      ...a,
+      pdf_url: a.assign_doc_id ? `/vaqf-api/documents/${a.assign_doc_id}/pdf` : null,
+    })),
   };
 }
 

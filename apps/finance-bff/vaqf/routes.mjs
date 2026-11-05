@@ -51,6 +51,37 @@ import {
   generateCountReportExcelBuffer,
 } from "./countsService.mjs";
 
+import {
+  extractSessionCandidateRefs,
+  listUserRolesAndHistory,
+  assignUserRole,
+  revokeUserRole,
+  getVaqfSettings,
+  updateVaqfSettings,
+  listDocuments,
+  getDocumentDetail,
+  createDocument,
+  updateDocument,
+  submitDocument,
+  completeRepairDocument,
+  approveDocument,
+  rejectDocument,
+  confirmDocumentByRecipient,
+  cancelDocument,
+  getMyAssignedAssets,
+  getMyPendingDocuments,
+  getPersonAssignedAssets,
+  listPendingApprovals,
+  createFaultReport,
+  listFaultReports,
+  getFaultPhotoFile,
+  updateFaultReportStatus,
+  generateLifecycleDocumentPdfBuffer,
+  getLifecycleReports,
+  generateAssignmentsExcelBuffer,
+  generateAssignmentsPdfBuffer,
+} from "./lifecycleService.mjs";
+
 function sendJson(res, status, payload, extraHeaders = {}) {
   const body = JSON.stringify(payload);
   res.writeHead(status, {
@@ -94,7 +125,7 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
     const actor = getActor(sess, accessContext);
 
     if (pathname === "/vaqf-api/me" && method === "GET") {
-      if (!vAccess.canView && !vAccess.canCount) {
+      if (!vAccess.canView && !vAccess.canCount && !vAccess.canAccess) {
         return sendJson(res, 403, { error: "Vaqf tizimiga kirish huquqi yo'q", vaqfAccess: vAccess });
       }
       const staff = vAccess.canView ? await listResponsibleStaff() : [];
@@ -112,6 +143,270 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
     }
 
     // ========================================================================
+    // 1-QADAM: ROLES & SETTINGS (/vaqf-api/roles, /vaqf-api/settings)
+    // ========================================================================
+    if (pathname === "/vaqf-api/roles" && method === "GET") {
+      if (!vAccess.canView) {
+        return sendJson(res, 403, { error: "Rollar ro'yxatini ko'rish huquqi yo'q" });
+      }
+      const [rolesData, staff] = await Promise.all([listUserRolesAndHistory(), listResponsibleStaff()]);
+      return sendJson(res, 200, { ...rolesData, staff });
+    }
+
+    if (pathname === "/vaqf-api/roles" && method === "POST") {
+      if (!vAccess.canManageRoles && !vAccess.isDirector) {
+        return sendJson(res, 403, { error: "Foydalanuvchi rollarini boshqarish faqat Direktor uchun" });
+      }
+      const body = await readJsonBody(req);
+      const roleRow = await assignUserRole(body, actor);
+      return sendJson(res, 201, { role: roleRow });
+    }
+
+    const roleDeleteMatch = pathname.match(/^\/vaqf-api\/roles\/(\d+)$/);
+    if ((roleDeleteMatch || pathname === "/vaqf-api/roles") && method === "DELETE") {
+      if (!vAccess.canManageRoles && !vAccess.isDirector) {
+        return sendJson(res, 403, { error: "Foydalanuvchi rolini bekor qilish faqat Direktor uchun" });
+      }
+      const id = roleDeleteMatch ? roleDeleteMatch[1] : url.searchParams.get("id");
+      const note = url.searchParams.get("note") || null;
+      const result = await revokeUserRole(id, actor, note);
+      return sendJson(res, 200, result);
+    }
+
+    if (pathname === "/vaqf-api/settings" && method === "GET") {
+      if (!vAccess.canView) {
+        return sendJson(res, 403, { error: "Sozlamalarni ko'rish huquqi yo'q" });
+      }
+      const settings = await getVaqfSettings();
+      return sendJson(res, 200, settings);
+    }
+
+    if (pathname === "/vaqf-api/settings" && (method === "PATCH" || method === "POST")) {
+      if (!vAccess.canManageRoles && !vAccess.isDirector) {
+        return sendJson(res, 403, { error: "Sozlamalarni o'zgartirish faqat Direktor uchun" });
+      }
+      const body = await readJsonBody(req);
+      const settings = await updateVaqfSettings(body, actor);
+      return sendJson(res, 200, settings);
+    }
+
+    // ========================================================================
+    // 3-QADAM: STAFF SELF-SERVICE & FAULT REPORTS (/vaqf-api/my/*, /vaqf-api/faults*)
+    // ========================================================================
+    if (pathname === "/vaqf-api/my/assets" && method === "GET") {
+      const items = await getMyAssignedAssets(sess, accessContext);
+      return sendJson(res, 200, { items });
+    }
+
+    if (pathname === "/vaqf-api/my/pending" && method === "GET") {
+      const items = await getMyPendingDocuments(sess, accessContext);
+      return sendJson(res, 200, { items });
+    }
+
+    const assetFaultMatch = pathname.match(/^\/vaqf-api\/assets\/(\d+)\/fault$/);
+    if (assetFaultMatch && method === "POST") {
+      const body = await readJsonBody(req);
+      const fault = await createFaultReport(assetFaultMatch[1], body, sess, accessContext);
+      return sendJson(res, 201, { fault });
+    }
+
+    const faultPhotoMatch = pathname.match(/^\/vaqf-api\/faults\/(\d+)\/photo$/);
+    if (faultPhotoMatch && method === "GET") {
+      const filePath = await getFaultPhotoFile(faultPhotoMatch[1]);
+      const content = await fsp.readFile(filePath);
+      res.writeHead(200, {
+        "Content-Type": filePath.endsWith(".png") ? "image/png" : "image/jpeg",
+        "Cache-Control": "private, max-age=3600",
+      });
+      res.end(content);
+      return;
+    }
+
+    if (pathname === "/vaqf-api/faults" && method === "GET") {
+      if (!vAccess.canView) {
+        return sendJson(res, 403, { error: "Nosozliklar ro'yxatini ko'rish huquqi yo'q" });
+      }
+      const filters = Object.fromEntries(url.searchParams.entries());
+      const items = await listFaultReports(filters);
+      return sendJson(res, 200, { items });
+    }
+
+    const faultPatchMatch = pathname.match(/^\/vaqf-api\/faults\/(\d+)$/);
+    if (faultPatchMatch && method === "PATCH") {
+      if (!vAccess.canEdit) {
+        return sendJson(res, 403, { error: "Nosozlik holatini o'zgartirish huquqi yo'q" });
+      }
+      const body = await readJsonBody(req);
+      const fault = await updateFaultReportStatus(faultPatchMatch[1], body, actor);
+      return sendJson(res, 200, { fault });
+    }
+
+    // ========================================================================
+    // 3-QADAM: APPROVALS & EMPLOYEE ASSETS (/vaqf-api/approvals, /vaqf-api/people/:ref/assets)
+    // ========================================================================
+    if (pathname === "/vaqf-api/approvals" && method === "GET") {
+      if (!vAccess.canView) {
+        return sendJson(res, 403, { error: "Tasdiqlar ro'yxatini ko'rish huquqi yo'q" });
+      }
+      const items = await listPendingApprovals();
+      return sendJson(res, 200, { items });
+    }
+
+    const peopleAssetsMatch = pathname.match(/^\/vaqf-api\/people\/([^/]+)\/assets$/);
+    if (peopleAssetsMatch && method === "GET") {
+      if (!vAccess.canView) {
+        return sendJson(res, 403, { error: "Xodim buyumlarini ko'rish huquqi yo'q" });
+      }
+      const personRef = decodeURIComponent(peopleAssetsMatch[1]);
+      const items = await getPersonAssignedAssets(personRef);
+      return sendJson(res, 200, { items });
+    }
+
+    // ========================================================================
+    // 3-QADAM & 5-QADAM: DOCUMENTS (/vaqf-api/documents/*)
+    // ========================================================================
+    if (pathname === "/vaqf-api/documents" || pathname.startsWith("/vaqf-api/documents/")) {
+      // Recipient confirmation endpoint is open to any authenticated employee (checked against to_person_ref inside)
+      const docConfirmMatch = pathname.match(/^\/vaqf-api\/documents\/(\d+)\/confirm$/);
+      if (docConfirmMatch && method === "POST") {
+        const body = await readJsonBody(req);
+        const detail = await confirmDocumentByRecipient(docConfirmMatch[1], body, req, sess, accessContext);
+        return sendJson(res, 200, detail);
+      }
+
+      // PDF download endpoint: allowed for canView OR if the user is recipient/sender of the document
+      const docPdfMatch = pathname.match(/^\/vaqf-api\/documents\/(\d+)\/pdf$/);
+      if (docPdfMatch && method === "GET") {
+        const docId = docPdfMatch[1];
+        const detail = await getDocumentDetail(docId);
+        if (!vAccess.canView) {
+          const userRefs = extractSessionCandidateRefs(sess, accessContext);
+          const toRef = String(detail.to_person_ref || "").trim().toLowerCase();
+          const toName = String(detail.to_person_name || "").trim().toLowerCase();
+          const fromRef = String(detail.from_person_ref || "").trim().toLowerCase();
+          const fromName = String(detail.from_person_name || "").trim().toLowerCase();
+          const isParticipant =
+            (toRef && userRefs.has(toRef)) ||
+            (toName && userRefs.has(toName)) ||
+            (fromRef && userRefs.has(fromRef)) ||
+            (fromName && userRefs.has(fromName));
+          if (!isParticipant) {
+            return sendJson(res, 403, { error: "Ushbu dalolatnoma PDF faylini yuklab olish huquqi yo'q" });
+          }
+        }
+        const lang = url.searchParams.get("lang") || "tr";
+        const pdfBuf = await generateLifecycleDocumentPdfBuffer(docId, { lang });
+        res.writeHead(200, {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `inline; filename="ezan-vakfi-${detail.doc_no}-${lang}.pdf"`,
+          "Cache-Control": "no-store",
+        });
+        res.end(pdfBuf);
+        return;
+      }
+
+      // Single document detail GET: allowed for canView OR participant
+      const docItemMatch = pathname.match(/^\/vaqf-api\/documents\/(\d+)$/);
+      if (docItemMatch && method === "GET") {
+        const detail = await getDocumentDetail(docItemMatch[1]);
+        if (!vAccess.canView) {
+          const userRefs = extractSessionCandidateRefs(sess, accessContext);
+          const toRef = String(detail.to_person_ref || "").trim().toLowerCase();
+          const toName = String(detail.to_person_name || "").trim().toLowerCase();
+          const fromRef = String(detail.from_person_ref || "").trim().toLowerCase();
+          const fromName = String(detail.from_person_name || "").trim().toLowerCase();
+          const isParticipant =
+            (toRef && userRefs.has(toRef)) ||
+            (toName && userRefs.has(toName)) ||
+            (fromRef && userRefs.has(fromRef)) ||
+            (fromName && userRefs.has(fromName));
+          if (!isParticipant) {
+            return sendJson(res, 403, { error: "Ushbu hujjatni ko'rish huquqi yo'q" });
+          }
+        }
+        return sendJson(res, 200, detail);
+      }
+
+      // List documents
+      if (pathname === "/vaqf-api/documents" && method === "GET") {
+        if (!vAccess.canView && !vAccess.canAccess) {
+          return sendJson(res, 403, { error: "Hujjatlar ro'yxatini ko'rish huquqi yo'q" });
+        }
+        const filters = Object.fromEntries(url.searchParams.entries());
+        const items = await listDocuments(filters, sess, accessContext, vAccess);
+        return sendJson(res, 200, { items });
+      }
+
+      // Create draft document (and optionally auto-submit if body.submit = true)
+      if (pathname === "/vaqf-api/documents" && method === "POST") {
+        if (!vAccess.canManageDocuments && !vAccess.canEdit) {
+          return sendJson(res, 403, { error: "Yangi hujjat yaratish huquqi yo'q" });
+        }
+        const body = await readJsonBody(req);
+        let detail = await createDocument(body, actor);
+        if (body.submit) {
+          detail = await submitDocument(detail.id, body, actor);
+        }
+        return sendJson(res, 201, detail);
+      }
+
+      // Update draft document
+      if (docItemMatch && method === "PATCH") {
+        if (!vAccess.canManageDocuments && !vAccess.canEdit) {
+          return sendJson(res, 403, { error: "Hujjatni tahrirlash huquqi yo'q" });
+        }
+        const body = await readJsonBody(req);
+        const detail = await updateDocument(docItemMatch[1], body, actor);
+        return sendJson(res, 200, detail);
+      }
+
+      // Sub-actions on `/vaqf-api/documents/:id/(submit|complete-repair|approve|reject|cancel)`
+      const docActionMatch = pathname.match(
+        /^\/vaqf-api\/documents\/(\d+)\/(submit|complete-repair|approve|reject|cancel)$/
+      );
+      if (docActionMatch && method === "POST") {
+        const [, docId, action] = docActionMatch;
+        const body = await readJsonBody(req);
+
+        if (action === "submit") {
+          if (!vAccess.canManageDocuments && !vAccess.canEdit) {
+            return sendJson(res, 403, { error: "Hujjatni yuborish huquqi yo'q" });
+          }
+          const detail = await submitDocument(docId, body, actor);
+          return sendJson(res, 200, detail);
+        }
+
+        if (action === "complete-repair") {
+          if (!vAccess.canManageDocuments && !vAccess.canEdit) {
+            return sendJson(res, 403, { error: "Ta'mir hujjatini yakunlash huquqi yo'q" });
+          }
+          const detail = await completeRepairDocument(docId, body, actor);
+          return sendJson(res, 200, detail);
+        }
+
+        if (action === "approve") {
+          const detail = await approveDocument(docId, body, actor, vAccess);
+          return sendJson(res, 200, detail);
+        }
+
+        if (action === "reject") {
+          const detail = await rejectDocument(docId, body, actor, vAccess);
+          return sendJson(res, 200, detail);
+        }
+
+        if (action === "cancel") {
+          if (!vAccess.canManageDocuments && !vAccess.canEdit) {
+            return sendJson(res, 403, { error: "Hujjatni bekor qilish huquqi yo'q" });
+          }
+          const detail = await cancelDocument(docId, body, actor);
+          return sendJson(res, 200, detail);
+        }
+      }
+
+      return sendJson(res, 404, { error: `Hujjatlar API endpoint topilmadi: ${method} ${pathname}` });
+    }
+
+    // ========================================================================
     // INVENTORY COUNTS (/vaqf-api/counts/*)
     // ========================================================================
     if (pathname === "/vaqf-api/counts" || pathname.startsWith("/vaqf-api/counts/")) {
@@ -122,7 +417,7 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
       // Scope preview before starting a count
       if (pathname === "/vaqf-api/counts/preview-scope" && (method === "GET" || method === "POST")) {
         if (!vAccess.canManageCounts) {
-          return sendJson(res, 403, { error: "Sanoq qamrovini ko'rish faqat Direktor uchun" });
+          return sendJson(res, 403, { error: "Sanoq qamrovini ko'rish huquqi yo'q" });
         }
         const body = method === "POST" ? await readJsonBody(req) : {};
         const institutionId = Number(body.institution_id || url.searchParams.get("institution_id") || 1);
@@ -145,7 +440,7 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
       // Create draft count
       if (pathname === "/vaqf-api/counts" && method === "POST") {
         if (!vAccess.canManageCounts) {
-          return sendJson(res, 403, { error: "Yangi sanoq yaratish faqat Direktor uchun" });
+          return sendJson(res, 403, { error: "Yangi sanoq yaratish huquqi yo'q" });
         }
         const body = await readJsonBody(req);
         const detail = await createCount(body, actor);
@@ -178,7 +473,7 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
       const batchDecisionMatch = pathname.match(/^\/vaqf-api\/counts\/(\d+)\/decisions$/);
       if ((itemDecisionMatch || batchDecisionMatch) && method === "PATCH") {
         if (!vAccess.canManageCounts) {
-          return sendJson(res, 403, { error: "Farqlar bo'yicha qaror qabul qilish faqat Direktor uchun" });
+          return sendJson(res, 403, { error: "Farqlar bo'yicha qaror qabul qilish huquqi yo'q" });
         }
         const countId = itemDecisionMatch ? itemDecisionMatch[1] : batchDecisionMatch[1];
         const itemIdOrBatch = itemDecisionMatch ? itemDecisionMatch[2] : "batch";
@@ -206,7 +501,7 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
 
         if (action === "start" && method === "POST") {
           if (!vAccess.canManageCounts) {
-            return sendJson(res, 403, { error: "Sanoqni boshlash faqat Direktor uchun" });
+            return sendJson(res, 403, { error: "Sanoqni boshlash huquqi yo'q" });
           }
           const detail = await startCount(countId, actor);
           return sendJson(res, 200, detail);
@@ -238,15 +533,15 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
         }
 
         if (action === "discrepancies" && method === "GET") {
-          if (!vAccess.canManageCounts) {
-            return sendJson(res, 403, { error: "Farqlar ro'yxatini ko'rish faqat Direktor uchun" });
+          if (!vAccess.canManageCounts && !vAccess.canView) {
+            return sendJson(res, 403, { error: "Farqlar ro'yxatini ko'rish huquqi yo'q" });
           }
           const data = await getCountDiscrepancies(countId);
           return sendJson(res, 200, data);
         }
 
         if (action === "approve" && method === "POST") {
-          if (!vAccess.canManageCounts) {
+          if (!vAccess.canApprove && !vAccess.isDirector) {
             return sendJson(res, 403, { error: "Sanoqni tasdiqlash faqat Direktor uchun" });
           }
           const body = await readJsonBody(req);
@@ -256,7 +551,7 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
 
         if (action === "cancel" && method === "POST") {
           if (!vAccess.canManageCounts) {
-            return sendJson(res, 403, { error: "Sanoqni bekor qilish faqat Direktor uchun" });
+            return sendJson(res, 403, { error: "Sanoqni bekor qilish huquqi yo'q" });
           }
           const body = await readJsonBody(req);
           const detail = await cancelCount(countId, body, actor);
@@ -264,8 +559,8 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
         }
 
         if (action === "report.pdf" && method === "GET") {
-          if (!vAccess.canManageCounts) {
-            return sendJson(res, 403, { error: "Dalolatnomani yuklab olish faqat Direktor uchun" });
+          if (!vAccess.canView) {
+            return sendJson(res, 403, { error: "Dalolatnomani yuklab olish huquqi yo'q" });
           }
           const lang = url.searchParams.get("lang") || "tr";
           const pdfBuf = await generateCountReportPdfBuffer(countId, { lang });
@@ -279,8 +574,8 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
         }
 
         if (action === "report.xlsx" && method === "GET") {
-          if (!vAccess.canManageCounts) {
-            return sendJson(res, 403, { error: "Excel hisobotni yuklab olish faqat Direktor uchun" });
+          if (!vAccess.canView) {
+            return sendJson(res, 403, { error: "Excel hisobotni yuklab olish huquqi yo'q" });
           }
           const xlsxBuf = await generateCountReportExcelBuffer(countId);
           res.writeHead(200, {
@@ -301,7 +596,7 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
       }
       if (countItemMatch && method === "PATCH") {
         if (!vAccess.canManageCounts) {
-          return sendJson(res, 403, { error: "Sanoqni tahrirlash faqat Direktor uchun" });
+          return sendJson(res, 403, { error: "Sanoqni tahrirlash huquqi yo'q" });
         }
         const body = await readJsonBody(req);
         const detail = await updateCount(countItemMatch[1], body, actor);
@@ -317,7 +612,24 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
       return sendJson(res, 200, { items });
     }
 
-    // All non-count endpoints require full Vaqf view/edit permission
+    // --- PROTECTED FILE SERVING (/srv/data/vaqf/*) ---
+    // Allowed for any user with Vaqf access (including staff viewing their assigned asset photo)
+    const fileServeMatch = pathname.match(/^\/vaqf-api\/files\/(photos|documents)\/(\d+)$/);
+    if (fileServeMatch && method === "GET" && (vAccess.canView || vAccess.canAccess)) {
+      const [, kind, fileId] = fileServeMatch;
+      const meta = await getProtectedFile(kind, fileId);
+      const content = await fsp.readFile(meta.file_path);
+      const safeName = encodeURIComponent(meta.file_name || "file");
+      res.writeHead(200, {
+        "Content-Type": meta.mime_type || "application/octet-stream",
+        "Content-Disposition": `inline; filename*=UTF-8''${safeName}`,
+        "Cache-Control": "private, max-age=3600",
+      });
+      res.end(content);
+      return;
+    }
+
+    // All remaining endpoints require full Vaqf view/edit permission
     if (!vAccess.canView) {
       return sendJson(res, 403, { error: "Vaqf tizimiga kirish huquqi yo'q" });
     }
@@ -441,22 +753,6 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
       return sendJson(res, 201, { document });
     }
 
-    // --- PROTECTED FILE SERVING (/srv/data/vaqf/*) ---
-    const fileServeMatch = pathname.match(/^\/vaqf-api\/files\/(photos|documents)\/(\d+)$/);
-    if (fileServeMatch && method === "GET") {
-      const [, kind, fileId] = fileServeMatch;
-      const meta = await getProtectedFile(kind, fileId);
-      const content = await fsp.readFile(meta.file_path);
-      const safeName = encodeURIComponent(meta.file_name || "file");
-      res.writeHead(200, {
-        "Content-Type": meta.mime_type || "application/octet-stream",
-        "Content-Disposition": `inline; filename*=UTF-8''${safeName}`,
-        "Cache-Control": "private, max-age=3600",
-      });
-      res.end(content);
-      return;
-    }
-
     // --- ASSETS LIST & CREATE ---
     if (pathname === "/vaqf-api/assets" && method === "GET") {
       const filters = Object.fromEntries(url.searchParams.entries());
@@ -526,11 +822,44 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
       return;
     }
 
-    // --- REPORTS SUMMARY ---
+    // --- REPORTS (1-BOSQICH SUMMARY & 6-QADAM LIFECYCLE REPORTS) ---
     if (pathname === "/vaqf-api/reports/summary" && method === "GET") {
       const institutionId = url.searchParams.get("institution_id") || undefined;
       const summary = await getSummaryReport({ institutionId });
       return sendJson(res, 200, summary);
+    }
+
+    if (pathname === "/vaqf-api/reports/lifecycle" && method === "GET") {
+      const filters = Object.fromEntries(url.searchParams.entries());
+      const report = await getLifecycleReports(filters);
+      return sendJson(res, 200, report);
+    }
+
+    if (pathname === "/vaqf-api/reports/assignments.xlsx" && method === "GET") {
+      const institutionId = Number(url.searchParams.get("institution_id") || 1);
+      const buf = await generateAssignmentsExcelBuffer(institutionId);
+      const dateStr = new Date().toISOString().slice(0, 10);
+      res.writeHead(200, {
+        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Disposition": `attachment; filename="ezan-vakfi-zimmatlar-${dateStr}.xlsx"`,
+        "Cache-Control": "no-store",
+      });
+      res.end(buf);
+      return;
+    }
+
+    if (pathname === "/vaqf-api/reports/assignments.pdf" && method === "GET") {
+      const institutionId = Number(url.searchParams.get("institution_id") || 1);
+      const lang = url.searchParams.get("lang") || "tr";
+      const buf = await generateAssignmentsPdfBuffer(institutionId, { lang });
+      const dateStr = new Date().toISOString().slice(0, 10);
+      res.writeHead(200, {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `inline; filename="ezan-vakfi-zimmatlar-${dateStr}-${lang}.pdf"`,
+        "Cache-Control": "no-store",
+      });
+      res.end(buf);
+      return;
     }
 
     return sendJson(res, 404, { error: `Vaqf API endpoint topilmadi: ${method} ${pathname}` });

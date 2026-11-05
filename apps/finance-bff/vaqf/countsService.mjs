@@ -12,6 +12,7 @@ import {
   listCategories,
   listLocations,
 } from "./service.mjs";
+import { resolveFullVaqfAccess } from "./lifecycleService.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "../../..");
@@ -112,79 +113,7 @@ export function getUserCandidateRefs(sess, accessContext = null) {
  * - Assigned employee gets `canCount: true` and `assignedCountIds` while a count is `in_progress`.
  */
 export async function resolveVaqfAccessAsync(sess, accessContext = null) {
-  if (!sess) {
-    return {
-      canView: false,
-      canEdit: false,
-      canApprove: false,
-      canManageCounts: false,
-      canCount: false,
-      isDirector: false,
-      assignedCountIds: [],
-    };
-  }
-  const isDirector = Boolean(
-    accessContext?.isDirector ??
-      (sess.user?.role === "DIRECTOR" ||
-        sess.erpUser?.role === "DIRECTOR" ||
-        sess.crmUser?.role === "root")
-  );
-  if (isDirector) {
-    return {
-      canView: true,
-      canEdit: true,
-      canApprove: true,
-      canManageCounts: true,
-      canCount: true,
-      isDirector: true,
-      assignedCountIds: [],
-    };
-  }
-
-  const candidateRefs = Array.from(getUserCandidateRefs(sess, accessContext));
-  if (candidateRefs.length === 0) {
-    return {
-      canView: false,
-      canEdit: false,
-      canApprove: false,
-      canManageCounts: false,
-      canCount: false,
-      isDirector: false,
-      assignedCountIds: [],
-    };
-  }
-
-  try {
-    const res = await query(
-      `SELECT DISTINCT cl.count_id
-       FROM vaqf.inventory_count_locations cl
-       JOIN vaqf.inventory_counts c ON c.id = cl.count_id
-       WHERE c.status = 'in_progress'
-         AND LOWER(COALESCE(cl.assignee_ref, '')) = ANY($1::text[])
-       ORDER BY cl.count_id DESC`,
-      [candidateRefs]
-    );
-    const assignedCountIds = res.rows.map((r) => Number(r.count_id));
-    return {
-      canView: false,
-      canEdit: false,
-      canApprove: false,
-      canManageCounts: false,
-      canCount: assignedCountIds.length > 0,
-      isDirector: false,
-      assignedCountIds,
-    };
-  } catch {
-    return {
-      canView: false,
-      canEdit: false,
-      canApprove: false,
-      canManageCounts: false,
-      canCount: false,
-      isDirector: false,
-      assignedCountIds: [],
-    };
-  }
+  return resolveFullVaqfAccess(sess, accessContext);
 }
 
 /**
@@ -894,19 +823,20 @@ export async function getCountDetail(countId, access = {}) {
 export async function getMyCountData(countId, sess, accessContext, access) {
   const cid = Number(countId);
   const detail = await getCountDetail(cid, access);
+  const isManagerOrDirector = Boolean(access.isDirector || access.canManageCounts);
 
-  if (!access.isDirector && detail.count.status !== "in_progress") {
+  if (!isManagerOrDirector && detail.count.status !== "in_progress") {
     throw httpError(403, "Sanoq hozirda faol emas (faqat davom etayotgan sanoqda skanerlash mumkin)");
   }
 
   const candidateRefs = getUserCandidateRefs(sess, accessContext);
-  const myLocations = access.isDirector
+  const myLocations = isManagerOrDirector
     ? detail.locations
     : detail.locations.filter(
         (l) => l.assignee_ref && candidateRefs.has(String(l.assignee_ref).trim().toLowerCase())
       );
 
-  if (!access.isDirector && myLocations.length === 0) {
+  if (!isManagerOrDirector && myLocations.length === 0) {
     throw httpError(403, "Sizga ushbu sanoqda hech qanday joy (xona) biriktirilmagan");
   }
 
@@ -1006,7 +936,7 @@ async function assertCanCountAtLocation(countId, locationId, sess, accessContext
     throw httpError(403, "Ushbu joy (xona) mazkur sanoq qamroviga kiritilmagan");
   }
 
-  if (!access.isDirector) {
+  if (!access.isDirector && !access.canManageCounts) {
     const candidateRefs = getUserCandidateRefs(sess, accessContext);
     const assignedRef = String(countLoc.assignee_ref || "").trim().toLowerCase();
     if (!assignedRef || !candidateRefs.has(assignedRef)) {

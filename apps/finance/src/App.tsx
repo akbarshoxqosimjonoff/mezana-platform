@@ -1837,7 +1837,7 @@ function App() {
             <button className="btn btn-sm" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} title="Mavzuni o'zgartirish">
               {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
             </button>
-            {access.vaqf?.canView && (
+            {(access.vaqf?.canView || access.vaqf?.canAccess) && (
               <a
                 href="/vaqf/"
                 className="vaqf-switch-btn"
