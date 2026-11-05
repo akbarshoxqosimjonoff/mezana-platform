@@ -831,6 +831,7 @@ const TEMPLATE_SPECS = {
       { header: "Valyuta / Para Birimi (TRY|USD)", key: "currency", width: 24 },
       { header: "Holati / Durum (new|good|fair|poor)", key: "condition", width: 28 },
       { header: "Seriya № / Seri No", key: "serial_no", width: 22 },
+      { header: "MAC manzili / MAC Adresi (AA:BB:CC:DD:EE:FF)", key: "mac_address", width: 28 },
     ],
     sampleRows: [
       {
@@ -844,6 +845,7 @@ const TEMPLATE_SPECS = {
         currency: "TRY",
         condition: "new",
         serial_no: "PF-4K9901",
+        mac_address: "3C:52:82:9A:11:04",
       },
       {
         name: "O'quv xonasi partasi (2 kishilik)",
@@ -856,6 +858,7 @@ const TEMPLATE_SPECS = {
         currency: "TRY",
         condition: "good",
         serial_no: "",
+        mac_address: "",
       },
       {
         name: "Arçelik 18000 BTU Konditsioner",
@@ -868,6 +871,7 @@ const TEMPLATE_SPECS = {
         currency: "TRY",
         condition: "new",
         serial_no: "ARC-2026-881",
+        mac_address: "",
       },
     ],
   },
@@ -1097,6 +1101,15 @@ export async function previewOrCommitMultiImport(type, body = {}, actor = null, 
         errors.push({ row: rowNum, error: "Buyum nomi (name) va musbat miqdor (quantity > 0) majburiy" });
         continue;
       }
+      let macAddress = null;
+      if (r.mac_address && String(r.mac_address).trim()) {
+        const hex = String(r.mac_address).trim().replace(/[:\-.\s]/g, "").toUpperCase();
+        if (!/^[0-9A-F]{12}$/.test(hex)) {
+          errors.push({ row: rowNum, error: `MAC manzil noto'g'ri formatda: "${r.mac_address}" (AA:BB:CC:DD:EE:FF bo'lishi kerak)` });
+          continue;
+        }
+        macAddress = hex.match(/.{1,2}/g).join(":");
+      }
       validRows.push({
         rowNum,
         name: String(r.name).trim(),
@@ -1111,6 +1124,7 @@ export async function previewOrCommitMultiImport(type, body = {}, actor = null, 
         currency: r.currency === "USD" ? "USD" : "TRY",
         condition: ["new", "good", "fair", "poor"].includes(r.condition) ? r.condition : "good",
         serial_no: r.serial_no || null,
+        mac_address: macAddress,
       });
     } else if (type === "roles") {
       const validRoleList = ["director", "inventory_manager", "accountant", "staff", "board_member"];
@@ -1241,8 +1255,8 @@ export async function previewOrCommitMultiImport(type, body = {}, actor = null, 
         const assetIns = await tx.query(
           `INSERT INTO vaqf.assets (
              institution_id, category_id, location_id, name, tracking, quantity, unit,
-             acquisition_type, purchase_price, currency, condition, serial_no, status
-           ) VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'in_use')
+             acquisition_type, purchase_price, currency, condition, serial_no, mac_address, status
+           ) VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'in_use')
            RETURNING id, inventory_no`,
           [
             catId,
@@ -1256,6 +1270,7 @@ export async function previewOrCommitMultiImport(type, body = {}, actor = null, 
             r.currency,
             r.condition,
             r.serial_no,
+            r.mac_address || null,
           ]
         );
         await tx.query(

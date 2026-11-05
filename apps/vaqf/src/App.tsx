@@ -165,6 +165,14 @@ const fmtMoney = (val: number | string | null | undefined, cur = "TRY") => {
   return cur === "USD" ? fmtUSD(val) : fmtTRY(val);
 };
 
+const formatMacInput = (raw: string) => {
+  const hex = String(raw || "")
+    .replace(/[^0-9a-fA-F]/g, "")
+    .toUpperCase()
+    .slice(0, 12);
+  return hex.match(/.{1,2}/g)?.join(":") || "";
+};
+
 async function apiFetch(path: string, options: RequestInit = {}) {
   const tgInitData = (window as any).Telegram?.WebApp?.initData || "";
   const res = await fetch(path, {
@@ -274,6 +282,7 @@ export function App() {
     brand: "",
     model: "",
     serial_no: "",
+    mac_address: "",
     supplier: "",
     donor_name: "",
     donation_doc_no: "",
@@ -553,6 +562,7 @@ export function App() {
         brand: newForm.brand || null,
         model: newForm.model || null,
         serial_no: newForm.serial_no || null,
+        mac_address: newForm.mac_address || null,
         supplier: newForm.supplier || null,
         donor_name: newForm.donor_name || null,
         donation_doc_no: newForm.donation_doc_no || null,
@@ -590,6 +600,7 @@ export function App() {
           name: "",
           quantity: prev.tracking === "individual" ? "1" : prev.quantity,
           serial_no: "",
+          mac_address: "",
           notes: "",
           photoFile: null,
           photoPreview: "",
@@ -627,6 +638,7 @@ export function App() {
       brand: activeAsset.brand || "",
       model: activeAsset.model || "",
       serial_no: activeAsset.serial_no || "",
+      mac_address: activeAsset.mac_address || "",
       supplier: activeAsset.supplier || "",
       donor_name: activeAsset.donor_name || "",
       donation_doc_no: activeAsset.donation_doc_no || "",
@@ -1218,7 +1230,7 @@ export function App() {
                   <div style={{ position: "relative" }}>
                     <input
                       className="input"
-                      placeholder="Qidiruv (nomi, inventar №, seriya, javobgar)..."
+                      placeholder="Qidiruv (nomi, inventar №, seriya, MAC, javobgar)..."
                       value={filters.search}
                       onChange={(e) => setFilters({ ...filters, search: e.target.value, page: 1 })}
                     />
@@ -1411,9 +1423,14 @@ export function App() {
                                   )}
                                   <span>{a.name}</span>
                                 </div>
-                                {(a.brand || a.model || a.serial_no) && (
+                                {(a.brand || a.model || a.serial_no || a.mac_address) && (
                                   <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
-                                    {[a.brand, a.model, a.serial_no ? `SN:${a.serial_no}` : null]
+                                    {[
+                                      a.brand,
+                                      a.model,
+                                      a.serial_no ? `SN:${a.serial_no}` : null,
+                                      a.mac_address ? `MAC:${a.mac_address}` : null,
+                                    ]
                                       .filter(Boolean)
                                       .join(" • ")}
                                   </div>
@@ -1679,13 +1696,20 @@ export function App() {
                           </div>
                         </div>
                       )}
-                      {(activeAsset.brand || activeAsset.model || activeAsset.serial_no) && (
+                      {(activeAsset.brand || activeAsset.model || activeAsset.serial_no || activeAsset.mac_address) && (
                         <div style={{ gridColumn: "1 / -1" }}>
-                          <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>Brend / Model / Seriya raqami</div>
-                          <div style={{ fontWeight: 600, marginTop: 2 }}>
-                            {[activeAsset.brand, activeAsset.model, activeAsset.serial_no ? `SN: ${activeAsset.serial_no}` : null]
-                              .filter(Boolean)
-                              .join(" • ")}
+                          <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>Brend / Model / Seriya № / MAC manzil</div>
+                          <div style={{ fontWeight: 600, marginTop: 2, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                            <span>
+                              {[activeAsset.brand, activeAsset.model, activeAsset.serial_no ? `SN: ${activeAsset.serial_no}` : null]
+                                .filter(Boolean)
+                                .join(" • ")}
+                            </span>
+                            {activeAsset.mac_address && (
+                              <span className="badge badge-cyan" style={{ fontFamily: "monospace" }}>
+                                MAC: {activeAsset.mac_address}
+                              </span>
+                            )}
                           </div>
                         </div>
                       )}
@@ -2119,8 +2143,8 @@ export function App() {
                       />
                     </div>
                     <div className="form-field">
-                      <label className="form-label">Brend / Model / Seriya №</label>
-                      <div style={{ display: "flex", gap: 6 }}>
+                      <label className="form-label">Brend / Model / Seriya № / MAC manzili</label>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 6 }}>
                         <input
                           className="input"
                           placeholder="Brend"
@@ -2138,6 +2162,13 @@ export function App() {
                           placeholder="Seriya №"
                           value={editForm.serial_no}
                           onChange={(e) => setEditForm({ ...editForm, serial_no: e.target.value })}
+                        />
+                        <input
+                          className="input"
+                          style={{ fontFamily: "monospace" }}
+                          placeholder="MAC: AA:BB:CC:DD:EE:FF"
+                          value={editForm.mac_address || ""}
+                          onChange={(e) => setEditForm({ ...editForm, mac_address: formatMacInput(e.target.value) })}
                         />
                       </div>
                     </div>
@@ -2438,25 +2469,32 @@ export function App() {
                   )}
 
                   <div className="form-field">
-                    <label className="form-label">Brend / Model / Seriya №</label>
-                    <div style={{ display: "flex", gap: 6 }}>
+                    <label className="form-label">Brend / Model / Seriya № / MAC manzili (elektron qurilmalar uchun)</label>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 6 }}>
                       <input
                         className="input"
-                        placeholder="Brend"
+                        placeholder="Brend (masalan: Lenovo, Epson)"
                         value={newForm.brand}
                         onChange={(e) => setNewForm({ ...newForm, brand: e.target.value })}
                       />
                       <input
                         className="input"
-                        placeholder="Model"
+                        placeholder="Model (masalan: ThinkPad E16)"
                         value={newForm.model}
                         onChange={(e) => setNewForm({ ...newForm, model: e.target.value })}
                       />
                       <input
                         className="input"
-                        placeholder="Seriya №"
+                        placeholder="Seriya № (SN)"
                         value={newForm.serial_no}
                         onChange={(e) => setNewForm({ ...newForm, serial_no: e.target.value })}
+                      />
+                      <input
+                        className="input"
+                        style={{ fontFamily: "monospace" }}
+                        placeholder="MAC: AA:BB:CC:DD:EE:FF"
+                        value={newForm.mac_address}
+                        onChange={(e) => setNewForm({ ...newForm, mac_address: formatMacInput(e.target.value) })}
                       />
                     </div>
                   </div>

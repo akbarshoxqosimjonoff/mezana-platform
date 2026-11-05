@@ -496,6 +496,20 @@ export async function listResponsibleStaff() {
 // ============================================================================
 // ASSETS CRUD & VALIDATION
 // ============================================================================
+export function cleanMacAddress(val) {
+  if (val === undefined || val === null) return null;
+  const raw = String(val).trim();
+  if (!raw) return null;
+  const hex = raw.replace(/[:\-.\s]/g, "").toUpperCase();
+  if (!/^[0-9A-F]{12}$/.test(hex)) {
+    throw httpError(
+      400,
+      `MAC manzil noto'g'ri formatda ("${raw}"). 12 ta 0-9/A-F belgi kiriting (masalan: AA:BB:CC:DD:EE:FF)`
+    );
+  }
+  return hex.match(/.{1,2}/g).join(":");
+}
+
 function validateAssetPayload(body, { isPatch = false, current = null } = {}) {
   const out = {};
 
@@ -556,6 +570,7 @@ function validateAssetPayload(body, { isPatch = false, current = null } = {}) {
   if (body.brand !== undefined || !isPatch) out.brand = cleanStr(body.brand, 120);
   if (body.model !== undefined || !isPatch) out.model = cleanStr(body.model, 120);
   if (body.serial_no !== undefined || !isPatch) out.serial_no = cleanStr(body.serial_no, 120);
+  if (body.mac_address !== undefined || !isPatch) out.mac_address = cleanMacAddress(body.mac_address);
   if (body.responsible_ref !== undefined || !isPatch) out.responsible_ref = cleanStr(body.responsible_ref, 128);
   if (body.responsible_name !== undefined || !isPatch) out.responsible_name = cleanStr(body.responsible_name, 200);
 
@@ -715,16 +730,23 @@ export async function listAssets(filters = {}) {
     if (q) {
       params.push(`%${q}%`);
       const pIdx = params.length;
+      const hexQuery = q.replace(/[:\-.\s]/g, "").toUpperCase();
+      let macHexClause = "";
+      if (/^[0-9A-F]{2,12}$/.test(hexQuery)) {
+        params.push(`%${hexQuery}%`);
+        macHexClause = ` OR REPLACE(COALESCE(a.mac_address, ''), ':', '') ILIKE $${params.length}`;
+      }
       conds.push(`(
         a.inventory_no ILIKE $${pIdx} OR
         a.name ILIKE $${pIdx} OR
         COALESCE(a.brand, '') ILIKE $${pIdx} OR
         COALESCE(a.model, '') ILIKE $${pIdx} OR
         COALESCE(a.serial_no, '') ILIKE $${pIdx} OR
+        COALESCE(a.mac_address, '') ILIKE $${pIdx} OR
         COALESCE(a.responsible_name, '') ILIKE $${pIdx} OR
         COALESCE(a.donor_name, '') ILIKE $${pIdx} OR
         COALESCE(a.notes, '') ILIKE $${pIdx} OR
-        COALESCE(l.name, '') ILIKE $${pIdx}
+        COALESCE(l.name, '') ILIKE $${pIdx}${macHexClause}
       )`);
     }
   }
@@ -898,24 +920,37 @@ export async function createAsset(body, actor) {
     if (!locRes.rows[0]) throw httpError(400, "Tanlangan joy mavjud emas");
   }
 
+  if (data.mac_address) {
+    const dupMac = await query(
+      `SELECT id, inventory_no, name FROM vaqf.assets WHERE UPPER(mac_address) = $1 AND deleted_at IS NULL LIMIT 1`,
+      [data.mac_address]
+    );
+    if (dupMac.rows[0]) {
+      throw httpError(
+        409,
+        `Ushbu MAC manzil (${data.mac_address}) boshqa buyumga biriktirilgan: ${dupMac.rows[0].inventory_no} — "${dupMac.rows[0].name}"`
+      );
+    }
+  }
+
   const createdId = await withTransaction(async (tx) => {
     let insRes;
     try {
       insRes = await tx.query(
         `INSERT INTO vaqf.assets (
            inventory_no, name, category_id, description,
-           tracking, quantity, unit, brand, model, serial_no,
+           tracking, quantity, unit, brand, model, serial_no, mac_address,
            institution_id, location_id, responsible_ref, responsible_name,
            status, condition, acquisition_type, acquired_at,
            purchase_price, currency, supplier, expense_ref,
            donor_name, donation_doc_no, warranty_until, notes, created_by
          ) VALUES (
            $1, $2, $3, $4,
-           $5, $6, $7, $8, $9, $10,
-           $11, $12, $13, $14,
-           $15, $16, $17, $18,
-           $19, $20, $21, $22,
-           $23, $24, $25, $26, $27
+           $5, $6, $7, $8, $9, $10, $11,
+           $12, $13, $14, $15,
+           $16, $17, $18, $19,
+           $20, $21, $22, $23,
+           $24, $25, $26, $27, $28
          ) RETURNING *`,
         [
           data.inventory_no || null,
@@ -928,6 +963,7 @@ export async function createAsset(body, actor) {
           data.brand,
           data.model,
           data.serial_no,
+          data.mac_address || null,
           data.institution_id,
           data.location_id,
           data.responsible_ref,
@@ -949,6 +985,9 @@ export async function createAsset(body, actor) {
       );
     } catch (e) {
       if (e.code === "23505") {
+        if (String(e.constraint || "").includes("mac")) {
+          throw httpError(409, `Bunday MAC manzilli (${data.mac_address}) buyum allaqachon mavjud`);
+        }
         throw httpError(409, `Bunday inventar raqamli (${data.inventory_no}) buyum allaqachon mavjud`);
       }
       throw e;
@@ -967,6 +1006,7 @@ export async function createAsset(body, actor) {
         quantity: Number(row.quantity),
         location_id: row.location_id,
         responsible_name: row.responsible_name,
+        mac_address: row.mac_address || null,
         status: row.status,
         condition: row.condition,
         acquisition_type: row.acquisition_type,
@@ -1004,10 +1044,22 @@ export async function updateAsset(id, body, actor) {
     const lRes = await query(`SELECT id FROM vaqf.locations WHERE id = $1 AND deleted_at IS NULL`, [patch.location_id]);
     if (!lRes.rows[0]) throw httpError(400, "Tanlangan joy topilmadi");
   }
+  if (patch.mac_address) {
+    const dupMac = await query(
+      `SELECT id, inventory_no, name FROM vaqf.assets WHERE UPPER(mac_address) = $1 AND id <> $2 AND deleted_at IS NULL LIMIT 1`,
+      [patch.mac_address, assetId]
+    );
+    if (dupMac.rows[0]) {
+      throw httpError(
+        409,
+        `Ushbu MAC manzil (${patch.mac_address}) boshqa buyumga biriktirilgan: ${dupMac.rows[0].inventory_no} — "${dupMac.rows[0].name}"`
+      );
+    }
+  }
 
   const fields = [
     "name", "category_id", "description", "tracking", "quantity", "unit",
-    "brand", "model", "serial_no", "institution_id", "location_id",
+    "brand", "model", "serial_no", "mac_address", "institution_id", "location_id",
     "responsible_ref", "responsible_name", "status", "condition",
     "acquisition_type", "acquired_at", "purchase_price", "currency",
     "supplier", "expense_ref", "donor_name", "donation_doc_no",
@@ -1451,6 +1503,7 @@ export async function generateImportTemplateBuffer() {
     { header: "Brend", key: "brand", width: 16 },
     { header: "Model", key: "model", width: 16 },
     { header: "Seriya raqami", key: "serial_no", width: 20 },
+    { header: "MAC manzili (AA:BB:CC:DD:EE:FF)", key: "mac_address", width: 26 },
     { header: "Yetkazib beruvchi / Do'kon", key: "supplier", width: 22 },
     { header: "Homiysi (hadya bo'lsa)", key: "donor_name", width: 22 },
     { header: "Izoh", key: "notes", width: 30 },
@@ -1495,6 +1548,7 @@ export async function generateImportTemplateBuffer() {
     brand: "Epson",
     model: "EB-FH06",
     serial_no: "EPS-992831",
+    mac_address: "A4:83:E7:19:4B:C2",
     supplier: "",
     donor_name: "Xayrixoh homiy",
     notes: "Hadya sifatida taqdim etilgan",
@@ -1527,6 +1581,7 @@ export async function exportAssetsExcelBuffer(filters = {}) {
     { header: "Valyuta", key: "currency", width: 10 },
     { header: "Brend / Model", key: "brand_model", width: 22 },
     { header: "Seriya №", key: "serial_no", width: 18 },
+    { header: "MAC manzili", key: "mac_address", width: 20 },
     { header: "Homiy / Yetkazuvchi", key: "source_party", width: 22 },
     { header: "Izoh", key: "notes", width: 28 },
   ];
@@ -1553,6 +1608,7 @@ export async function exportAssetsExcelBuffer(filters = {}) {
       currency: it.currency,
       brand_model: [it.brand, it.model].filter(Boolean).join(" "),
       serial_no: it.serial_no || "",
+      mac_address: it.mac_address || "",
       source_party: it.donor_name || it.supplier || "",
       notes: it.notes || "",
     });
@@ -1677,6 +1733,7 @@ function mapRawRowFields(raw) {
     brand: pick("brend", "brand"),
     model: pick("model"),
     serial_no: pick("seriya", "serial_no", "serial"),
+    mac_address: pick("mac", "mac manzili", "mac manzil", "mac_address", "mac adresi"),
     supplier: pick("yetkazib beruvchi", "supplier"),
     donor_name: pick("homiysi", "homiy", "donor_name", "donor"),
     notes: pick("izoh", "notes"),
@@ -1788,6 +1845,15 @@ export async function previewOrCommitAssetImport(body, actor) {
       rowErrors.push(`Valyuta noto'g'ri: "${currency}" (TRY yoki USD bo'lishi kerak)`);
     }
 
+    let macAddress = null;
+    if (m.mac_address !== undefined && String(m.mac_address).trim() !== "") {
+      try {
+        macAddress = cleanMacAddress(m.mac_address);
+      } catch (e) {
+        rowErrors.push(e.message);
+      }
+    }
+
     const normalized = {
       rowNumber: rowNum,
       name,
@@ -1809,6 +1875,7 @@ export async function previewOrCommitAssetImport(body, actor) {
       brand: String(m.brand || "").trim() || null,
       model: String(m.model || "").trim() || null,
       serial_no: String(m.serial_no || "").trim() || null,
+      mac_address: macAddress,
       supplier: String(m.supplier || "").trim() || null,
       donor_name: String(m.donor_name || "").trim() || null,
       notes: String(m.notes || "").trim() || null,
@@ -1849,14 +1916,14 @@ export async function previewOrCommitAssetImport(body, actor) {
            name, category_id, tracking, quantity, unit,
            institution_id, location_id, responsible_name,
            status, condition, acquisition_type, acquired_at,
-           purchase_price, currency, brand, model, serial_no,
+           purchase_price, currency, brand, model, serial_no, mac_address,
            supplier, donor_name, notes, created_by
          ) VALUES (
            $1, $2, $3, $4, $5,
            $6, $7, $8,
            $9, $10, $11, $12,
-           $13, $14, $15, $16, $17,
-           $18, $19, $20, $21
+           $13, $14, $15, $16, $17, $18,
+           $19, $20, $21, $22
          ) RETURNING id, inventory_no, name`,
         [
           r.name,
@@ -1876,6 +1943,7 @@ export async function previewOrCommitAssetImport(body, actor) {
           r.brand,
           r.model,
           r.serial_no,
+          r.mac_address || null,
           r.supplier,
           r.donor_name,
           r.notes,
