@@ -62,6 +62,14 @@ import {
   UnauthenticatedQrLandingCard,
   TelegramMiniAppScannerPage,
 } from "./AutomationModule";
+import {
+  DonationsRegistryPanel,
+  PropertiesAndLeasesPanel,
+  ArchiveDocumentsPanel,
+  BoardDecisionsPanel,
+  AnnualVaqfReportPanel,
+} from "./GovernanceModule";
+import { Gift, FolderArchive, Scale } from "lucide-react";
 
 type VaqfPage =
   | "dashboard"
@@ -76,6 +84,11 @@ type VaqfPage =
   | "faults_offboarding"
   | "pending_expenses"
   | "schedules"
+  | "donations"
+  | "properties"
+  | "archive"
+  | "board"
+  | "annual_report"
   | "tg_miniapp"
   | "reports"
   | "roles_settings"
@@ -969,6 +982,25 @@ export function App() {
               </button>
               <button className={`nav-btn ${page === "reports" ? "active" : ""}`} onClick={() => navigatePage("reports")}>
                 <Activity size={17} /> Hisobotlar (Zimmat/Zarar)
+              </button>
+
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--text-muted)", padding: "12px 10px 4px", letterSpacing: "0.06em" }}>
+                VAQF BOSHQARUVI (5-BOSQICH)
+              </div>
+              <button className={`nav-btn ${page === "donations" ? "active" : ""}`} onClick={() => navigatePage("donations")}>
+                <Gift size={17} color="#10b981" /> Hadyalar (Bağışlar)
+              </button>
+              <button className={`nav-btn ${page === "properties" ? "active" : ""}`} onClick={() => navigatePage("properties")}>
+                <Building2 size={17} color="#fbcc42" /> Ko'chmas mulk va Ijara
+              </button>
+              <button className={`nav-btn ${page === "archive" ? "active" : ""}`} onClick={() => navigatePage("archive")}>
+                <FolderArchive size={17} color="#06b6d4" /> Hujjatlar arxivi
+              </button>
+              <button className={`nav-btn ${page === "board" ? "active" : ""}`} onClick={() => navigatePage("board")}>
+                <Scale size={17} color="#c084fc" /> Yönetim Kurulu Qarorlari
+              </button>
+              <button className={`nav-btn ${page === "annual_report" ? "active" : ""}`} onClick={() => navigatePage("annual_report")}>
+                <PieChart size={17} color="#fbcc42" /> Yillik Vaqf Hisoboti
               </button>
             </>
           )}
@@ -3148,6 +3180,43 @@ export function App() {
 
           {page === "roles_settings" && (
             <RolesAndSettingsSection institutions={institutions} notify={notify} />
+          )}
+
+          {page === "donations" && (
+            <DonationsRegistryPanel
+              institutionId={selectedInstitutionId}
+              categories={categories}
+              locations={locations}
+              permissions={auth.vaqfAccess}
+              notify={notify}
+            />
+          )}
+
+          {page === "properties" && (
+            <PropertiesAndLeasesPanel
+              institutionId={selectedInstitutionId}
+              permissions={auth.vaqfAccess}
+              notify={notify}
+            />
+          )}
+
+          {page === "archive" && (
+            <ArchiveDocumentsPanel
+              institutionId={selectedInstitutionId}
+              permissions={auth.vaqfAccess}
+              notify={notify}
+            />
+          )}
+
+          {page === "board" && (
+            <BoardDecisionsPanel
+              permissions={auth.vaqfAccess}
+              notify={notify}
+            />
+          )}
+
+          {page === "annual_report" && (
+            <AnnualVaqfReportPanel notify={notify} />
           )}
 
           {quickDocModalType && activeAsset && (

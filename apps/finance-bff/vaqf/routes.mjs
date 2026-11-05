@@ -107,6 +107,45 @@ import {
   processOutboxBatch,
 } from "./automationService.mjs";
 
+import {
+  getGovernanceSettings,
+  updateGovernanceSetting,
+  listDonors,
+  getDonorDetail,
+  createDonor,
+  anonymizeDonor,
+  listDonations,
+  getDonationDetail,
+  createDonation,
+  addDonationSpendLink,
+  generateDonationReceiptPdf,
+  exportDonationsExcel,
+  listProperties,
+  getPropertyDetail,
+  createProperty,
+  listLeases,
+  getLeaseDetail,
+  createLease,
+  recordLeasePayment,
+  checkLeaseRemindersAndOverdue,
+  listArchiveDocuments,
+  getArchiveDocumentDetail,
+  createArchiveDocument,
+  uploadArchiveNewVersion,
+  downloadArchiveDocument,
+  listBoardMembers,
+  createBoardMember,
+  listBoardMeetings,
+  createBoardMeeting,
+  listBoardDecisions,
+  createBoardDecision,
+  generateBoardDecisionPdf,
+  getGovernanceDashboardSummary,
+  getAnnualVaqfReportData,
+  generateAnnualVaqfReportPdf,
+  exportAnnualVaqfReportExcel,
+} from "./governanceService.mjs";
+
 function sendJson(res, status, payload, extraHeaders = {}) {
   const body = JSON.stringify(payload);
   res.writeHead(status, {
@@ -428,8 +467,11 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
         return sendJson(res, 403, { error: "Bosh sahifa statistikasini ko'rish huquqi yo'q" });
       }
       const institutionId = url.searchParams.get("institution_id") || "all";
-      const data = await getDirectorDashboardData({ institutionId });
-      return sendJson(res, 200, data);
+      const [data, governance] = await Promise.all([
+        getDirectorDashboardData({ institutionId }),
+        getGovernanceDashboardSummary({ institutionId }),
+      ]);
+      return sendJson(res, 200, { ...data, governance });
     }
 
     // Allow QR lookup by code (`GET /vaqf-api/assets/by-code/:code`) for any user with Vaqf access (including staff/bot/MiniApp)
@@ -927,9 +969,255 @@ export async function handleVaqfApi(req, res, url, { getSession, getSessionAcces
       return;
     }
 
-    // All remaining endpoints require full Vaqf view/edit permission
+    // ========================================================================
+    // 5-BOSQICH: VAQF BOSHQARUVI (Hadyalar, Ko'chmas mulk, Ijara, Arxiv, Kurul, Yillik Hisobot)
+    // ========================================================================
     if (!vAccess.canView) {
       return sendJson(res, 403, { error: "Vaqf tizimiga kirish huquqi yo'q" });
+    }
+
+    // --- GOVERNANCE SETTINGS ---
+    if (pathname === "/vaqf-api/governance/settings" && method === "GET") {
+      const settings = await getGovernanceSettings();
+      return sendJson(res, 200, settings);
+    }
+    if (pathname === "/vaqf-api/governance/settings" && method === "PATCH") {
+      if (!vAccess.isDirector) {
+        return sendJson(res, 403, { error: "Vaqf boshqaruvi shablon va qoidalarini faqat Direktor o'zgartira oladi" });
+      }
+      const body = await readJsonBody(req);
+      const settings = await updateGovernanceSetting(body.key, body.value, actor);
+      return sendJson(res, 200, settings);
+    }
+
+    // --- 1-QADAM: DONORS & DONATIONS (BAĞIŞ) ---
+    if (pathname === "/vaqf-api/donors" && method === "GET") {
+      const search = url.searchParams.get("search") || "";
+      const items = await listDonors({ search, vAccess });
+      return sendJson(res, 200, { items });
+    }
+    if (pathname === "/vaqf-api/donors" && method === "POST") {
+      const body = await readJsonBody(req);
+      const donor = await createDonor(body, actor, vAccess);
+      return sendJson(res, 201, { donor });
+    }
+    const donorAnonMatch = pathname.match(/^\/vaqf-api\/donors\/(\d+)\/anonymize$/);
+    if (donorAnonMatch && method === "POST") {
+      const donor = await anonymizeDonor(donorAnonMatch[1], actor, vAccess);
+      return sendJson(res, 200, { donor });
+    }
+    const donorDetailMatch = pathname.match(/^\/vaqf-api\/donors\/(\d+)$/);
+    if (donorDetailMatch && method === "GET") {
+      const donor = await getDonorDetail(donorDetailMatch[1], vAccess);
+      return sendJson(res, 200, { donor });
+    }
+
+    if (pathname === "/vaqf-api/donations" && method === "GET") {
+      const institutionId = url.searchParams.get("institution_id") || null;
+      const kind = url.searchParams.get("kind") || null;
+      const restricted = url.searchParams.get("restricted");
+      const items = await listDonations({ institutionId, kind, restricted, vAccess });
+      return sendJson(res, 200, { items });
+    }
+    if (pathname === "/vaqf-api/donations" && method === "POST") {
+      const body = await readJsonBody(req);
+      const donation = await createDonation(body, actor, vAccess);
+      return sendJson(res, 201, { donation });
+    }
+    if (pathname === "/vaqf-api/donations/export.xlsx" && method === "GET") {
+      const institutionId = url.searchParams.get("institution_id") || null;
+      const buf = await exportDonationsExcel({ institutionId, vAccess });
+      res.writeHead(200, {
+        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Disposition": `attachment; filename="ezan-vakfi-bagislar.xlsx"`,
+        "Cache-Control": "no-store",
+      });
+      res.end(buf);
+      return;
+    }
+    const donReceiptMatch = pathname.match(/^\/vaqf-api\/donations\/(\d+)\/receipt\.pdf$/);
+    if (donReceiptMatch && method === "GET") {
+      const lang = url.searchParams.get("lang") || "tr";
+      const { buffer, fileName } = await generateDonationReceiptPdf(donReceiptMatch[1], { lang, actor, vAccess });
+      res.writeHead(200, {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `inline; filename="${fileName}"`,
+        "Cache-Control": "no-store",
+      });
+      res.end(buffer);
+      return;
+    }
+    const donSpendMatch = pathname.match(/^\/vaqf-api\/donations\/(\d+)\/spend$/);
+    if (donSpendMatch && method === "POST") {
+      const body = await readJsonBody(req);
+      const donation = await addDonationSpendLink(donSpendMatch[1], body, actor, vAccess);
+      return sendJson(res, 200, { donation });
+    }
+    const donDetailMatch = pathname.match(/^\/vaqf-api\/donations\/(\d+)$/);
+    if (donDetailMatch && method === "GET") {
+      const donation = await getDonationDetail(donDetailMatch[1], vAccess);
+      return sendJson(res, 200, { donation });
+    }
+
+    // --- 2-QADAM: PROPERTIES & LEASES ---
+    if (pathname === "/vaqf-api/properties" && method === "GET") {
+      const institutionId = url.searchParams.get("institution_id") || null;
+      const items = await listProperties({ institutionId });
+      return sendJson(res, 200, { items });
+    }
+    if (pathname === "/vaqf-api/properties" && method === "POST") {
+      const body = await readJsonBody(req);
+      const property = await createProperty(body, actor, vAccess);
+      return sendJson(res, 201, { property });
+    }
+    const propDetailMatch = pathname.match(/^\/vaqf-api\/properties\/(\d+)$/);
+    if (propDetailMatch && method === "GET") {
+      const property = await getPropertyDetail(propDetailMatch[1], vAccess);
+      return sendJson(res, 200, { property });
+    }
+
+    if (pathname === "/vaqf-api/leases" && method === "GET") {
+      const propertyId = url.searchParams.get("property_id") || null;
+      const institutionId = url.searchParams.get("institution_id") || null;
+      const direction = url.searchParams.get("direction") || null;
+      const items = await listLeases({ propertyId, institutionId, direction, vAccess });
+      return sendJson(res, 200, { items });
+    }
+    if (pathname === "/vaqf-api/leases" && method === "POST") {
+      const body = await readJsonBody(req);
+      const lease = await createLease(body, actor, vAccess);
+      return sendJson(res, 201, { lease });
+    }
+    if (pathname === "/vaqf-api/leases/check-overdue" && method === "POST") {
+      const body = await readJsonBody(req);
+      const result = await checkLeaseRemindersAndOverdue({ referenceDateStr: body.referenceDateStr });
+      return sendJson(res, 200, result);
+    }
+    const leasePayMatch = pathname.match(/^\/vaqf-api\/leases\/(\d+)\/payments\/(\d+)$/);
+    if (leasePayMatch && method === "POST") {
+      const body = await readJsonBody(req);
+      const lease = await recordLeasePayment(leasePayMatch[1], leasePayMatch[2], body, actor, vAccess);
+      return sendJson(res, 200, { lease });
+    }
+    const leaseDetailMatch = pathname.match(/^\/vaqf-api\/leases\/(\d+)$/);
+    if (leaseDetailMatch && method === "GET") {
+      const lease = await getLeaseDetail(leaseDetailMatch[1], vAccess);
+      return sendJson(res, 200, { lease });
+    }
+
+    // --- 3-QADAM: ARCHIVE DOCUMENTS ---
+    if (pathname === "/vaqf-api/archive" && method === "GET") {
+      const category = url.searchParams.get("category") || null;
+      const institutionId = url.searchParams.get("institution_id") || null;
+      const items = await listArchiveDocuments({ category, institutionId, vAccess });
+      return sendJson(res, 200, { items });
+    }
+    if (pathname === "/vaqf-api/archive" && method === "POST") {
+      const body = await readJsonBody(req);
+      const document = await createArchiveDocument(body, actor, vAccess);
+      return sendJson(res, 201, { document });
+    }
+    const archVerMatch = pathname.match(/^\/vaqf-api\/archive\/(\d+)\/versions$/);
+    if (archVerMatch && method === "POST") {
+      const body = await readJsonBody(req);
+      const document = await uploadArchiveNewVersion(archVerMatch[1], body, actor, vAccess);
+      return sendJson(res, 200, { document });
+    }
+    const archDlMatch = pathname.match(/^\/vaqf-api\/archive\/(\d+)\/download$/);
+    if (archDlMatch && method === "GET") {
+      const versionNo = url.searchParams.get("version") || null;
+      const ipAddress = req.headers["x-forwarded-for"] || req.socket?.remoteAddress || null;
+      const { buffer, fileName, mimeType } = await downloadArchiveDocument(archDlMatch[1], {
+        versionNo,
+        actor,
+        vAccess,
+        ipAddress,
+      });
+      res.writeHead(200, {
+        "Content-Type": mimeType || "application/pdf",
+        "Content-Disposition": `attachment; filename="${encodeURIComponent(fileName)}"`,
+        "Cache-Control": "no-store",
+      });
+      res.end(buffer);
+      return;
+    }
+    const archDetailMatch = pathname.match(/^\/vaqf-api\/archive\/(\d+)$/);
+    if (archDetailMatch && method === "GET") {
+      const document = await getArchiveDocumentDetail(archDetailMatch[1], vAccess);
+      return sendJson(res, 200, { document });
+    }
+
+    // --- 4-QADAM: YÖNETİM KURULU (BOARD MEMBERS, MEETINGS, DECISIONS) ---
+    if (pathname === "/vaqf-api/board/members" && method === "GET") {
+      const items = await listBoardMembers();
+      return sendJson(res, 200, { items });
+    }
+    if (pathname === "/vaqf-api/board/members" && method === "POST") {
+      const body = await readJsonBody(req);
+      const member = await createBoardMember(body, actor, vAccess);
+      return sendJson(res, 201, { member });
+    }
+    if (pathname === "/vaqf-api/board/meetings" && method === "GET") {
+      const items = await listBoardMeetings();
+      return sendJson(res, 200, { items });
+    }
+    if (pathname === "/vaqf-api/board/meetings" && method === "POST") {
+      const body = await readJsonBody(req);
+      const meeting = await createBoardMeeting(body, actor, vAccess);
+      return sendJson(res, 201, { meeting });
+    }
+    if (pathname === "/vaqf-api/board/decisions" && method === "GET") {
+      const year = url.searchParams.get("year") || null;
+      const status = url.searchParams.get("status") || null;
+      const items = await listBoardDecisions({ year, status });
+      return sendJson(res, 200, { items });
+    }
+    if (pathname === "/vaqf-api/board/decisions" && method === "POST") {
+      const body = await readJsonBody(req);
+      const decision = await createBoardDecision(body, actor, vAccess);
+      return sendJson(res, 201, { decision });
+    }
+    const bdPdfMatch = pathname.match(/^\/vaqf-api\/board\/decisions\/(\d+)\/pdf$/);
+    if (bdPdfMatch && method === "GET") {
+      const lang = url.searchParams.get("lang") || "tr";
+      const { buffer, fileName } = await generateBoardDecisionPdf(bdPdfMatch[1], { lang });
+      res.writeHead(200, {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `inline; filename="${fileName}"`,
+        "Cache-Control": "no-store",
+      });
+      res.end(buffer);
+      return;
+    }
+
+    // --- 5-QADAM: YILLIK VAQF HISOBOTI (DATA, PDF, EXCEL) ---
+    if (pathname === "/vaqf-api/reports/annual" && method === "GET") {
+      const year = Number(url.searchParams.get("year") || new Date().getFullYear());
+      const data = await getAnnualVaqfReportData({ year, vAccess });
+      return sendJson(res, 200, data);
+    }
+    if (pathname === "/vaqf-api/reports/annual.pdf" && method === "GET") {
+      const year = Number(url.searchParams.get("year") || new Date().getFullYear());
+      const lang = url.searchParams.get("lang") || "tr";
+      const { buffer, fileName } = await generateAnnualVaqfReportPdf({ year, lang, vAccess });
+      res.writeHead(200, {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `inline; filename="${fileName}"`,
+        "Cache-Control": "no-store",
+      });
+      res.end(buffer);
+      return;
+    }
+    if (pathname === "/vaqf-api/reports/annual.xlsx" && method === "GET") {
+      const year = Number(url.searchParams.get("year") || new Date().getFullYear());
+      const buf = await exportAnnualVaqfReportExcel({ year, vAccess });
+      res.writeHead(200, {
+        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Disposition": `attachment; filename="Ezan_Vakfi_Yillik_Rapor_${year}.xlsx"`,
+        "Cache-Control": "no-store",
+      });
+      res.end(buf);
+      return;
     }
 
     const isWriteMethod = method === "POST" || method === "PATCH" || method === "PUT" || method === "DELETE";

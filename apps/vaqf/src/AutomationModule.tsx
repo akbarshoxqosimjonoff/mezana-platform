@@ -328,6 +328,7 @@ export function DirectorDashboardSection({
   const tot = data?.totals || {};
   const att = data?.attention || {};
   const lastInv = data?.lastInventory || null;
+  const gov = data?.governance || null;
 
   return (
     <div className="animate-in">
@@ -416,6 +417,84 @@ export function DirectorDashboardSection({
           )}
         </div>
       </div>
+
+      {/* 1.5. 5-BOSQICH: VAQF DARAJASIDAGI BOSHQARUV KO'RSATKICHLARI */}
+      {gov && (
+        <div className="glass-card" style={{ marginBottom: 18 }}>
+          <div className="section-header">
+            <div className="section-title">
+              <Building2 size={18} color="#fbcc42" /> Ezan Vakfı — Vaqf boshqaruvi (Ko'chmas mulk, Hadyalar, Ijara, Arxiv va Kurul)
+            </div>
+            <button className="btn btn-sm btn-primary" onClick={() => onNavigate("annual_report")}>
+              📊 Yillik vaqf hisoboti (PDF / Excel)
+            </button>
+          </div>
+          <div className="kpi-grid">
+            <div className="kpi-card" style={{ cursor: "pointer" }} onClick={() => onNavigate("properties")}>
+              <div className="kpi-glow" style={{ background: "#fbcc42" }} />
+              <div style={{ fontSize: 11.5, color: "var(--text-secondary)", fontWeight: 700 }}>
+                🏢 KO'CHMAS MULK VA VAQF UMUMIY QIYMATI
+              </div>
+              <div className="kpi-value" style={{ color: "#fbcc42", fontSize: 20 }}>
+                {fmtTRY((gov.realEstate?.total_real_estate_try || 0) + (tot.total_value_try || 0))}
+              </div>
+              <div className="kpi-sub">
+                <span>Ko'chmas mulk ({gov.realEstate?.properties_count || 0} ta): {fmtTRY(gov.realEstate?.total_real_estate_try)}</span>
+              </div>
+            </div>
+
+            <div className="kpi-card" style={{ cursor: "pointer" }} onClick={() => onNavigate("donations")}>
+              <div className="kpi-glow" style={{ background: "#10b981" }} />
+              <div style={{ fontSize: 11.5, color: "var(--text-secondary)", fontWeight: 700 }}>
+                💝 BU YILGI HADYALAR (BAĞIŞLAR)
+              </div>
+              <div className="kpi-value" style={{ color: "#10b981", fontSize: 20 }}>
+                {fmtTRY(gov.donationsYtd?.ytd_total_try)} <span style={{ fontSize: 13 }}>({gov.donationsYtd?.ytd_count || 0} ta)</span>
+              </div>
+              <div className="kpi-sub">
+                <span>Pul: {fmtTRY(gov.donationsYtd?.cash_try)} • Buyum: {fmtTRY(gov.donationsYtd?.in_kind_try)}</span>
+                {gov.donationsYtd?.restricted_count > 0 && (
+                  <span className="badge badge-amber">Maqsadli qoldiq: {fmtTRY(gov.donationsYtd?.restricted_remaining_try)}</span>
+                )}
+              </div>
+            </div>
+
+            <div className="kpi-card" style={{ cursor: "pointer" }} onClick={() => onNavigate("properties")}>
+              <div className="kpi-glow" style={{ background: "#06b6d4" }} />
+              <div style={{ fontSize: 11.5, color: "var(--text-secondary)", fontWeight: 700 }}>
+                🔑 IJARA TUSHUMI VA QARZDORLIK
+              </div>
+              <div className="kpi-value" style={{ color: "#06b6d4", fontSize: 20 }}>
+                {fmtTRY(gov.leases?.monthly_expected_rent_income_try)} <span style={{ fontSize: 13 }}>/ oy</span>
+              </div>
+              <div className="kpi-sub">
+                <span>Faol ijara: {gov.leases?.active_out_leases || 0} ta</span>
+                {gov.leases?.overdue_payments_count > 0 ? (
+                  <span className="badge badge-rose">Kechikkan ({gov.leases.overdue_payments_count}): {fmtTRY(gov.leases.rent_arrears_try)}</span>
+                ) : (
+                  <span className="badge badge-emerald">Qarzdorlik yo'q</span>
+                )}
+              </div>
+            </div>
+
+            <div className="kpi-card" style={{ cursor: "pointer" }} onClick={() => onNavigate("board")}>
+              <div className="kpi-glow" style={{ background: "#a855f7" }} />
+              <div style={{ fontSize: 11.5, color: "var(--text-secondary)", fontWeight: 700 }}>
+                ⚖️ YÖNETİM KURULU VA ARXIV MUDDATLARI
+              </div>
+              <div className="kpi-value" style={{ color: "#c084fc", fontSize: 20 }}>
+                {gov.board?.adopted_ytd_count || 0} ta qaror <span style={{ fontSize: 13 }}>({new Date().getFullYear()})</span>
+              </div>
+              <div className="kpi-sub">
+                <span>Kutilayotgan qaror: <strong>{gov.board?.draft_decisions_count || 0}</strong></span>
+                <span className="badge badge-amber" onClick={(e) => { e.stopPropagation(); onNavigate("archive"); }}>
+                  Muddati yaqin hujjat: {gov.archive?.expiring_60d_count || 0}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 2. "Diqqat talab qiladi" bloki (6 ta harakatli kartochka) */}
       <div className="glass-card" style={{ marginBottom: 18 }}>
