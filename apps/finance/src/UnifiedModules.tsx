@@ -323,17 +323,24 @@ export function UnifiedModules({
           username: studentModal.username || undefined,
           password: studentModal.password || undefined,
           fullname: studentModal.fullname,
+          birthDate: studentModal.birthDate || null,
           phone: studentModal.phone ?? "",
           turkPhone: studentModal.turkPhone ?? "",
           uzbPhone: studentModal.uzbPhone ?? "",
           fatherFullname: studentModal.fatherFullname ?? "",
           fatherPhone: studentModal.fatherPhone ?? "",
+          motherFullname: studentModal.motherFullname ?? "",
+          motherPhone: studentModal.motherPhone ?? "",
+          tgUsername: studentModal.tgUsername ?? "",
+          address: studentModal.address ?? "",
           passportNumber: studentModal.passportNumber ?? "",
           gender: studentModal.gender || "MALE",
           groupId: studentModal.groupId ? Number(studentModal.groupId) : null,
-          studyPlace: studentModal.studyPlace || "Akademiya",
+          studyPlace: studentModal.studyPlace || "2026-2027 Akademiya",
           roomNumber: studentModal.roomNumber ?? "",
           totalPayment: studentModal.totalPayment !== "" ? Number(studentModal.totalPayment) : 0,
+          plannedPayment: studentModal.plannedPayment !== undefined && studentModal.plannedPayment !== "" ? Number(studentModal.plannedPayment) : null,
+          paidUntilDate: studentModal.paidUntilDate || null,
           hasIqoma: Boolean(studentModal.hasIqoma || studentModal.iqomaNumber),
           iqomaNumber: studentModal.iqomaNumber ?? "",
           iqomaExpiryDate: studentModal.iqomaExpiryDate || null,
@@ -794,17 +801,24 @@ export function UnifiedModules({
                     username: "",
                     password: "",
                     fullname: "",
+                    birthDate: "2005-01-01",
                     gender: "MALE",
                     phone: "",
                     turkPhone: "",
                     uzbPhone: "",
                     fatherFullname: "",
                     fatherPhone: "",
+                    motherFullname: "",
+                    motherPhone: "",
+                    tgUsername: "",
+                    address: "",
                     passportNumber: "",
                     roomNumber: "",
                     groupId: "",
                     studyPlace: "2026-2027 Akademiya",
                     totalPayment: 0,
+                    plannedPayment: "",
+                    paidUntilDate: "",
                     hasIqoma: false,
                     iqomaNumber: "",
                     iqomaExpiryDate: "",
@@ -1043,18 +1057,27 @@ export function UnifiedModules({
                             onClick={() =>
                               setStudentModal({
                                 id: s.id,
+                                username: s.username || "",
+                                password: "",
                                 fullname: s.fullname || "",
+                                birthDate: s.birthDate ? String(s.birthDate).slice(0, 10) : "2005-01-01",
                                 phone: s.phone || "",
                                 turkPhone: s.turkPhone || "",
                                 uzbPhone: s.uzbPhone || "",
                                 fatherFullname: s.fatherFullname || "",
                                 fatherPhone: s.fatherPhone || "",
+                                motherFullname: s.motherFullname || "",
+                                motherPhone: s.motherPhone || "",
+                                tgUsername: s.tgUsername || "",
+                                address: s.address || "",
                                 passportNumber: s.passportNumber || "",
                                 gender: s.gender || "MALE",
                                 groupId: s.group?.id || s.groupId || "",
                                 studyPlace: s.studyPlace || "",
                                 roomNumber: s.roomNumber || "",
                                 totalPayment: s.totalPayment ?? 0,
+                                plannedPayment: s.plannedPayment ?? "",
+                                paidUntilDate: s.paidUntilDate ? String(s.paidUntilDate).slice(0, 10) : "",
                                 hasIqoma: Boolean(s.hasIqoma),
                                 iqomaNumber: s.iqomaNumber || "",
                                 iqomaExpiryDate: s.iqomaExpiryDate ? String(s.iqomaExpiryDate).slice(0, 10) : "",
@@ -1143,10 +1166,46 @@ export function UnifiedModules({
                     </div>
                   </div>
                 </div>
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                   <span className={`badge ${studentDetailModal.isDeleted ? "badge-rose" : !studentDetailModal.isActive ? "badge-amber" : "badge-emerald"}`}>
                     {studentDetailModal.isDeleted ? "O'chirilgan arxiv" : !studentDetailModal.isActive ? "2025-2026 o'quv yili arxivi" : "Faol talaba"}
                   </span>
+                  <button
+                    className="btn btn-sm btn-cyan"
+                    onClick={() => {
+                      const s = studentDetailModal;
+                      setStudentDetailModal(null);
+                      setStudentModal({
+                        id: s.id,
+                        username: s.username || "",
+                        password: "",
+                        fullname: s.fullname || "",
+                        birthDate: s.birthDate ? String(s.birthDate).slice(0, 10) : "2005-01-01",
+                        phone: s.phone || "",
+                        turkPhone: s.turkPhone || "",
+                        uzbPhone: s.uzbPhone || "",
+                        fatherFullname: s.fatherFullname || "",
+                        fatherPhone: s.fatherPhone || "",
+                        motherFullname: s.motherFullname || "",
+                        motherPhone: s.motherPhone || "",
+                        tgUsername: s.tgUsername || "",
+                        address: s.address || "",
+                        passportNumber: s.passportNumber || "",
+                        gender: s.gender || "MALE",
+                        groupId: s.group?.id || s.groupId || "",
+                        studyPlace: s.studyPlace || "",
+                        roomNumber: s.roomNumber || "",
+                        totalPayment: s.totalPayment ?? 0,
+                        plannedPayment: s.plannedPayment ?? "",
+                        paidUntilDate: s.paidUntilDate ? String(s.paidUntilDate).slice(0, 10) : "",
+                        hasIqoma: Boolean(s.hasIqoma),
+                        iqomaNumber: s.iqomaNumber || "",
+                        iqomaExpiryDate: s.iqomaExpiryDate ? String(s.iqomaExpiryDate).slice(0, 10) : "",
+                      });
+                    }}
+                  >
+                    <Edit3 size={13} /> Tahrirlash
+                  </button>
                   {(!studentDetailModal.isActive || studentDetailModal.isDeleted) ? (
                     <button
                       className="btn btn-sm btn-primary"
@@ -1499,52 +1558,68 @@ export function UnifiedModules({
 
         {studentModal && (
           <div className="modal-backdrop" onClick={() => setStudentModal(null)}>
-            <div className="modal-box modal-card animate-in" style={{ maxWidth: 640 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-box modal-card animate-in" style={{ maxWidth: 680, maxHeight: "90vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
               <h3 style={{ marginTop: 0 }}>{studentModal.id ? "Talaba ma'lumotlarini tahrirlash" : "Yangi talaba qo'shish"}</h3>
               <form onSubmit={handleSaveStudent} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 <div className="grid-2">
                   <div>
                     <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>F.I.Sh. *</label>
-                    <input className="input" required value={studentModal.fullname} onChange={(e) => setStudentModal({ ...studentModal, fullname: e.target.value })} />
+                    <input className="input" required value={studentModal.fullname} onChange={(e) => setStudentModal({ ...studentModal, fullname: e.target.value })} placeholder="Ism va familiya" />
                   </div>
-                  <div>
-                    <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Jinsi</label>
-                    <select className="select" value={studentModal.gender} onChange={(e) => setStudentModal({ ...studentModal, gender: e.target.value })}>
-                      <option value="MALE">Erkak</option>
-                      <option value="FEMALE">Ayol</option>
-                    </select>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Jinsi</label>
+                      <select className="select" value={studentModal.gender} onChange={(e) => setStudentModal({ ...studentModal, gender: e.target.value })}>
+                        <option value="MALE">Erkak</option>
+                        <option value="FEMALE">Ayol</option>
+                      </select>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Tug'ilgan sana</label>
+                      <input type="date" className="input" value={studentModal.birthDate || "2005-01-01"} onChange={(e) => setStudentModal({ ...studentModal, birthDate: e.target.value })} />
+                    </div>
                   </div>
                 </div>
-                {!studentModal.id && (
-                  <div className="grid-2">
-                    <div>
-                      <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Foydalanuvchi nomi (login) *</label>
-                      <input className="input" required value={studentModal.username} onChange={(e) => setStudentModal({ ...studentModal, username: e.target.value })} />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Parol *</label>
-                      <input className="input" required value={studentModal.password} onChange={(e) => setStudentModal({ ...studentModal, password: e.target.value })} placeholder="Mezana2026!" />
-                    </div>
+                <div className="grid-2">
+                  <div>
+                    <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Foydalanuvchi nomi (login)</label>
+                    <input className="input" value={studentModal.username || ""} onChange={(e) => setStudentModal({ ...studentModal, username: e.target.value })} placeholder="Bo'sh qolsa avtomatik yaratiladi" />
                   </div>
-                )}
+                  <div>
+                    <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>{studentModal.id ? "Yangi parol (o'zgartirish uchun)" : "Parol"}</label>
+                    <input className="input" value={studentModal.password || ""} onChange={(e) => setStudentModal({ ...studentModal, password: e.target.value })} placeholder={studentModal.id ? "O'zgartirmaslik uchun bo'sh qoldiring" : "Bo'sh qolsa: Mezana2026!"} />
+                  </div>
+                </div>
                 <div className="grid-2">
                   <div>
                     <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Asosiy telefon</label>
-                    <input className="input" value={studentModal.phone || ""} onChange={(e) => setStudentModal({ ...studentModal, phone: e.target.value })} />
+                    <input className="input" value={studentModal.phone || ""} onChange={(e) => setStudentModal({ ...studentModal, phone: e.target.value })} placeholder="+90 / +998..." />
                   </div>
-                  <div>
-                    <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Turkiya / O'zbekiston tel.</label>
-                    <input className="input" value={studentModal.turkPhone || ""} onChange={(e) => setStudentModal({ ...studentModal, turkPhone: e.target.value })} placeholder="+90..." />
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Turkiya tel.</label>
+                      <input className="input" value={studentModal.turkPhone || ""} onChange={(e) => setStudentModal({ ...studentModal, turkPhone: e.target.value })} placeholder="+90..." />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>O'zb. tel. / Telegram</label>
+                      <input className="input" value={studentModal.uzbPhone || studentModal.tgUsername || ""} onChange={(e) => setStudentModal({ ...studentModal, uzbPhone: e.target.value })} placeholder="+998..." />
+                    </div>
                   </div>
                 </div>
                 <div className="grid-2">
                   <div>
-                    <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Otasining F.I.Sh.</label>
-                    <input className="input" value={studentModal.fatherFullname || ""} onChange={(e) => setStudentModal({ ...studentModal, fatherFullname: e.target.value })} />
+                    <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Otasining F.I.Sh. va telefoni</label>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <input className="input" placeholder="Otasining F.I.Sh." value={studentModal.fatherFullname || ""} onChange={(e) => setStudentModal({ ...studentModal, fatherFullname: e.target.value })} style={{ width: "55%" }} />
+                      <input className="input" placeholder="Tel." value={studentModal.fatherPhone || ""} onChange={(e) => setStudentModal({ ...studentModal, fatherPhone: e.target.value })} style={{ width: "45%" }} />
+                    </div>
                   </div>
                   <div>
-                    <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Otasining telefoni</label>
-                    <input className="input" value={studentModal.fatherPhone || ""} onChange={(e) => setStudentModal({ ...studentModal, fatherPhone: e.target.value })} />
+                    <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Onasining F.I.Sh. va telefoni</label>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <input className="input" placeholder="Onasining F.I.Sh." value={studentModal.motherFullname || ""} onChange={(e) => setStudentModal({ ...studentModal, motherFullname: e.target.value })} style={{ width: "55%" }} />
+                      <input className="input" placeholder="Tel." value={studentModal.motherPhone || ""} onChange={(e) => setStudentModal({ ...studentModal, motherPhone: e.target.value })} style={{ width: "45%" }} />
+                    </div>
                   </div>
                 </div>
                 <div className="grid-2">
@@ -1570,9 +1645,15 @@ export function UnifiedModules({
                     <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>O'quv joyi / Yili</label>
                     <input className="input" value={studentModal.studyPlace} onChange={(e) => setStudentModal({ ...studentModal, studyPlace: e.target.value })} />
                   </div>
-                  <div>
-                    <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Shartnoma summasi ($)</label>
-                    <input type="number" className="input" value={studentModal.totalPayment} onChange={(e) => setStudentModal({ ...studentModal, totalPayment: e.target.value })} />
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Shartnoma ($)</label>
+                      <input type="number" className="input" value={studentModal.totalPayment} onChange={(e) => setStudentModal({ ...studentModal, totalPayment: e.target.value })} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>To'lov muddati</label>
+                      <input type="date" className="input" value={studentModal.paidUntilDate || ""} onChange={(e) => setStudentModal({ ...studentModal, paidUntilDate: e.target.value })} />
+                    </div>
                   </div>
                 </div>
                 <div className="grid-2">

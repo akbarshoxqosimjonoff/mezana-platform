@@ -543,6 +543,7 @@ async function refreshCrmAuthCache() {
         if (uKey === "userumar") staffAccountsByUsername.set("umarxon", item);
         if (uKey === "idora") staffAccountsByUsername.set("abubakr", item);
         if (uKey === "dramir") staffAccountsByUsername.set("amir", item);
+        if (uKey === "abdurahman") staffAccountsByUsername.set("abdurahmon2027", item);
       }
       if (item.email) {
         staffAccountsByEmail.set(String(item.email).toLowerCase(), item);
@@ -612,7 +613,7 @@ const ERP_TO_CRM_MAP = {
   "dev@moliy.org": { id: 4, username: "dev", fullname: "Developer (Muhammadali)", role: "root", gender: null, employeeId: "cmdevemp00000000000000001", walletId: "cmdevwal00000000000000001", sourceLabel: "Developer (Muhammadali)" },
   "director@moliy.org": { id: 3, username: "mezana", fullname: "Muhammad Solih Tursunov (Direktor)", role: "root", gender: null, employeeId: "cmtlai0bx000kpir9d0k7sn7a", walletId: "cmtlai0cg000mpir9h862jp1c", sourceLabel: "Direktor" },
   "vaqf@moliya.org": { id: 2, username: "abdurahman", fullname: "Kichik Abdurahmon (Vaqf)", role: "admin", gender: "MALE", employeeId: "cmvaqfemp0000000000000001", walletId: "cmvaqfwal0000000000000001", sourceLabel: "Kichik Abdurahmon (Vaqf)" },
-  "abdurahmon@moliya.org": { id: null, username: null, fullname: "Abdurahmon (Moliya)", role: null, gender: "MALE", employeeId: "cmtlai0w1000zpir9b7ste5ze", walletId: "cmtlai0y20011pir95rtswvib", sourceLabel: "Abdurahmon" },
+  "abdurahmon@moliya.org": { id: 2, username: "abdurahman", fullname: "Abdurahmon (Moliya)", role: "admin", gender: "MALE", employeeId: "cmtlai0w1000zpir9b7ste5ze", walletId: "cmtlai0y20011pir95rtswvib", sourceLabel: "Abdurahmon" },
   "mezanaayol@moliy.org": { id: 4, username: "mezanaayol", fullname: "Mezana Ayollar", role: "admin", gender: "FEMALE", employeeId: "cmu5837xq000dseknha0g6jvs", walletId: "cmu5837xt000fsekn33zqyd70", sourceLabel: "Mezana Ayollar" },
   "idora@moliya.org": { id: 5, username: "idora", fullname: "Abu Bakr Tojiddinov (Idora)", role: "admin", gender: "MALE", employeeId: "cmtlai0it000ppir989mu70w1", walletId: "cmtlai0j1000rpir96nhfpk0k", sourceLabel: "Abu Bakr Tojiddinov (Idora)" },
   "umarxon@moliya.org": { id: 1, username: "userumar", fullname: "Umarkhon Abdulhamidov (Idora)", role: "admin", gender: "MALE", employeeId: "cmtlai0it000ppir989mu70w1", walletId: "cmtlai0j1000rpir96nhfpk0k", sourceLabel: "Umarkhon Abdulhamidov (Idora)" },
@@ -672,7 +673,7 @@ function getSessionAccessContext(sess) {
   const staff = findStaffAccountForSession(sess);
   const erpEmail = String(staff?.email || sess.erpUser?.email || "").toLowerCase();
   const erpUserId = String(staff?.erpUserId || sess.erpUser?.id || "");
-  const isErpOnlyAccount = erpEmail === "muhammadjon@moliya.org" || erpEmail === "abdurahmon@moliya.org";
+  const isErpOnlyAccount = erpEmail === "muhammadjon@moliya.org";
   const crmUsername = String(staff?.username || (isErpOnlyAccount ? "" : sess.crmUser?.username) || "").toLowerCase();
 
   const isDirector = Boolean(
@@ -4722,11 +4723,11 @@ MUHIM QOIDALAR:
         const studyPlace = String(payload.studyPlace || "Akademiya").trim();
         const totalPayment = Number(payload.totalPayment || 0);
         const groupId = payload.groupId ? Number(payload.groupId) : null;
-        const defaultHash = "$2b$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi";
+        const defaultHash = bcrypt.hashSync(String(payload.password || "Mezana2026!"), 10);
         await execPgSql(
           crmEnv.DATABASE_URL,
-          `INSERT INTO "Student" (username, "passwordHash", fullname, gender, phone, "groupId", "studyPlace", "totalPayment", "paidAmount", "remainingAmount", "isActive", "isDeleted", "isArchived", "createdAt", "updatedAt")
-           VALUES (${sqlStr(username)}, ${sqlStr(defaultHash)}, ${sqlStr(fullname)}, ${sqlStr(gender)}::"Gender", ${sqlStr(phone)}, ${groupId !== null ? groupId : "NULL"}, ${sqlStr(studyPlace)}, ${totalPayment}, 0, ${totalPayment}, true, false, false, NOW(), NOW());`
+          `INSERT INTO "Student" (username, password, fullname, "birthDate", gender, phone, "groupId", "studyPlace", "totalPayment", "paidAmount", "remainingAmount", "isActive", "isDeleted", "isArchived", "createdAt", "updatedAt")
+           VALUES (${sqlStr(username)}, ${sqlStr(defaultHash)}, ${sqlStr(fullname)}, '2005-01-01'::timestamp, ${sqlStr(gender)}::"Gender", ${sqlStr(phone)}, ${groupId !== null ? groupId : "NULL"}, ${sqlStr(studyPlace)}, ${totalPayment}, 0, ${totalPayment}, true, false, false, NOW(), NOW());`
         );
         return sendJson(res, 200, {
           success: true,
@@ -6071,11 +6072,18 @@ MUHIM QOIDALAR:
       const uzbPhone = body.uzbPhone ? String(body.uzbPhone).trim() : null;
       const fatherFullname = body.fatherFullname ? String(body.fatherFullname).trim() : null;
       const fatherPhone = body.fatherPhone ? String(body.fatherPhone).trim() : null;
+      const motherFullname = body.motherFullname ? String(body.motherFullname).trim() : null;
+      const motherPhone = body.motherPhone ? String(body.motherPhone).trim() : null;
+      const tgUsername = body.tgUsername ? String(body.tgUsername).replace(/^@/, "").trim() : null;
+      const address = body.address ? String(body.address).trim() : null;
+      const birthDate = body.birthDate ? String(body.birthDate).slice(0, 10) : null;
       const gender = body.gender === "FEMALE" ? "FEMALE" : "MALE";
       const groupId = body.groupId ? Number(body.groupId) : null;
-      const studyPlace = String(body.studyPlace || "Akademiya").trim();
+      const studyPlace = String(body.studyPlace || "2026-2027 Akademiya").trim();
       const roomNumber = body.roomNumber ? String(body.roomNumber).trim() : null;
       const totalPayment = Number(body.totalPayment ?? 0);
+      const plannedPayment = body.plannedPayment !== undefined && body.plannedPayment !== "" && body.plannedPayment !== null ? Number(body.plannedPayment) : null;
+      const paidUntilDate = body.paidUntilDate ? String(body.paidUntilDate).slice(0, 10) : null;
       const hasIqoma = Boolean(body.hasIqoma || body.iqomaNumber);
       const iqomaNumber = body.iqomaNumber ? String(body.iqomaNumber).trim() : null;
       const iqomaExpiryDate = body.iqomaExpiryDate ? String(body.iqomaExpiryDate).slice(0, 10) : null;
@@ -6083,21 +6091,43 @@ MUHIM QOIDALAR:
 
       if (id) {
         const optCol = (key, val, colName) => (body[key] !== undefined ? sqlStr(val) : colName);
+        let usernameSetSql = "";
+        if (body.username && String(body.username).trim()) {
+          const reqUser = String(body.username).trim();
+          const dup = await queryPgJson(crmEnv.DATABASE_URL, `SELECT id FROM "Student" WHERE username = ${sqlStr(reqUser)} AND id <> ${id} LIMIT 1`);
+          if (dup.length === 0) {
+            usernameSetSql = `username = ${sqlStr(reqUser)},`;
+          }
+        }
+        let passwordSetSql = "";
+        if (body.password && String(body.password).trim()) {
+          const newHash = bcrypt.hashSync(String(body.password).trim(), 10);
+          passwordSetSql = `password = ${sqlStr(newHash)},`;
+        }
         await execPgSql(
           crmEnv.DATABASE_URL,
           `UPDATE "Student"
            SET fullname = ${sqlStr(fullname)},
+               ${usernameSetSql}
+               ${passwordSetSql}
                phone = ${optCol("phone", phone, "phone")},
                "turkPhone" = ${optCol("turkPhone", turkPhone, '"turkPhone"')},
                "uzbPhone" = ${optCol("uzbPhone", uzbPhone, '"uzbPhone"')},
                "fatherFullname" = ${optCol("fatherFullname", fatherFullname, '"fatherFullname"')},
                "fatherPhone" = ${optCol("fatherPhone", fatherPhone, '"fatherPhone"')},
+               "motherFullname" = ${optCol("motherFullname", motherFullname, '"motherFullname"')},
+               "motherPhone" = ${optCol("motherPhone", motherPhone, '"motherPhone"')},
+               "tgUsername" = ${optCol("tgUsername", tgUsername, '"tgUsername"')},
+               address = ${optCol("address", address, "address")},
+               "birthDate" = ${birthDate ? sqlStr(birthDate) + "::timestamp" : '"birthDate"'},
                gender = ${sqlStr(gender)}::"Gender",
                "groupId" = ${groupId !== null ? groupId : "NULL"},
                "studyPlace" = ${sqlStr(studyPlace)},
                "roomNumber" = ${optCol("roomNumber", roomNumber, '"roomNumber"')},
                "totalPayment" = ${totalPayment},
                "remainingAmount" = GREATEST(0, ${totalPayment} - COALESCE("paidAmount", 0)),
+               "plannedPayment" = ${plannedPayment !== null ? plannedPayment : '"plannedPayment"'},
+               "paidUntilDate" = ${paidUntilDate ? sqlStr(paidUntilDate) : (body.paidUntilDate === "" ? "NULL" : '"paidUntilDate"')},
                "hasIqoma" = ${hasIqoma ? "true" : "false"},
                "iqomaNumber" = ${sqlStr(iqomaNumber)},
                "iqomaExpiryDate" = ${iqomaExpiryDate ? sqlStr(iqomaExpiryDate) + "::timestamp" : "NULL"},
@@ -6107,15 +6137,16 @@ MUHIM QOIDALAR:
         );
         return sendJson(res, 200, { success: true, message: "Talaba ma'lumotlari muvaffaqiyatli yangilandi!" });
       } else {
-        const username = String(body.username || ("talaba_" + Math.floor(1000 + Math.random() * 9000))).trim();
-        const dup = (await queryPgJson(crmEnv.DATABASE_URL, `SELECT id FROM "Student" WHERE username = ${sqlStr(username)} LIMIT 1`));
-        const finalUsername = dup.length > 0 ? username + "_" + Math.floor(10 + Math.random() * 89) : username;
-        // Default bcrypt hash for Mezana2026!
-        const defaultHash = "$2b$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi";
+        const slugBase = fullname.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 12) || "talaba";
+        const rawUsername = String(body.username || "").trim() || `${slugBase}_${Math.floor(1000 + Math.random() * 9000)}`;
+        const dup = await queryPgJson(crmEnv.DATABASE_URL, `SELECT id FROM "Student" WHERE username = ${sqlStr(rawUsername)} LIMIT 1`);
+        const finalUsername = dup.length > 0 ? `${rawUsername}_${Math.floor(10 + Math.random() * 89)}` : rawUsername;
+        const passHash = bcrypt.hashSync(String(body.password || "Mezana2026!").trim() || "Mezana2026!", 10);
+        const birthDateSql = birthDate ? `${sqlStr(birthDate)}::timestamp` : `'2005-01-01'::timestamp`;
         await execPgSql(
           crmEnv.DATABASE_URL,
-          `INSERT INTO "Student" (username, "passwordHash", fullname, gender, phone, "turkPhone", "uzbPhone", "fatherFullname", "fatherPhone", "groupId", "studyPlace", "roomNumber", "totalPayment", "paidAmount", "remainingAmount", "hasIqoma", "iqomaNumber", "iqomaExpiryDate", "passportNumber", "isActive", "isDeleted", "isArchived", "createdAt", "updatedAt")
-           VALUES (${sqlStr(finalUsername)}, ${sqlStr(defaultHash)}, ${sqlStr(fullname)}, ${sqlStr(gender)}::"Gender", ${sqlStr(phone || "+905000000000")}, ${sqlStr(turkPhone)}, ${sqlStr(uzbPhone)}, ${sqlStr(fatherFullname)}, ${sqlStr(fatherPhone)}, ${groupId !== null ? groupId : "NULL"}, ${sqlStr(studyPlace)}, ${sqlStr(roomNumber)}, ${totalPayment}, 0, ${totalPayment}, ${hasIqoma ? "true" : "false"}, ${sqlStr(iqomaNumber)}, ${iqomaExpiryDate ? sqlStr(iqomaExpiryDate) + "::timestamp" : "NULL"}, ${sqlStr(passportNumber)}, true, false, false, NOW(), NOW());`
+          `INSERT INTO "Student" (username, password, fullname, "birthDate", gender, phone, "turkPhone", "uzbPhone", "fatherFullname", "fatherPhone", "motherFullname", "motherPhone", "tgUsername", address, "groupId", "studyPlace", "roomNumber", "totalPayment", "paidAmount", "remainingAmount", "plannedPayment", "paidUntilDate", "hasIqoma", "iqomaNumber", "iqomaExpiryDate", "passportNumber", "isActive", "isDeleted", "isArchived", "createdAt", "updatedAt")
+           VALUES (${sqlStr(finalUsername)}, ${sqlStr(passHash)}, ${sqlStr(fullname)}, ${birthDateSql}, ${sqlStr(gender)}::"Gender", ${sqlStr(phone)}, ${sqlStr(turkPhone)}, ${sqlStr(uzbPhone)}, ${sqlStr(fatherFullname)}, ${sqlStr(fatherPhone)}, ${sqlStr(motherFullname)}, ${sqlStr(motherPhone)}, ${sqlStr(tgUsername)}, ${sqlStr(address)}, ${groupId !== null ? groupId : "NULL"}, ${sqlStr(studyPlace)}, ${sqlStr(roomNumber)}, ${totalPayment}, 0, ${totalPayment}, ${plannedPayment}, ${paidUntilDate ? sqlStr(paidUntilDate) : "NULL"}, ${hasIqoma ? "true" : "false"}, ${sqlStr(iqomaNumber)}, ${iqomaExpiryDate ? sqlStr(iqomaExpiryDate) + "::timestamp" : "NULL"}, ${sqlStr(passportNumber)}, true, false, false, NOW(), NOW());`
         );
         return sendJson(res, 201, { success: true, message: "Yangi talaba muvaffaqiyatli qo'shildi!" });
       }
@@ -6149,6 +6180,14 @@ MUHIM QOIDALAR:
           `UPDATE "Student" SET "isActive" = false, "isArchived" = true, "studyPlace" = ${sqlStr(newPlace)} WHERE id = ${studentId};`
         );
         return sendJson(res, 200, { success: true, message: "Talaba arxivga o'tkazildi" });
+      }
+
+      if (action === "delete_student") {
+        await execPgSql(
+          crmEnv.DATABASE_URL,
+          `UPDATE "Student" SET "isDeleted" = true, "isActive" = false, "isArchived" = true, "updatedAt" = NOW() WHERE id = ${studentId};`
+        );
+        return sendJson(res, 200, { success: true, message: "Talaba o'chirilganlar arxiviga o'tkazildi" });
       }
 
       if (action === "update_contract") {
