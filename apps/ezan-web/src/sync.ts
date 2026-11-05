@@ -72,12 +72,15 @@ export async function listUnsyncedDonationsForVaqf(cursor = 0, limit = 100) {
   );
 
   const items = res.rows.map((row) => {
-    const hasKvkk = Boolean(row.kvkk_consent) && !row.deleted_pii_at && !row.is_anonymous;
-    const mapped = mapCampaignToInternalPurpose(
-      row.purpose_code,
-      row.purpose_title,
-      Boolean(row.restricted)
-    );
+    const isKurban = String(row.purpose_code || "").startsWith("KURBAN-");
+    const hasKvkk = !isKurban && Boolean(row.kvkk_consent) && !row.deleted_pii_at && !row.is_anonymous;
+    const mapped = isKurban
+      ? { purpose: String(row.purpose_title || "Onlayn kurban"), restricted: true }
+      : mapCampaignToInternalPurpose(
+          row.purpose_code,
+          row.purpose_title,
+          Boolean(row.restricted)
+        );
 
     return {
       cursor_id: row.id,
@@ -90,15 +93,24 @@ export async function listUnsyncedDonationsForVaqf(cursor = 0, limit = 100) {
       purpose_code: row.purpose_code,
       purpose: mapped.purpose,
       restricted: mapped.restricted,
+      notes: row.notes || null,
       received_at: row.paid_at ? new Date(row.paid_at).toISOString().slice(0, 10) : new Date(row.created_at).toISOString().slice(0, 10),
       refund_reason: row.refund_reason || null,
-      kvkk_consent: Boolean(row.kvkk_consent),
-      donor: {
-        is_anonymous: Boolean(row.is_anonymous || !hasKvkk),
-        full_name: hasKvkk ? row.donor_name : "Anonim Bağışçı",
-        phone: hasKvkk ? row.donor_phone : null,
-        email: hasKvkk ? row.donor_email : null
-      }
+      kvkk_consent: isKurban ? false : Boolean(row.kvkk_consent),
+      // 8-qadam: Qurbonlik uchun ichki tizimga ismlar, telefonlar va videolar hech qachon yuborilmaydi
+      donor: isKurban
+        ? {
+            is_anonymous: true,
+            full_name: "Anonim Bağışçı",
+            phone: null,
+            email: null
+          }
+        : {
+            is_anonymous: Boolean(row.is_anonymous || !hasKvkk),
+            full_name: hasKvkk ? row.donor_name : "Anonim Bağışçı",
+            phone: hasKvkk ? row.donor_phone : null,
+            email: hasKvkk ? row.donor_email : null
+          }
     };
   });
 

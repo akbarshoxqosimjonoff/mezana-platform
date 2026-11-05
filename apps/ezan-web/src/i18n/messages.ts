@@ -16,7 +16,8 @@ export type RouteKey =
   | "legal_terms"
   | "legal_refund"
   | "cart"
-  | "thanks";
+  | "thanks"
+  | "cabinet";
 
 export const ROUTE_SLUGS: Record<RouteKey, Record<Locale, string>> = {
   home: { tr: "", uz: "", en: "", ar: "" },
@@ -34,12 +35,15 @@ export const ROUTE_SLUGS: Record<RouteKey, Record<Locale, string>> = {
   legal_terms: { tr: "bagis-sartlari", uz: "xayriya-shartlari", en: "donation-terms", ar: "donation-terms" },
   legal_refund: { tr: "iade-politikasi", uz: "qaytarish-siyosati", en: "refund-policy", ar: "refund-policy" },
   cart: { tr: "sepet", uz: "savatcha", en: "cart", ar: "cart" },
-  thanks: { tr: "tesekkurler", uz: "rahmat", en: "thank-you", ar: "thank-you" }
+  thanks: { tr: "tesekkurler", uz: "rahmat", en: "thank-you", ar: "thank-you" },
+  cabinet: { tr: "hesabim", uz: "kabinet", en: "account", ar: "hesabim" }
 };
 
 export function resolveRouteKeyFromSlug(slug: string): RouteKey | null {
   const clean = (slug || "").replace(/^\/+|\/+$/g, "");
   if (!clean) return "home";
+  if (["kurban", "qurbonlik", "qurban", "qurbani"].includes(clean)) return "qurban";
+  if (["hesabim", "kabinet", "account"].includes(clean)) return "cabinet";
   for (const [key, map] of Object.entries(ROUTE_SLUGS) as [RouteKey, Record<Locale, string>][]) {
     if (Object.values(map).includes(clean)) {
       return key;

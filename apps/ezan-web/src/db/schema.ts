@@ -282,6 +282,7 @@ export async function ensureSchema(): Promise<void> {
   const pool = getDbPool();
   await pool.query(SCHEMA_SQL);
   await pool.query(EXTRA_SCHEMA_SQL);
+  await pool.query(PHASE2_KURBAN_SCHEMA_SQL);
 }
 
 export const EXTRA_SCHEMA_SQL = `
@@ -308,6 +309,257 @@ CREATE TABLE IF NOT EXISTS admin_audit_logs (
   reason TEXT,
   client_ip VARCHAR(80),
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+`;
+
+export const PHASE2_KURBAN_SCHEMA_SQL = `
+-- Expand role constraint on cms_users and admin_sessions to include 'field' (dala jamoasi)
+ALTER TABLE cms_users DROP CONSTRAINT IF EXISTS cms_users_role_check;
+ALTER TABLE cms_users ADD CONSTRAINT cms_users_role_check CHECK (role IN ('admin', 'editor', 'translator', 'finance', 'field'));
+ALTER TABLE cms_users ADD COLUMN IF NOT EXISTS assigned_country_code VARCHAR(16);
+
+ALTER TABLE admin_sessions DROP CONSTRAINT IF EXISTS admin_sessions_role_check;
+ALTER TABLE admin_sessions ADD CONSTRAINT admin_sessions_role_check CHECK (role IN ('admin', 'editor', 'translator', 'finance', 'field'));
+
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS notes TEXT;
+
+CREATE TABLE IF NOT EXISTS kurban_seasons (
+  id SERIAL PRIMARY KEY,
+  year INTEGER NOT NULL UNIQUE,
+  eid_day_1 DATE,
+  eid_day_2 DATE,
+  eid_day_3 DATE,
+  eid_day_4 DATE,
+  sales_open_at TIMESTAMPTZ,
+  sales_close_at TIMESTAMPTZ,
+  is_active BOOLEAN NOT NULL DEFAULT FALSE,
+  auto_approve_videos BOOLEAN NOT NULL DEFAULT FALSE,
+  video_retention_days INTEGER NOT NULL DEFAULT 365,
+  original_retention_days INTEGER NOT NULL DEFAULT 30,
+  vekalet_version VARCHAR(32) NOT NULL DEFAULT 'v2027.1-taslik',
+  vekalet_text JSONB NOT NULL DEFAULT '{}'::jsonb,
+  needs_review JSONB NOT NULL DEFAULT '{"tr":false,"uz":true,"en":true,"ar":true}'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS kurban_countries (
+  id SERIAL PRIMARY KEY,
+  code VARCHAR(16) NOT NULL UNIQUE,
+  flag VARCHAR(24) NOT NULL DEFAULT '🏳️',
+  partner_internal VARCHAR(200),
+  is_active BOOLEAN NOT NULL DEFAULT FALSE,
+  name JSONB NOT NULL DEFAULT '{}'::jsonb,
+  description JSONB NOT NULL DEFAULT '{}'::jsonb,
+  gallery JSONB NOT NULL DEFAULT '[]'::jsonb,
+  needs_review JSONB NOT NULL DEFAULT '{"tr":false,"uz":true,"en":true,"ar":true}'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS kurban_offers (
+  id SERIAL PRIMARY KEY,
+  season_year INTEGER NOT NULL REFERENCES kurban_seasons(year) ON DELETE CASCADE,
+  country_code VARCHAR(16) NOT NULL REFERENCES kurban_countries(code) ON DELETE CASCADE,
+  animal_type VARCHAR(24) NOT NULL CHECK (animal_type IN ('sheep', 'goat', 'cattle', 'camel')),
+  shares_per_animal INTEGER NOT NULL CHECK (shares_per_animal IN (1, 7)),
+  price_per_share_try NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK (price_per_share_try >= 0),
+  quota_shares INTEGER NOT NULL DEFAULT 0 CHECK (quota_shares >= 0),
+  sold_shares INTEGER NOT NULL DEFAULT 0 CHECK (sold_shares >= 0),
+  is_active BOOLEAN NOT NULL DEFAULT FALSE,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (season_year, country_code, animal_type),
+  CHECK (sold_shares <= quota_shares)
+);
+
+CREATE TABLE IF NOT EXISTS kurban_orders (
+  id SERIAL PRIMARY KEY,
+  order_no VARCHAR(40) NOT NULL UNIQUE,
+  donation_id INTEGER REFERENCES donations(id) ON DELETE SET NULL,
+  donation_external_id UUID,
+  season_year INTEGER NOT NULL,
+  country_code VARCHAR(16) NOT NULL,
+  animal_type VARCHAR(24) NOT NULL,
+  offer_id INTEGER NOT NULL REFERENCES kurban_offers(id),
+  locale VARCHAR(10) NOT NULL DEFAULT 'tr',
+  donor_name VARCHAR(200) NOT NULL,
+  donor_phone VARCHAR(60) NOT NULL,
+  donor_email VARCHAR(160),
+  vekalet_accepted BOOLEAN NOT NULL DEFAULT FALSE,
+  vekalet_accepted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  vekalet_ip_hash VARCHAR(128) NOT NULL,
+  vekalet_text_version VARCHAR(32) NOT NULL,
+  read_names_aloud_consent BOOLEAN NOT NULL DEFAULT FALSE,
+  kvkk_consent BOOLEAN NOT NULL DEFAULT FALSE,
+  total_shares INTEGER NOT NULL CHECK (total_shares > 0),
+  price_per_share_try NUMERIC(14,2) NOT NULL,
+  total_amount_try NUMERIC(14,2) NOT NULL,
+  status VARCHAR(24) NOT NULL DEFAULT 'reserved' CHECK (status IN ('reserved', 'paid', 'refunded', 'cancelled')),
+  reserved_until TIMESTAMPTZ NOT NULL,
+  notify_vekalet_sent_at TIMESTAMPTZ,
+  notify_slaughter_sent_at TIMESTAMPTZ,
+  notify_video_sent_at TIMESTAMPTZ,
+  is_test BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS kurban_animals (
+  id SERIAL PRIMARY KEY,
+  season_year INTEGER NOT NULL,
+  country_code VARCHAR(16) NOT NULL,
+  animal_type VARCHAR(24) NOT NULL CHECK (animal_type IN ('sheep', 'goat', 'cattle', 'camel')),
+  shares_capacity INTEGER NOT NULL CHECK (shares_capacity IN (1, 7)),
+  tag_no VARCHAR(60) NOT NULL,
+  status VARCHAR(24) NOT NULL DEFAULT 'assigned' CHECK (status IN ('assigned', 'slaughtered', 'video_ready', 'notified')),
+  slaughtered_at TIMESTAMPTZ,
+  slaughtered_by VARCHAR(160),
+  video_id INTEGER,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (season_year, country_code, tag_no)
+);
+
+CREATE TABLE IF NOT EXISTS kurban_videos (
+  id SERIAL PRIMARY KEY,
+  animal_id INTEGER NOT NULL REFERENCES kurban_animals(id) ON DELETE CASCADE,
+  season_year INTEGER NOT NULL,
+  country_code VARCHAR(16) NOT NULL,
+  storage_key TEXT NOT NULL,
+  processed_storage_key TEXT,
+  poster_storage_key TEXT,
+  mime_type VARCHAR(60) NOT NULL DEFAULT 'video/mp4',
+  size_bytes BIGINT NOT NULL DEFAULT 0 CHECK (size_bytes <= 2147483648),
+  duration_sec INTEGER,
+  uploaded_by VARCHAR(160) NOT NULL,
+  status VARCHAR(24) NOT NULL DEFAULT 'uploaded' CHECK (status IN ('uploaded', 'processing', 'processed', 'published', 'rejected')),
+  watermark_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  original_expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '30 days'),
+  video_expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '365 days'),
+  approved_by VARCHAR(160),
+  approved_at TIMESTAMPTZ,
+  rejected_reason TEXT,
+  processing_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS kurban_shares (
+  id SERIAL PRIMARY KEY,
+  order_id INTEGER NOT NULL REFERENCES kurban_orders(id) ON DELETE CASCADE,
+  offer_id INTEGER NOT NULL REFERENCES kurban_offers(id),
+  season_year INTEGER NOT NULL,
+  country_code VARCHAR(16) NOT NULL,
+  animal_type VARCHAR(24) NOT NULL,
+  seq_in_order INTEGER NOT NULL DEFAULT 1,
+  owner_name VARCHAR(80) NOT NULL CHECK (char_length(owner_name) BETWEEN 2 AND 80),
+  intention_type VARCHAR(24) NOT NULL DEFAULT 'vacip' CHECK (intention_type IN ('vacip', 'adak', 'akika', 'sukur', 'nafile')),
+  animal_id INTEGER REFERENCES kurban_animals(id) ON DELETE SET NULL,
+  status VARCHAR(24) NOT NULL DEFAULT 'reserved' CHECK (status IN ('reserved', 'paid', 'assigned', 'slaughtered', 'video_ready', 'notified', 'refunded', 'cancelled')),
+  tracking_token VARCHAR(80) NOT NULL UNIQUE,
+  reserved_until TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS kurban_events (
+  id SERIAL PRIMARY KEY,
+  share_id INTEGER REFERENCES kurban_shares(id) ON DELETE CASCADE,
+  order_id INTEGER REFERENCES kurban_orders(id) ON DELETE CASCADE,
+  animal_id INTEGER REFERENCES kurban_animals(id) ON DELETE SET NULL,
+  actor_email VARCHAR(160),
+  actor_role VARCHAR(40),
+  event_type VARCHAR(60) NOT NULL,
+  old_status VARCHAR(32),
+  new_status VARCHAR(32),
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS kurban_upload_sessions (
+  upload_id VARCHAR(120) PRIMARY KEY,
+  animal_id INTEGER NOT NULL REFERENCES kurban_animals(id) ON DELETE CASCADE,
+  country_code VARCHAR(16) NOT NULL,
+  storage_key TEXT NOT NULL,
+  file_name VARCHAR(255) NOT NULL,
+  mime_type VARCHAR(60) NOT NULL,
+  total_size_bytes BIGINT NOT NULL CHECK (total_size_bytes > 0 AND total_size_bytes <= 2147483648),
+  chunk_size_bytes INTEGER NOT NULL DEFAULT 8388608,
+  completed_parts JSONB NOT NULL DEFAULT '[]'::jsonb,
+  uploaded_by VARCHAR(160) NOT NULL,
+  status VARCHAR(24) NOT NULL DEFAULT 'initiated' CHECK (status IN ('initiated', 'completed', 'aborted')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS kurban_message_logs (
+  id SERIAL PRIMARY KEY,
+  order_id INTEGER REFERENCES kurban_orders(id) ON DELETE CASCADE,
+  share_id INTEGER REFERENCES kurban_shares(id) ON DELETE SET NULL,
+  event_stage VARCHAR(32) NOT NULL CHECK (event_stage IN ('payment_confirmed', 'animal_slaughtered', 'video_published')),
+  channel VARCHAR(24) NOT NULL CHECK (channel IN ('sms', 'whatsapp', 'email')),
+  recipient VARCHAR(160) NOT NULL,
+  locale VARCHAR(10) NOT NULL DEFAULT 'tr',
+  template_name VARCHAR(80),
+  body TEXT NOT NULL,
+  encoding VARCHAR(20) NOT NULL DEFAULT 'GSM7_LATIN',
+  char_length INTEGER NOT NULL DEFAULT 0,
+  provider VARCHAR(40) NOT NULL DEFAULT 'mock',
+  provider_message_id VARCHAR(120),
+  status VARCHAR(24) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'delivered', 'failed', 'invalid_phone')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
+  dedupe_key VARCHAR(160) UNIQUE,
+  next_retry_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  sent_at TIMESTAMPTZ,
+  delivered_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 7-qadam: Xayriyachi kabineti (OTP, sessiya, sozlamalar va KVKK o'chirish so'rovlari)
+CREATE TABLE IF NOT EXISTS donor_otp_codes (
+  id SERIAL PRIMARY KEY,
+  target VARCHAR(160) NOT NULL,
+  channel VARCHAR(16) NOT NULL CHECK (channel IN ('sms', 'email')),
+  code_hash VARCHAR(128) NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  max_attempts INTEGER NOT NULL DEFAULT 5,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ,
+  client_ip VARCHAR(80),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS donor_sessions (
+  token_hash VARCHAR(128) PRIMARY KEY,
+  phone VARCHAR(60),
+  email VARCHAR(160),
+  host VARCHAR(120) NOT NULL,
+  locale VARCHAR(10) NOT NULL DEFAULT 'tr',
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS donor_profiles (
+  id SERIAL PRIMARY KEY,
+  phone VARCHAR(60) UNIQUE,
+  email VARCHAR(160) UNIQUE,
+  full_name VARCHAR(160),
+  preferred_locale VARCHAR(10) NOT NULL DEFAULT 'tr',
+  sms_notifications BOOLEAN NOT NULL DEFAULT TRUE,
+  whatsapp_notifications BOOLEAN NOT NULL DEFAULT TRUE,
+  email_notifications BOOLEAN NOT NULL DEFAULT TRUE,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS kvkk_deletion_requests (
+  id SERIAL PRIMARY KEY,
+  donor_phone VARCHAR(60),
+  donor_email VARCHAR(160),
+  reason TEXT,
+  status VARCHAR(24) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved_anonymized', 'rejected')),
+  decided_by VARCHAR(160),
+  decided_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 `;

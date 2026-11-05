@@ -150,3 +150,44 @@ test("5. Sinxronlash 15 daqiqadan ko'p uzilsa, direktorga outbox orqali bitta og
   assert.equal(outbox.rows.length, 1);
   assert.equal(outbox.rows[0].recipient_ref, "role:director");
 });
+
+test("6. 2-bosqich Qurbonlik sinxronlash: purpose='Onlayn kurban: <davlat> <yil>', restricted=true, notes va PII yo'q", async () => {
+  const extRef = `ext-kurban-${crypto.randomUUID()}`;
+  createdExtRefs.push(extRef);
+  const pubNo = `EZ-2027-KRB-${Math.floor(100000 + Math.random() * 899999)}`;
+
+  const kurbanSyncItem = {
+    external_ref: extRef,
+    public_no: pubNo,
+    status: "paid",
+    amount: 4500,
+    currency: "TRY",
+    amount_try: 4500,
+    purpose: "Onlayn kurban: Çad 2027",
+    purpose_code: "KURBAN-TD-2027",
+    restricted: true,
+    notes: "1 hisse (sheep)",
+    received_at: "2026-11-05",
+    kvkk_consent: false,
+    donor: {
+      is_anonymous: true,
+      full_name: "Anonim Bağışçı",
+      phone: null,
+      email: null,
+    },
+  };
+
+  const ins = await processOnlineDonationsBatch([kurbanSyncItem]);
+  assert.equal(ins.inserted, 1);
+
+  const dbCheck = await query(
+    `SELECT source, purpose, restricted, notes, status FROM vaqf.donations WHERE external_ref = $1`,
+    [extRef]
+  );
+  assert.equal(dbCheck.rows.length, 1);
+  assert.equal(dbCheck.rows[0].source, "online");
+  assert.equal(dbCheck.rows[0].purpose, "Onlayn kurban: Çad 2027");
+  assert.equal(dbCheck.rows[0].restricted, true);
+  assert.equal(dbCheck.rows[0].notes, "1 hisse (sheep)");
+  assert.equal(dbCheck.rows[0].status, "recorded");
+});

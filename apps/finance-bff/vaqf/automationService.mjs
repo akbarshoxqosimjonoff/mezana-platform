@@ -2481,6 +2481,7 @@ export async function getDirectorDashboardData({ institutionId = 1 } = {}) {
       repairs: monthlyRepRes.rows,
     },
     lastInventory: lastInventorySummary,
+    kurban2027: await fetchEzanKurbanSummaryForDirector({ season: 2027 }),
   };
 }
 
@@ -2634,13 +2635,23 @@ export async function processOnlineDonationsBatch(items = []) {
         donorId = insDonor.rows[0]?.id || null;
       }
 
-      // 2. Xaritalash jadvalidan purpose va restricted olish
-      const mapped = ONLINE_DONATION_PURPOSE_MAP[item.purpose_code] || {
-        purpose: item.purpose && String(item.purpose).startsWith("Onlayn bağış:")
-          ? String(item.purpose)
-          : `Onlayn bağış: ${item.purpose || item.purpose_code || "Genel Bağış"}`,
-        restricted: Boolean(item.restricted),
-      };
+      // 2. Xaritalash jadvalidan purpose va restricted olish (Qurbonlik uchun: 'Onlayn kurban: <davlat> <yil>', restricted=true)
+      const isKurbanItem =
+        String(item.purpose_code || "").startsWith("KURBAN-") ||
+        String(item.purpose || "").startsWith("Onlayn kurban:");
+      const mapped = isKurbanItem
+        ? {
+            purpose: String(item.purpose || "Onlayn kurban"),
+            restricted: true,
+          }
+        : ONLINE_DONATION_PURPOSE_MAP[item.purpose_code] || {
+            purpose:
+              item.purpose && String(item.purpose).startsWith("Onlayn bağış:")
+                ? String(item.purpose)
+                : `Onlayn bağış: ${item.purpose || item.purpose_code || "Genel Bağış"}`,
+            restricted: Boolean(item.restricted),
+          };
+      const notesVal = item.notes || null;
 
       const donationNo = String(item.public_no || `ONL-${extRef.slice(0, 8).toUpperCase()}`);
       const amount = Number(item.amount || 0);
@@ -2678,16 +2689,16 @@ export async function processOnlineDonationsBatch(items = []) {
         }
         updatedRefunds++;
       } else {
-        // Paid holatda INSERT ... ON CONFLICT DO NOTHING
+        // Paid holatda INSERT ... ON CONFLICT DO NOTHING (notes da hisse soni va hayvon turi saqlanadi)
         const ins = await tx.query(
           `INSERT INTO vaqf.donations (
              donation_no, donor_id, institution_id, kind, amount, currency, amount_try,
-             purpose, restricted, received_at, status, source, external_ref,
+             purpose, restricted, notes, received_at, status, source, external_ref,
              created_by, created_by_name
-           ) VALUES ($1, $2, 1, 'cash', $3, $4, $5, $6, $7, $8, 'recorded', 'online', $9, 'ezan-web-sync', 'Onlayn Sayt')
+           ) VALUES ($1, $2, 1, 'cash', $3, $4, $5, $6, $7, $8, $9, 'recorded', 'online', $10, 'ezan-web-sync', 'Onlayn Sayt')
            ON CONFLICT (external_ref) DO NOTHING
            RETURNING id`,
-          [donationNo, donorId, amount, currency, amountTry, mapped.purpose, mapped.restricted, receivedAt, extRef]
+          [donationNo, donorId, amount, currency, amountTry, mapped.purpose, mapped.restricted, notesVal, receivedAt, extRef]
         );
         if (ins.rowCount > 0) {
           inserted++;
@@ -2699,6 +2710,30 @@ export async function processOnlineDonationsBatch(items = []) {
   }
 
   return { inserted, updatedRefunds, ackRefs };
+}
+
+
+export async function fetchEzanKurbanSummaryForDirector({
+  season = 2027,
+  baseUrl = process.env.EZAN_SITE_URL || bffEnv.EZAN_SITE_URL || platformEnv.EZAN_SITE_URL || process.env.EZAN_WEB_INTERNAL_URL || bffEnv.EZAN_WEB_INTERNAL_URL || "http://127.0.0.1:3005",
+  fetchImpl = fetch,
+} = {}) {
+  try {
+    const pathGet = `/api/internal/kurban/summary?season=${season}`;
+    const ts = String(Math.floor(Date.now() / 1000));
+    const sig = signEzanSyncRequest(ts, "GET", pathGet, "");
+    const res = await fetchImpl(`${baseUrl}${pathGet}`, {
+      method: "GET",
+      headers: {
+        "X-Timestamp": ts,
+        "X-Signature": sig,
+      },
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
 }
 
 export async function syncOnlineDonationsFromEzanWeb({

@@ -17,5 +17,20 @@ services:
       timeout: 5s
       retries: 10
 
+  minio:
+    image: elestio/minio:latest
+    container_name: ezan_web_minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-minioadmin123}
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - ezan_web_minio_data:/data
+
 volumes:
   ezan_web_pgdata:
+  ezan_web_minio_data:

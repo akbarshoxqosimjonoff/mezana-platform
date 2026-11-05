@@ -294,16 +294,17 @@ export async function loginAdminWithTotp(params: {
   password: string;
   totpCode: string;
   clientIp?: string | null;
-}): Promise<{ sessionCookieValue: string; user: { id: number; email: string; role: string } }> {
+}): Promise<{ sessionCookieValue: string; user: { id: number; email: string; role: string; assignedCountryCode?: string | null } }> {
   await ensureSchema();
   const res = await dbQuery<{
     id: number;
     email: string;
     role: string;
+    assigned_country_code: string | null;
     password_hash: string;
     totp_secret: string | null;
     totp_enabled: boolean;
-  }>(`SELECT id, email, role, password_hash, totp_secret, totp_enabled FROM cms_users WHERE LOWER(email) = LOWER($1) LIMIT 1`, [
+  }>(`SELECT id, email, role, assigned_country_code, password_hash, totp_secret, totp_enabled FROM cms_users WHERE LOWER(email) = LOWER($1) LIMIT 1`, [
     params.email.trim()
   ]);
 
@@ -323,22 +324,25 @@ export async function loginAdminWithTotp(params: {
   const rawToken = crypto.randomBytes(32).toString("hex");
   const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
 
+  // Dala (field) jamoasi uchun hayit kunlari sessiya 4 kun, boshqa rollar uchun 8 soat
+  const sessionInterval = user.role === "field" ? "4 days" : "8 hours";
   await dbQuery(
     `INSERT INTO admin_sessions (token_hash, user_id, email, role, totp_verified, client_ip, expires_at)
-     VALUES ($1, $2, $3, $4, TRUE, $5, NOW() + INTERVAL '8 hours')`,
-    [tokenHash, user.id, user.email, user.role, params.clientIp || null]
+     VALUES ($1, $2, $3, $4, TRUE, $5, NOW() + ($6)::interval)`,
+    [tokenHash, user.id, user.email, user.role, params.clientIp || null, sessionInterval]
   );
 
   return {
     sessionCookieValue: signSessionToken(rawToken),
-    user: { id: user.id, email: user.email, role: user.role }
+    user: { id: user.id, email: user.email, role: user.role, assignedCountryCode: user.assigned_country_code || null }
   };
 }
 
 export async function getAuthenticatedAdminSession(signedCookie: string | null | undefined): Promise<{
   userId: number;
   email: string;
-  role: "admin" | "editor" | "translator" | "finance";
+  role: "admin" | "editor" | "translator" | "finance" | "field";
+  assignedCountryCode: string | null;
   totpVerified: boolean;
 } | null> {
   const rawToken = verifySignedSessionToken(signedCookie);
@@ -349,12 +353,14 @@ export async function getAuthenticatedAdminSession(signedCookie: string | null |
   const res = await dbQuery<{
     user_id: number;
     email: string;
-    role: "admin" | "editor" | "translator" | "finance";
+    role: "admin" | "editor" | "translator" | "finance" | "field";
+    assigned_country_code: string | null;
     totp_verified: boolean;
   }>(
-    `SELECT user_id, email, role, totp_verified
-     FROM admin_sessions
-     WHERE token_hash = $1 AND expires_at > NOW() AND totp_verified = TRUE
+    `SELECT s.user_id, s.email, s.role, u.assigned_country_code, s.totp_verified
+     FROM admin_sessions s
+     LEFT JOIN cms_users u ON u.id = s.user_id
+     WHERE s.token_hash = $1 AND s.expires_at > NOW() AND s.totp_verified = TRUE
      LIMIT 1`,
     [tokenHash]
   );
@@ -365,8 +371,17 @@ export async function getAuthenticatedAdminSession(signedCookie: string | null |
     userId: row.user_id,
     email: row.email,
     role: row.role,
+    assignedCountryCode: row.assigned_country_code || null,
     totpVerified: Boolean(row.totp_verified)
   };
+}
+
+export function canAccessAdminCms(role: string): boolean {
+  return ["admin", "editor", "translator", "finance"].includes(role);
+}
+
+export function canAccessDalaPortal(role: string): boolean {
+  return ["field", "admin"].includes(role);
 }
 
 export function maskPhoneForLog(phone: string | null | undefined): string {

@@ -6,3 +6,6 @@ playwright-report/
 .env.local
 .env.production
 *.log
+.local-s3/
+test-results/
+playwright-report/

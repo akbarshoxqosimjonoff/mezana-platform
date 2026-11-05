@@ -10,6 +10,9 @@ import { dbQuery } from "../../../db/schema";
 import { SiteShell } from "../../../components/SiteShell";
 import { Accordion, Badge, Breadcrumb, Card, ProgressBar, YouTubeLite } from "../../../components/ui";
 import { DonationFlowWidget, ZakatCalculatorWidget } from "../../../components/InteractiveWidgets";
+import { KurbanFlowWidget } from "../../../components/KurbanFlowWidget";
+import { DonorCabinetWidget } from "../../../components/DonorCabinetWidget";
+import { getPublicKurbanCatalog } from "../../../kurban/service";
 
 export async function generateMetadata({
   params
@@ -220,8 +223,15 @@ export default async function LocalizedSubPage({
     );
   }
 
-  // Qurbonlik (2-bosqich uchun ma'lumot sahifasi va "Ochilganda xabar bering" formasi)
+  // Qurbonlik (2-bosqich: 8 qadamli xayriyachi oqimi, kvota, vekalet va sotuv muddati)
   if (routeKey === "qurban") {
+    const fakeNowParam = query.nowMs;
+    const nowMs =
+      process.env.NODE_ENV !== "production" && fakeNowParam && Number.isFinite(Number(fakeNowParam))
+        ? Number(fakeNowParam)
+        : Date.now();
+    const kurbanCatalog = await getPublicKurbanCatalog(locale, nowMs);
+
     return (
       <SiteShell
         locale={locale}
@@ -231,47 +241,30 @@ export default async function LocalizedSubPage({
       >
         <div className="max-w-4xl mx-auto px-4 py-10 space-y-6">
           <Breadcrumb locale={locale} items={[{ label: dict.navQurban }]} />
-          <Card className="space-y-4">
-            <Badge tone="warning">2. Aşama / 2-Bosqich</Badge>
-            <h1 className="text-2xl sm:text-3xl font-heading font-extrabold text-brand">
-              {dict.qurbanSoonTitle}
-            </h1>
-            <p className="text-sm text-slate-700">
-              Vekâlet yoluyla kurban kesimi, kişiye özel kesim videosu ve SMS/WhatsApp bilgilendirme modülü 2. aşamada aktif edilecektir. Planlanan bölgeler:
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {data.qurbanCountries.map((qc) => (
-                <Badge key={qc.code} tone="brand">
-                  {qc.name}
-                </Badge>
-              ))}
-            </div>
-            <form action="/api/contact" method="POST" className="pt-4 border-t border-slate-200 space-y-3">
-              <input type="hidden" name="kind" value="qurban_notify" />
-              <input type="hidden" name="locale" value={locale} />
-              <div className="cf-turnstile" data-sitekey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || ""} />
-              <input type="hidden" name="cf-turnstile-response" value={process.env.NODE_ENV === "development" ? "dev-turnstile-ok" : ""} />
-              <label htmlFor="qurban-email" className="block text-sm font-bold text-brand">
-                {dict.qurbanNotifyBtn} ({dict.email})
-              </label>
-              <div className="flex flex-col sm:flex-row gap-3">
-                <input
-                  id="qurban-email"
-                  name="email"
-                  type="email"
-                  required
-                  placeholder="ornek@eposta.com"
-                  className="flex-1 rounded-xl border border-slate-300 px-4 py-2.5 text-sm"
-                />
-                <button
-                  type="submit"
-                  className="px-5 py-2.5 rounded-xl bg-accent text-brand font-bold text-sm hover:bg-accent-hover"
-                >
-                  {dict.qurbanNotifyBtn}
-                </button>
-              </div>
-            </form>
-          </Card>
+          <h1 className="text-2xl sm:text-3xl font-heading font-extrabold text-brand">
+            {dict.navQurban} ({kurbanCatalog.seasonYear})
+          </h1>
+          <KurbanFlowWidget locale={locale} catalog={kurbanCatalog} />
+        </div>
+      </SiteShell>
+    );
+  }
+
+  // Xayriyachi kabineti (7-qadam: /[locale]/hesabim, /[locale]/kabinet, /[locale]/account)
+  if (routeKey === "cabinet") {
+    return (
+      <SiteShell
+        locale={locale}
+        announcement={data.settings.announcement}
+        activeSocials={data.settings.activeSocials}
+        bankAccounts={data.settings.bankAccounts}
+      >
+        <div className="max-w-5xl mx-auto px-4 py-10 space-y-6">
+          <Breadcrumb locale={locale} items={[{ label: "Hesabım / Kabinet" }]} />
+          <h1 className="text-2xl sm:text-3xl font-heading font-extrabold text-brand">
+            Hesabım / Xayriyachi Kabineti
+          </h1>
+          <DonorCabinetWidget locale={locale} />
         </div>
       </SiteShell>
     );

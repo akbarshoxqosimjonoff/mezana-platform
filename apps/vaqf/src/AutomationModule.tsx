@@ -766,6 +766,41 @@ export function DirectorDashboardSection({
         </div>
       </div>
 
+      {/* 8-qadam: Ezan Vakfı Sayti — Kurban 2027 Operatsion Kartasi (Direktor Paneli) */}
+      {data?.kurban2027 && (
+        <div className="glass-card" style={{ marginBottom: 16 }} data-testid="director-kurban-2027-card">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <div style={{ fontWeight: 800, fontSize: 14, color: "#10b981" }}>
+              🐑 Kurban {data.kurban2027.season || 2027} (Onlayn Sayt Sinxron Xulosasi)
+            </div>
+            <span className="badge badge-emerald">
+              Jami sotilgan: {data.kurban2027.totals?.soldShares || 0} hisse • Kesilgan: {data.kurban2027.totals?.slaughteredShares || 0} • Video: {data.kurban2027.totals?.videoReadyShares || 0}
+            </span>
+          </div>
+          <div className="resp-grid-4">
+            {(data.kurban2027.countries || []).map((c: any) => (
+              <div
+                key={c.countryCode}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 8,
+                  background: "var(--bg-subtle)",
+                  border: "1px solid var(--border-subtle)",
+                  fontSize: 12,
+                }}
+              >
+                <div style={{ fontWeight: 700 }}>
+                  {c.flag} {c.nameTr} ({c.countryCode})
+                </div>
+                <div style={{ color: "var(--text-secondary)", marginTop: 3 }}>
+                  Sotilgan: <strong>{c.soldShares}</strong> • Kesilgan: <strong>{c.slaughteredShares}</strong> • Video: <strong>{c.videoReadyShares}</strong>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* 4. Oylar kesimida dinamika: Xaridlar, Hisobdan chiqarishlar, Ta'mir xarajatlari */}
       <div className="resp-grid-3">
         <div className="glass-card">

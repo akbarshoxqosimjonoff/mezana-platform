@@ -1,3 +1,4 @@
+import { markKurbanOrderPaidByDonation, markKurbanOrderRefundedByDonation } from "../kurban/service";
 import crypto from "node:crypto";
 import Iyzipay from "iyzipay";
 import PDFDocument from "pdfkit";
@@ -646,6 +647,12 @@ export async function processPaymentWebhook(params: {
       );
     }
 
+    const receiptPdfBuf = donation.want_receipt ? await generateReceiptPdfBuffer(donation) : null;
+    await markKurbanOrderPaidByDonation({
+      donationExternalId: externalId,
+      receiptPdfBase64: receiptPdfBuf ? receiptPdfBuf.toString("base64") : null
+    });
+
     return { duplicate: false, status: "paid", publicNo: donation.public_no };
   }
 
@@ -660,6 +667,11 @@ export async function processPaymentWebhook(params: {
        WHERE external_id = $1::uuid`,
       [externalId, payload.reason || "Provayder orqali qaytarildi (Refund)"]
     );
+    await markKurbanOrderRefundedByDonation({
+      donationExternalId: externalId,
+      reason: payload.reason || "Provayder orqali qaytarildi (Refund)"
+    });
+
     return { duplicate: false, status: "refunded", publicNo: donation.public_no };
   }
 

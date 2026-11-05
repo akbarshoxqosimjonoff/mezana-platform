@@ -30,6 +30,7 @@ export function evaluateLocaleRouting(params: {
     pathname.startsWith("/_next") ||
     pathname.startsWith("/api") ||
     pathname.startsWith("/admin") ||
+    pathname.startsWith("/dala") ||
     pathname === "/robots.txt" ||
     pathname === "/sitemap.xml" ||
     pathname === "/favicon.ico" ||
