@@ -79,9 +79,14 @@ export const ROLE_META: Record<string, { label: string; badge: string; desc: str
     desc: "Kartochka qo'shish/tahrirlash, ko'chirish, zimmatga berish, ta'mir, hisobdan chiqarish so'rovi, sanoq o'tkazish",
   },
   accountant: {
-    label: "Hisobchi",
+    label: "Hisobchi (Muhasib)",
     badge: "badge-cyan",
-    desc: "Faqat o'qish: barcha mulk, qiymatlar, hujjatlar va hisobotlarni ko'rish hamda yuklab olish",
+    desc: "Mulk va qarorlarni o'qish; hadyalar (bağış) va ijara shartnomalarini kiritish hamda tahrirlash",
+  },
+  board_member: {
+    label: "Yönetim Kurulu a'zosi",
+    badge: "badge-violet",
+    desc: "Faqat o'qish: vaqf bosh sahifasi, hisobotlar, mulk, hadyalar, ijara va Yönetim Kurulu qarorlarini ko'rish",
   },
   staff: {
     label: "Xodim (Staff)",

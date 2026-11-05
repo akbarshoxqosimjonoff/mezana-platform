@@ -27,11 +27,12 @@ const FONT_REGULAR = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
 const FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
 const HAS_UNICODE_FONT = fs.existsSync(FONT_REGULAR) && fs.existsSync(FONT_BOLD);
 
-const VALID_ROLES = ["director", "inventory_manager", "accountant", "staff"];
+const VALID_ROLES = ["director", "inventory_manager", "accountant", "board_member", "staff"];
 const ROLE_PRIORITY = {
-  director: 4,
-  inventory_manager: 3,
-  accountant: 2,
+  director: 5,
+  inventory_manager: 4,
+  accountant: 3,
+  board_member: 2,
   staff: 1,
 };
 
@@ -159,6 +160,10 @@ export function buildPermissionsForRole(role, { isDirector = false, assignedCoun
       canCount: true,
       canManageRoles: true,
       canManageDocuments: true,
+      canManageDonationsLeases: true,
+      canManageBoard: true,
+      canViewPii: true,
+      canAccessRestrictedArchive: true,
       isDirector: true,
       assignedCountIds,
     };
@@ -175,6 +180,10 @@ export function buildPermissionsForRole(role, { isDirector = false, assignedCoun
       canCount: true,
       canManageRoles: false,
       canManageDocuments: true,
+      canManageDonationsLeases: false,
+      canManageBoard: false,
+      canViewPii: false,
+      canAccessRestrictedArchive: false,
       isDirector: false,
       assignedCountIds,
     };
@@ -191,7 +200,32 @@ export function buildPermissionsForRole(role, { isDirector = false, assignedCoun
       canCount: assignedCountIds.length > 0,
       canManageRoles: false,
       canManageDocuments: false,
+      canManageDonationsLeases: true,
+      canManageBoard: false,
+      canViewPii: true,
+      canAccessRestrictedArchive: false,
       isDirector: false,
+      assignedCountIds,
+    };
+  }
+
+  if (effectiveRole === "board_member") {
+    return {
+      role: "board_member",
+      canAccess: true,
+      canView: true,
+      canEdit: false,
+      canApprove: false,
+      canManageCounts: false,
+      canCount: assignedCountIds.length > 0,
+      canManageRoles: false,
+      canManageDocuments: false,
+      canManageDonationsLeases: false,
+      canManageBoard: false,
+      canViewPii: false,
+      canAccessRestrictedArchive: false,
+      isDirector: false,
+      isBoardMember: true,
       assignedCountIds,
     };
   }
@@ -1721,6 +1755,64 @@ export async function approveDocument(docId, body = {}, actor, vAccess = {}) {
   }
   if (doc.status === "cancelled" || doc.status === "rejected") {
     throw httpError(400, `Bekor qilingan yoki rad etilgan hujjatni tasdiqlab bo'lmaydi (${doc.status})`);
+  }
+
+  // 5-bosqich 4-qadam: Check mandatory Board Decision rules (Yönetim Kurulu qarori)
+  const boardRulesRes = await query(`SELECT value FROM vaqf.settings WHERE key = 'board_decision_rules' LIMIT 1`);
+  const boardRules = boardRulesRes.rows[0]?.value || {};
+  let requiresBoardDecision = false;
+  if (doc.type === "writeoff" && boardRules.writeoff_above_threshold === "mandatory") {
+    const thresholdTry = Number(boardRules.writeoff_threshold_try ?? 50000);
+    if (Number(doc.total_value_try || 0) >= thresholdTry) {
+      requiresBoardDecision = true;
+    }
+  } else if (
+    doc.type === "transfer" &&
+    doc.to_institution_id &&
+    doc.to_institution_id !== doc.institution_id &&
+    boardRules.inter_institution_transfer === "mandatory"
+  ) {
+    requiresBoardDecision = true;
+  }
+
+  const candidateDecisionId = Number(
+    body?.board_decision_id || doc.board_decision_id || doc.metadata?.board_decision_id || 0
+  );
+
+  if (requiresBoardDecision) {
+    let validDecision = null;
+    if (candidateDecisionId > 0) {
+      const bdRes = await query(
+        `SELECT id, decision_no, status FROM vaqf.board_decisions WHERE id = $1 LIMIT 1`,
+        [candidateDecisionId]
+      );
+      if (bdRes.rows[0]?.status === "adopted") {
+        validDecision = bdRes.rows[0];
+      }
+    }
+    if (!validDecision) {
+      const linkedBdRes = await query(
+        `SELECT id, decision_no, status FROM vaqf.board_decisions
+         WHERE status = 'adopted'
+           AND (linked_entity->>'type' IN ('document', 'writeoff', 'transfer'))
+           AND (
+             (linked_entity->>'id')::text = $1::text
+             OR (linked_entity->>'doc_no')::text = $2::text
+           )
+         LIMIT 1`,
+        [String(id), String(doc.doc_no || "")]
+      );
+      validDecision = linkedBdRes.rows[0] || null;
+    }
+    if (!validDecision) {
+      throw httpError(
+        409,
+        "Ushbu amal uchun qabul qilingan ('adopted') Yönetim Kurulu qarori biriktirilmagan (MUHASIB va kurul tasdiqlashi kerak)"
+      );
+    }
+    await query(`UPDATE vaqf.documents SET board_decision_id = $1 WHERE id = $2`, [validDecision.id, id]);
+  } else if (candidateDecisionId > 0) {
+    await query(`UPDATE vaqf.documents SET board_decision_id = $1 WHERE id = $2`, [candidateDecisionId, id]);
   }
 
   if (doc.type === "assignment") {
