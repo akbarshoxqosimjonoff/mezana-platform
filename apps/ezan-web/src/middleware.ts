@@ -10,6 +10,25 @@ export interface MiddlewareDecision {
   cacheControl?: string;
 }
 
+export const LEGACY_301_REDIRECTS: Record<string, string> = {
+  "/tr/faaliyetler/istanbul-ogrenci-yurdu": "/tr/faaliyetler/talebe-yurdu",
+  "/uz/faoliyatlar/istanbul-ogrenci-yurdu": "/uz/faoliyatlar/talebe-yurdu",
+  "/en/projects/istanbul-ogrenci-yurdu": "/en/projects/talebe-yurdu",
+  "/ar/projects/istanbul-ogrenci-yurdu": "/ar/projects/talebe-yurdu",
+  "/tr/faaliyetler/turkistan-egitim-merkezi": "/tr/faaliyetler/mezana-akademisi",
+  "/uz/faoliyatlar/turkistan-egitim-merkezi": "/uz/faoliyatlar/mezana-akademisi",
+  "/en/projects/turkistan-egitim-merkezi": "/en/projects/mezana-akademisi",
+  "/ar/projects/turkistan-egitim-merkezi": "/ar/projects/mezana-akademisi",
+  "/tr/faaliyetler/dijital-kutuphane": "/tr/faaliyetler/yayincilik",
+  "/uz/faoliyatlar/dijital-kutuphane": "/uz/faoliyatlar/yayincilik",
+  "/en/projects/dijital-kutuphane": "/en/projects/yayincilik",
+  "/ar/projects/dijital-kutuphane": "/ar/projects/yayincilik",
+  "/hakkimizda.html": "/tr/hakkimizda",
+  "/bagis.html": "/tr/bagis",
+  "/bagis.php": "/tr/bagis",
+  "/iletisim.html": "/tr/iletisim"
+};
+
 export function evaluateLocaleRouting(params: {
   pathname: string;
   search?: string;
@@ -24,6 +43,16 @@ export function evaluateLocaleRouting(params: {
   const search = params.search || "";
   const rawHost = params.host || "ezanvakfi.org";
   const { cleanHost, hadWww } = stripWww(rawHost);
+
+  // Legacy va 1-bosqich namunaviy loyihalardan yangi katalog sluglariga 301 redirect
+  const legacyTarget = LEGACY_301_REDIRECTS[pathname];
+  if (legacyTarget) {
+    return {
+      action: "redirect",
+      status: 301,
+      location: `${legacyTarget}${search}`
+    };
+  }
 
   // Skip static assets, API, and admin routes
   if (

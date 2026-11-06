@@ -301,7 +301,8 @@ export class IyzicoCheckoutProvider implements PaymentProvider {
 }
 
 export function getPaymentProvider(): PaymentProvider {
-  if (SITE_CONFIG.paymentProvider === "iyzico") {
+  const providerName = process.env.PAYMENT_PROVIDER || SITE_CONFIG.paymentProvider;
+  if (providerName === "iyzico") {
     return new IyzicoCheckoutProvider();
   }
   return new MockPaymentProvider();
@@ -339,8 +340,8 @@ async function ensureReady() {
 export async function generateNextPublicNo(): Promise<string> {
   const year = 2027;
   const prefix = `EZ-${year}-`;
-  const res = await dbQuery<{ count: string }>(`SELECT COUNT(*)::text AS count FROM donations`);
-  const nextNum = Number.parseInt(res.rows[0]?.count || "0", 10) + 1;
+  const res = await dbQuery<{ seq: string }>(`SELECT nextval('donation_public_no_seq')::text AS seq`);
+  const nextNum = Number.parseInt(res.rows[0]?.seq || "1", 10);
   return `${prefix}${String(nextNum).padStart(6, "0")}`;
 }
 

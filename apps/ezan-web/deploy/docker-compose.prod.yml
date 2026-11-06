@@ -1,0 +1,92 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ezan_prod_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ezan_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-ezan_web}
+      TZ: Europe/Istanbul
+    volumes:
+      - ezan_pgdata:/var/lib/postgresql/data
+    networks:
+      - ezan_internal
+    # Port tashqariga OCHILMAYDI (faqat ichki tarmoqda)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-ezan_app} -d $${POSTGRES_DB:-ezan_web}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build:
+      context: ../apps/ezan-web
+      dockerfile: Dockerfile
+    container_name: ezan_prod_web
+    restart: unless-stopped
+    env_file:
+      - ../apps/ezan-web/.env
+    environment:
+      NODE_ENV: production
+      TZ: Europe/Istanbul
+    ports:
+      - "127.0.0.1:3005:3005"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ezan_internal
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3005/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  worker:
+    build:
+      context: ../apps/ezan-web
+      dockerfile: Dockerfile
+    container_name: ezan_prod_worker
+    restart: unless-stopped
+    env_file:
+      - ../apps/ezan-web/.env
+    environment:
+      NODE_ENV: production
+      TZ: Europe/Istanbul
+      VIDEO_WORKER_CONCURRENCY: "2"
+    command: ["npx", "tsx", "src/kurban/video-worker.ts", "--daemon"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ezan_internal
+
+  backup:
+    image: postgres:16-alpine
+    container_name: ezan_prod_backup
+    restart: unless-stopped
+    env_file:
+      - ../apps/ezan-web/.env
+    environment:
+      TZ: Europe/Istanbul
+    volumes:
+      - ./backup.sh:/usr/local/bin/backup.sh:ro
+      - ezan_backups:/var/backups/ezan
+    entrypoint: ["/bin/sh", "-c", "crond -f -l 8"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ezan_internal
+
+volumes:
+  ezan_pgdata:
+  ezan_backups:
+
+networks:
+  ezan_internal:
+    driver: bridge
+    internal: false

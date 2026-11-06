@@ -1,21 +1,19 @@
 import { NextResponse } from "next/server";
-import { dbQuery } from "../../../db/schema";
-import { SITE_CONFIG } from "../../../lib/config";
+import { getComprehensiveHealthStatus } from "../../../monitoring/service";
 
 export async function GET() {
   try {
-    await dbQuery("SELECT 1");
-    return NextResponse.json({
-      ok: true,
-      service: "ezan-web",
-      donationsLive: SITE_CONFIG.donationsLive,
-      paymentProvider: SITE_CONFIG.paymentProvider,
-      timestamp: new Date().toISOString()
-    });
+    const health = await getComprehensiveHealthStatus();
+    return NextResponse.json(health, { status: 200 });
   } catch (err: any) {
     return NextResponse.json(
-      { ok: false, error: err?.message || "Database unreachable" },
-      { status: 500 }
+      {
+        status: "error",
+        service: "ezan-web",
+        error: err?.message || "Health check failed",
+        timestamp: new Date().toISOString()
+      },
+      { status: 503 }
     );
   }
 }
