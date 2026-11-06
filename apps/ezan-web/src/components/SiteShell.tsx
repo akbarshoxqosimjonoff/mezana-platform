@@ -67,13 +67,12 @@ export function SiteShell({
             href={`/${locale}`}
             className="flex items-center gap-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent rounded-lg"
           >
-            <Image
-              src="/ezan-logo.png"
+            <img
+              src="/ezan-vakfi-logo.svg"
               alt={dict.siteName}
               width={44}
               height={44}
-              priority
-              className="rounded-lg bg-white/10 p-0.5 object-contain"
+              className="rounded-lg bg-white/10 p-1 object-contain"
             />
             <div>
               <span className="block font-heading font-bold text-lg leading-tight text-white">
@@ -161,24 +160,26 @@ export function SiteShell({
           <div>
             <h2 className="font-heading font-bold text-lg text-white mb-2">{dict.siteName}</h2>
             <p className="text-sm text-slate-300 leading-relaxed mb-4">{dict.tagline}</p>
-            <form action="/api/contact" method="POST" className="mt-3 flex gap-2" data-testid="newsletter-form">
-              <input type="hidden" name="kind" value="newsletter" />
-              <input type="hidden" name="locale" value={locale} />
-              <div className="cf-turnstile" data-sitekey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || ""} />
-              <input type="hidden" name="cf-turnstile-response" value={process.env.NODE_ENV === "development" ? "dev-turnstile-ok" : ""} />
-              <label htmlFor="footer-newsletter-email" className="sr-only">{dict.email}</label>
-              <input
-                id="footer-newsletter-email"
-                name="email"
-                type="email"
-                required
-                placeholder="Bülten e-posta..."
-                className="flex-1 rounded-lg bg-white/10 border border-white/20 px-3 py-1.5 text-xs text-white placeholder:text-slate-300"
-              />
-              <button type="submit" className="px-3 py-1.5 rounded-lg bg-accent text-brand font-bold text-xs">
-                Abone Ol
-              </button>
-            </form>
+            {SITE_CONFIG.newsletterEnabled && (
+              <form action="/api/contact" method="POST" className="mt-3 flex gap-2" data-testid="newsletter-form">
+                <input type="hidden" name="kind" value="newsletter" />
+                <input type="hidden" name="locale" value={locale} />
+                <div className="cf-turnstile" data-sitekey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || ""} />
+                <input type="hidden" name="cf-turnstile-response" value={process.env.NODE_ENV === "development" ? "dev-turnstile-ok" : ""} />
+                <label htmlFor="footer-newsletter-email" className="sr-only">{dict.email}</label>
+                <input
+                  id="footer-newsletter-email"
+                  name="email"
+                  type="email"
+                  required
+                  placeholder="Bülten e-posta..."
+                  className="flex-1 rounded-lg bg-white/10 border border-white/20 px-3 py-1.5 text-xs text-white placeholder:text-slate-300"
+                />
+                <button type="submit" className="px-3 py-1.5 rounded-lg bg-accent text-brand font-bold text-xs">
+                  Abone Ol
+                </button>
+              </form>
+            )}
             {/* Ijtimoiy tarmoqlar: faqat to'ldirilgan bo'lsagina ko'rinadi */}
             {activeSocials.length > 0 && (
               <div className="mt-4">
@@ -202,21 +203,23 @@ export function SiteShell({
             )}
           </div>
 
-          <div>
-            <h2 className="font-heading font-bold text-base text-white mb-3">
-              {dict.bankAccountsTitle}
-            </h2>
-            <div className="space-y-2.5 text-xs text-slate-200">
-              {bankAccounts.map((b, i) => (
-                <div key={i} className="p-2.5 rounded-lg bg-white/5 border border-white/10">
-                  <div className="font-semibold text-white">
-                    {b.bankName} ({b.currency})
+          {bankAccounts.length > 0 && (
+            <div>
+              <h2 className="font-heading font-bold text-base text-white mb-3">
+                {dict.bankAccountsTitle}
+              </h2>
+              <div className="space-y-2.5 text-xs text-slate-200">
+                {bankAccounts.map((b, i) => (
+                  <div key={i} className="p-2.5 rounded-lg bg-white/5 border border-white/10">
+                    <div className="font-semibold text-white">
+                      {b.bankName} ({b.currency})
+                    </div>
+                    <div className="font-mono text-slate-300 mt-0.5">{b.iban}</div>
                   </div>
-                  <div className="font-mono text-slate-300 mt-0.5">{b.iban}</div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           <div>
             <h2 className="font-heading font-bold text-base text-white mb-3">

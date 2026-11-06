@@ -74,9 +74,11 @@ export async function getPublicKurbanCatalog(locale: Locale, nowMs = Date.now())
   const salesOpenAtMs = season.sales_open_at ? new Date(season.sales_open_at).getTime() : null;
   const salesCloseAtMs = season.sales_close_at ? new Date(season.sales_close_at).getTime() : null;
 
+  const cleanVekaletText = pickLocalized(season.vekalet_text, locale);
   const salesClosed = Boolean(salesCloseAtMs && nowMs > salesCloseAtMs);
   const salesNotOpenYet = Boolean(salesOpenAtMs && nowMs < salesOpenAtMs);
-  const salesOpen = Boolean(season.is_active && !salesClosed && !salesNotOpenYet);
+  // Vekalet matni bo'sh bo'lsa (yoki [TASLIK] bo'lsa), qurbonlik oqimi to'liq yopiq!
+  const salesOpen = Boolean(season.is_active && !salesClosed && !salesNotOpenYet && cleanVekaletText.length > 0);
 
   const countriesRes = await dbQuery(
     `SELECT code, flag, is_active, name, description, gallery, needs_review
@@ -245,7 +247,7 @@ export async function createKurbanOrderWithQuotaLock(input: CreateKurbanOrderInp
 
     // 1. Offer va mavsumni tekshiramiz (`FOR UPDATE` bilan)
     const offerLookup = await client.query(
-      `SELECT o.*, s.is_active AS season_active, s.sales_open_at, s.sales_close_at, s.vekalet_version,
+      `SELECT o.*, s.is_active AS season_active, s.sales_open_at, s.sales_close_at, s.vekalet_version, s.vekalet_text,
               c.is_active AS country_active, c.name AS country_name
        FROM kurban_offers o
        JOIN kurban_seasons s ON s.year = o.season_year
@@ -264,6 +266,13 @@ export async function createKurbanOrderWithQuotaLock(input: CreateKurbanOrderInp
 
     if (!offer.season_active) {
       const err: any = new Error("SEASON_INACTIVE: Qurbonlik mavsumi hali ochilmagan.");
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const cleanVekaletTextForOrder = pickLocalized(offer.vekalet_text, input.locale);
+    if (!cleanVekaletTextForOrder) {
+      const err: any = new Error("VEKALET_TEXT_MISSING: Vekalet matni tasdiqlanmaganligi sababli qurbonlik qabul qilinmaydi.");
       err.statusCode = 400;
       throw err;
     }

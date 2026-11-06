@@ -6,9 +6,17 @@ import { signWebhookPayload } from "../payments/service";
 export interface GrowthFeatureFlags {
   RECURRING_ENABLED: boolean;
   RAMADAN_AUTOPAY_ENABLED: boolean;
+  P2P_ENABLED: boolean;
+  GIFT_ENABLED: boolean;
+  NAMED_PROJECTS_ENABLED: boolean;
+  NEWSLETTER_ENABLED: boolean;
+  BANK_IMPORT_ENABLED: boolean;
+  INSTAGRAM_ENABLED: boolean;
+  API_V1_ENABLED: boolean;
+  AB_TESTS_ENABLED: boolean;
+  // Backward-compatible aliases
   P2P_CAMPAIGNS_ENABLED: boolean;
   GIFT_DONATIONS_ENABLED: boolean;
-  NAMED_PROJECTS_ENABLED: boolean;
   IMPACT_REPORTS_ENABLED: boolean;
   IYS_ENABLED: boolean;
   BANK_RECONCILIATION_ENABLED: boolean;
@@ -18,19 +26,48 @@ export interface GrowthFeatureFlags {
 }
 
 export function getGrowthFeatureFlags(): GrowthFeatureFlags {
+  const recurring = process.env.RECURRING_ENABLED === "true";
+  const ramadanAutopay = process.env.RAMADAN_AUTOPAY_ENABLED === "true";
+  const p2p = process.env.P2P_ENABLED === "true" || process.env.P2P_CAMPAIGNS_ENABLED === "true";
+  const gift = process.env.GIFT_ENABLED === "true" || process.env.GIFT_DONATIONS_ENABLED === "true";
+  const namedProjects = process.env.NAMED_PROJECTS_ENABLED === "true";
+  const newsletter = process.env.NEWSLETTER_ENABLED === "true";
+  const bankImport =
+    process.env.BANK_IMPORT_ENABLED === "true" || process.env.BANK_RECONCILIATION_ENABLED === "true";
+  const instagram =
+    process.env.INSTAGRAM_ENABLED === "true" || process.env.SOCIAL_SYNC_ENABLED === "true";
+  const apiV1 = process.env.API_V1_ENABLED === "true" || process.env.PUBLIC_API_V1_ENABLED === "true";
+  const abTests = process.env.AB_TESTS_ENABLED === "true" || process.env.AB_TESTING_ENABLED === "true";
+
   return {
-    RECURRING_ENABLED: process.env.RECURRING_ENABLED === "true",
-    RAMADAN_AUTOPAY_ENABLED: process.env.RAMADAN_AUTOPAY_ENABLED === "true",
-    P2P_CAMPAIGNS_ENABLED: process.env.P2P_CAMPAIGNS_ENABLED !== "false",
-    GIFT_DONATIONS_ENABLED: process.env.GIFT_DONATIONS_ENABLED !== "false",
-    NAMED_PROJECTS_ENABLED: process.env.NAMED_PROJECTS_ENABLED !== "false",
-    IMPACT_REPORTS_ENABLED: process.env.IMPACT_REPORTS_ENABLED !== "false",
+    RECURRING_ENABLED: recurring,
+    RAMADAN_AUTOPAY_ENABLED: ramadanAutopay,
+    P2P_ENABLED: p2p,
+    GIFT_ENABLED: gift,
+    NAMED_PROJECTS_ENABLED: namedProjects,
+    NEWSLETTER_ENABLED: newsletter,
+    BANK_IMPORT_ENABLED: bankImport,
+    INSTAGRAM_ENABLED: instagram,
+    API_V1_ENABLED: apiV1,
+    AB_TESTS_ENABLED: abTests,
+    P2P_CAMPAIGNS_ENABLED: p2p,
+    GIFT_DONATIONS_ENABLED: gift,
+    IMPACT_REPORTS_ENABLED: process.env.IMPACT_REPORTS_ENABLED === "true",
     IYS_ENABLED: process.env.IYS_ENABLED === "true",
-    BANK_RECONCILIATION_ENABLED: process.env.BANK_RECONCILIATION_ENABLED !== "false",
-    SOCIAL_SYNC_ENABLED: process.env.SOCIAL_SYNC_ENABLED === "true",
-    PUBLIC_API_V1_ENABLED: process.env.PUBLIC_API_V1_ENABLED !== "false",
-    AB_TESTING_ENABLED: process.env.AB_TESTING_ENABLED === "true"
+    BANK_RECONCILIATION_ENABLED: bankImport,
+    SOCIAL_SYNC_ENABLED: instagram,
+    PUBLIC_API_V1_ENABLED: apiV1,
+    AB_TESTING_ENABLED: abTests
   };
+}
+
+export function requireFeatureFlag(flagName: keyof GrowthFeatureFlags): void {
+  const flags = getGrowthFeatureFlags();
+  if (!flags[flagName]) {
+    const err: any = new Error(`Feature is disabled (${String(flagName)}=false)`);
+    err.statusCode = 404;
+    throw err;
+  }
 }
 
 // ============================================================================
@@ -126,10 +163,10 @@ export async function cloneKurbanSeasonForNextYear(fromYear: number, toYear: num
   await ensureSchema();
   const prevSeason = await dbQuery(`SELECT * FROM kurban_seasons WHERE year = $1 LIMIT 1`, [fromYear]);
   const vekaletText = prevSeason.rows[0]?.vekalet_text || {
-    tr: "[TASLIK] Vekalet metni",
-    uz: "[TASLIK] Vekalet matni",
-    en: "[TASLIK] Proxy text",
-    ar: "[TASLIK] نص التوكيل"
+    tr: "",
+    uz: "",
+    en: "",
+    ar: ""
   };
 
   await dbQuery(
@@ -141,7 +178,7 @@ export async function cloneKurbanSeasonForNextYear(fromYear: number, toYear: num
        sales_close_at = NULL,
        is_active = FALSE,
        updated_at = NOW()`,
-    [toYear, `v${toYear}.1-taslik`, JSON.stringify(vekaletText)]
+    [toYear, `v${toYear}.1`, JSON.stringify(vekaletText)]
   );
 
   const prevOffers = await dbQuery(
@@ -182,11 +219,7 @@ export async function createRecurringSubscription(input: {
   billingDay: number;
   cardToken?: string;
 }) {
-  if (!getGrowthFeatureFlags().RECURRING_ENABLED) {
-    const err: any = new Error("Recurring donations are currently disabled (RECURRING_ENABLED=false)");
-    err.statusCode = 403;
-    throw err;
-  }
+  requireFeatureFlag("RECURRING_ENABLED");
   if (!Number.isInteger(input.billingDay) || input.billingDay < 1 || input.billingDay > 28) {
     throw new Error("Billing day must be between 1 and 28");
   }
@@ -235,6 +268,7 @@ export async function manageRecurringSubscription(params: {
   pauseMonths?: 1 | 2 | 3;
   newCardToken?: string;
 }) {
+  requireFeatureFlag("RECURRING_ENABLED");
   await ensureSchema();
 
   if (params.action === "update_amount") {
@@ -304,6 +338,7 @@ export async function processRecurringSubscriptionWebhook(params: {
   rawBody: string;
   signatureHeader: string | null;
 }) {
+  requireFeatureFlag("RECURRING_ENABLED");
   await ensureSchema();
   const expectedSig = signWebhookPayload(params.rawBody);
   if (!params.signatureHeader || params.signatureHeader !== expectedSig) {
@@ -443,11 +478,7 @@ export async function createRamadanAutopayPlan(input: {
   lastTenMultiplier?: number;
   cardToken?: string;
 }) {
-  if (!getGrowthFeatureFlags().RAMADAN_AUTOPAY_ENABLED) {
-    const err: any = new Error("Ramadan Autopay is currently disabled (RAMADAN_AUTOPAY_ENABLED=false)");
-    err.statusCode = 403;
-    throw err;
-  }
+  requireFeatureFlag("RAMADAN_AUTOPAY_ENABLED");
   await ensureSchema();
   const year = input.year || 2027;
   const ramadanRes = await dbQuery(`SELECT * FROM cms_ramadan_settings WHERE year = $1 LIMIT 1`, [year]);
@@ -500,6 +531,7 @@ export async function createRamadanAutopayPlan(input: {
 }
 
 export async function simulateAccelerated30NightsSandbox(planExternalId: string) {
+  requireFeatureFlag("RAMADAN_AUTOPAY_ENABLED");
   await ensureSchema();
   const planRes = await dbQuery(`SELECT * FROM ramadan_autopay_plans WHERE external_id = $1::uuid LIMIT 1`, [
     planExternalId
@@ -589,6 +621,7 @@ export async function createP2pCampaign(input: {
   photoUrl?: string;
   goalAmountTry: number;
 }) {
+  requireFeatureFlag("P2P_ENABLED");
   await ensureSchema();
   const cleanSlug = input.slug.toLowerCase().replace(/[^a-z0-9-]/g, "-");
   const res = await dbQuery(
@@ -613,6 +646,7 @@ export async function createP2pCampaign(input: {
 }
 
 export async function moderateP2pCampaign(slug: string, status: "approved" | "rejected") {
+  requireFeatureFlag("P2P_ENABLED");
   await ensureSchema();
   const res = await dbQuery(
     `UPDATE p2p_campaigns SET status = $2, updated_at = NOW() WHERE slug = $1 RETURNING *`,
@@ -622,6 +656,7 @@ export async function moderateP2pCampaign(slug: string, status: "approved" | "re
 }
 
 export async function contributeToP2pCampaign(slug: string, amountTry: number) {
+  requireFeatureFlag("P2P_ENABLED");
   await ensureSchema();
   const p2pRes = await dbQuery(`SELECT * FROM p2p_campaigns WHERE slug = $1 AND status = 'approved' LIMIT 1`, [slug]);
   const p2p = p2pRes.rows[0];
@@ -663,6 +698,7 @@ export async function createGiftDonationCard(input: {
   personalMessage?: string;
   locale: Locale;
 }) {
+  requireFeatureFlag("GIFT_ENABLED");
   await ensureSchema();
   const cardToken = crypto.randomBytes(24).toString("hex");
   const res = await dbQuery(
@@ -713,6 +749,7 @@ export async function createOrUpdateNamedProject(input: {
   reportNote?: string;
   reportMediaUrl?: string;
 }) {
+  requireFeatureFlag("NAMED_PROJECTS_ENABLED");
   await ensureSchema();
   const existing = await dbQuery(`SELECT * FROM named_projects WHERE code = $1 LIMIT 1`, [input.code]);
   const prevUpdates = Array.isArray(existing.rows[0]?.updates) ? existing.rows[0].updates : [];
@@ -778,6 +815,7 @@ export async function subscribeNewsletterDoubleOptIn(input: {
   locale: Locale;
   interests: string[];
 }) {
+  requireFeatureFlag("NEWSLETTER_ENABLED");
   await ensureSchema();
   const cleanEmail = input.email.trim().toLowerCase();
   const confirmToken = crypto.randomBytes(24).toString("hex");
@@ -809,6 +847,7 @@ export async function subscribeNewsletterDoubleOptIn(input: {
 }
 
 export async function confirmNewsletterSubscription(confirmToken: string) {
+  requireFeatureFlag("NEWSLETTER_ENABLED");
   await ensureSchema();
   const iysEnabled = getGrowthFeatureFlags().IYS_ENABLED;
   const iysStatus = iysEnabled ? "iys_registered_onay" : "local_consent_only";
@@ -827,6 +866,7 @@ export async function confirmNewsletterSubscription(confirmToken: string) {
 }
 
 export async function unsubscribeNewsletterOneClick(unsubscribeToken: string) {
+  requireFeatureFlag("NEWSLETTER_ENABLED");
   await ensureSchema();
   const iysEnabled = getGrowthFeatureFlags().IYS_ENABLED;
   const iysStatus = iysEnabled ? "iys_revoked_ret" : "unsubscribed_local";
@@ -853,6 +893,7 @@ export async function generateBankTransferCode(input: {
   donorName?: string;
   campaignSlug: string;
 }) {
+  requireFeatureFlag("BANK_IMPORT_ENABLED");
   await ensureSchema();
   const rawHash = crypto
     .createHash("sha256")
@@ -875,6 +916,7 @@ export async function generateBankTransferCode(input: {
 export async function importBankStatementCsvRows(
   rows: Array<{ txDate: string; amountTry: number; senderName: string; description: string }>
 ) {
+  requireFeatureFlag("BANK_IMPORT_ENABLED");
   await ensureSchema();
   let inserted = 0;
   let duplicatesSkipped = 0;
@@ -919,20 +961,22 @@ export async function importBankStatementCsvRows(
         .rows[0]!;
       const extId = crypto.randomUUID();
       const pubNo = `EZ-BNK-${Date.now().toString().slice(-6)}-${inserted}`;
+      const isTest = process.env.DONATIONS_LIVE !== "true";
       const donIns = await dbQuery<{ id: number }>(
         `INSERT INTO donations (
            external_id, public_no, origin_host, locale, status, is_test, frequency, provider,
            amount, currency, amount_try, purpose_code, purpose_title, restricted,
            donor_name, donor_phone, donor_email, is_anonymous, kvkk_consent, want_receipt, paid_at
          ) VALUES (
-           $1::uuid, $2, 'ezanvakfi.org', 'tr', 'paid', FALSE, 'one_time', 'bank_eft',
-           $3, 'TRY', $3, $4, $5, TRUE,
-           $6, $7, $8, FALSE, TRUE, TRUE, NOW()
+           $1::uuid, $2, 'ezanvakfi.org', 'tr', 'paid', $3, 'one_time', 'bank_eft',
+           $4, 'TRY', $4, $5, $6, TRUE,
+           $7, $8, $9, FALSE, TRUE, TRUE, NOW()
          )
          RETURNING id`,
         [
           extId,
           pubNo,
+          isTest,
           r.amountTry,
           codeRow.campaign_slug.toUpperCase(),
           `Banka Havale/EFT: ${codeRow.campaign_slug} (${matchedCode})`,
@@ -962,6 +1006,7 @@ export async function issueMobileApiTokens(params: {
   donorEmail?: string;
   deviceId: string;
 }) {
+  requireFeatureFlag("API_V1_ENABLED");
   await ensureSchema();
   const accessToken = `ezm_at_${crypto.randomBytes(24).toString("hex")}`;
   const refreshToken = `ezm_rt_${crypto.randomBytes(32).toString("hex")}`;
@@ -985,6 +1030,7 @@ export async function issueMobileApiTokens(params: {
 }
 
 export async function revokeMobileDeviceTokens(deviceId: string) {
+  requireFeatureFlag("API_V1_ENABLED");
   await ensureSchema();
   const res = await dbQuery(
     `UPDATE mobile_api_tokens SET revoked_at = NOW() WHERE device_id = $1 AND revoked_at IS NULL RETURNING id`,
@@ -994,6 +1040,7 @@ export async function revokeMobileDeviceTokens(deviceId: string) {
 }
 
 export function getOpenApiV1Spec() {
+  requireFeatureFlag("API_V1_ENABLED");
   return {
     openapi: "3.1.0",
     info: {
@@ -1236,6 +1283,7 @@ export async function syncInstagramPostsCache(
     publishedAt: string;
   }>
 ) {
+  requireFeatureFlag("INSTAGRAM_ENABLED");
   await ensureSchema();
   for (const p of posts.slice(0, 6)) {
     await dbQuery(
@@ -1352,6 +1400,7 @@ export function assignAbTestPresetVariant(sessionSeed: string): {
   presetsTry: number[];
   ctaLabel: Record<Locale, string>;
 } {
+  requireFeatureFlag("AB_TESTS_ENABLED");
   const hashByte = crypto.createHash("sha256").update(sessionSeed).digest()[0] ?? 0;
   const variant: "A" | "B" = hashByte % 2 === 0 ? "A" : "B";
   return {

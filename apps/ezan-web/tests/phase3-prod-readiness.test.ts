@@ -137,7 +137,7 @@ describe("Phase 3 — Production Readiness, Security, Ramadan & 300-User Load Te
       originHost: "ezanvakfi.org",
       locale: "tr",
       frequency: "one_time",
-      items: [{ campaignSlug: "iftar", amount: 300 }],
+      items: [{ campaignSlug: "genel-bagis", amount: 300 }],
       donor: {
         fullName: "Zeynep Demir",
         isAnonymous: false,
@@ -264,6 +264,14 @@ describe("Phase 3 — Production Readiness, Security, Ramadan & 300-User Load Te
     const listVisible = await getVisibleRamadanCampaigns(2027);
     expect(listVisible.some((c) => c.slug === "fitre")).toBe(true);
     expect(listVisible.some((c) => c.slug === "fidye")).toBe(true);
+
+    await updateRamadanSettings({
+      seasonYear: 2027,
+      ramadanMode: false,
+      fitreAmountTry: null,
+      fidyeAmountTry: null,
+      iftarUnitTry: null
+    });
   });
 
   it("5. Yuklama sinovi: 300 parallel foydalanuvchi (p50, p95, p99 o'lchovi, 0 xato)", async () => {
@@ -279,7 +287,7 @@ describe("Phase 3 — Production Readiness, Security, Ramadan & 300-User Load Te
             originHost: "ezanvakfi.org",
             locale: "tr",
             frequency: "one_time",
-            items: [{ campaignSlug: "iftar", amount: 300 }],
+            items: [{ campaignSlug: "genel-bagis", amount: 300 }],
             donor: {
               fullName: `Load Tester ${idx}`,
               isAnonymous: false,

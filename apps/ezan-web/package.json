@@ -9,7 +9,8 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "db:migrate": "node src/db/migrate.mjs",
-    "db:seed": "vitest run tests/seed.runner.ts"
+    "db:seed": "npx tsx tests/seed.runner.ts",
+    "prelaunch:check": "npx tsx scripts/prelaunch-check.ts"
   },
   "dependencies": {
     "@payloadcms/db-postgres": "^3.93.0",

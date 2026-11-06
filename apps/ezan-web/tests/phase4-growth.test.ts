@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { ensureSchema } from "../src/db/schema";
 import { seedDatabase } from "../src/db/seed";
 import { signWebhookPayload } from "../src/payments/service";
@@ -36,6 +36,19 @@ import {
 } from "../src/growth/service";
 
 describe("Phase 4 — Growth, Recurring, 30-Night Ramadan, P2P, Impact, Bank CSV & Mobile API v1", () => {
+  afterAll(async () => {
+    process.env.RECURRING_ENABLED = "false";
+    process.env.RAMADAN_AUTOPAY_ENABLED = "false";
+    process.env.P2P_ENABLED = "false";
+    process.env.GIFT_ENABLED = "false";
+    process.env.NAMED_PROJECTS_ENABLED = "false";
+    process.env.NEWSLETTER_ENABLED = "false";
+    process.env.BANK_IMPORT_ENABLED = "false";
+    process.env.INSTAGRAM_ENABLED = "false";
+    process.env.API_V1_ENABLED = "false";
+    process.env.AB_TESTS_ENABLED = "false";
+  });
+
   beforeAll(async () => {
     process.env.DONATIONS_LIVE = "false";
     process.env.PAYMENT_PROVIDER = "mock";
@@ -43,6 +56,16 @@ describe("Phase 4 — Growth, Recurring, 30-Night Ramadan, P2P, Impact, Bank CSV
     process.env.IYZICO_SANDBOX_API_KEY = "sandbox_api_key_32_bytes_minimum_length_ok";
     process.env.IYZICO_SANDBOX_SECRET_KEY = "sandbox_secret_key_32_bytes_minimum_len_ok";
     process.env.EZAN_SYNC_SECRET = "sync_secret_key_at_least_32_bytes_long_2027";
+    process.env.RECURRING_ENABLED = "true";
+    process.env.RAMADAN_AUTOPAY_ENABLED = "true";
+    process.env.P2P_ENABLED = "true";
+    process.env.GIFT_ENABLED = "true";
+    process.env.NAMED_PROJECTS_ENABLED = "true";
+    process.env.NEWSLETTER_ENABLED = "true";
+    process.env.BANK_IMPORT_ENABLED = "true";
+    process.env.INSTAGRAM_ENABLED = "true";
+    process.env.API_V1_ENABLED = "true";
+    process.env.AB_TESTS_ENABLED = "true";
     await ensureSchema();
     await seedDatabase();
   });

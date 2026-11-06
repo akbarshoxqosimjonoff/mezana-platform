@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import crypto from "node:crypto";
 import { performance } from "node:perf_hooks";
 import { dbQuery, ensureSchema } from "../src/db/schema";
@@ -60,6 +60,12 @@ describe("Phase 2 — Kurban, Personal Videos, SMS/WhatsApp, Donor Cabinet & Vaq
     clientIp: "127.0.0.1"
   };
 
+  afterAll(async () => {
+    await dbQuery(`UPDATE kurban_seasons SET is_active = FALSE, vekalet_version = 'v2027.1', vekalet_text = '{"tr":"","uz":"","en":"","ar":""}'::jsonb WHERE year = 2027`);
+    await dbQuery(`UPDATE kurban_offers SET price_per_share_try = 0, quota_shares = 0, sold_shares = 0, is_active = FALSE`);
+    await dbQuery(`UPDATE kurban_countries SET is_active = FALSE`);
+  });
+
   beforeAll(async () => {
     process.env.EZAN_SYNC_SECRET =
       process.env.EZAN_SYNC_SECRET || "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
@@ -99,8 +105,8 @@ describe("Phase 2 — Kurban, Personal Videos, SMS/WhatsApp, Donor Cabinet & Vaq
     expect(fieldLogin.user.assignedCountryCode).toBe("TD");
   });
 
-  it("Step 0 & 1: hides [TASLIK] countries without price/quota on public site until admin configures them", async () => {
-    // Dastlabki seed holatida barcha davlatlar [TASLIK] va narxi 0 bo'lgani uchun saytda ko'rinmaydi
+  it("Step 0 & 1: hides countries without price/quota on public site until admin configures them", async () => {
+    // Dastlabki seed holatida barcha davlatlar va narxi 0 bo'lgani uchun saytda ko'rinmaydi
     await dbQuery(`UPDATE kurban_offers SET price_per_share_try = 0, quota_shares = 0, sold_shares = 0, is_active = FALSE`);
     const initialCatalog = await getPublicKurbanCatalog("tr");
     expect(initialCatalog.countries.length).toBe(0);
@@ -118,12 +124,12 @@ describe("Phase 2 — Kurban, Personal Videos, SMS/WhatsApp, Donor Cabinet & Vaq
       autoApproveVideos: false,
       videoRetentionDays: 365,
       originalRetentionDays: 30,
-      vekaletVersion: "v2027.1-taslik",
+      vekaletVersion: "v2027.1",
       vekaletText: {
-        tr: "[TASLIK] Kurbanımı kesmeye ve dağıtmaya Ezan Vakfı'nı vekil tayin ettim.",
-        uz: "[TASLIK] Qurbonligimni so'yishga va tarqatishga Ezan Vakfı'ni vakil qildim.",
-        en: "[TASLIK] I appoint Ezan Foundation as my proxy to slaughter and distribute my Qurbani.",
-        ar: "[TASLIK] وكلت وقف الأذان في ذبح أضحيتي وتوزيعها."
+        tr: "Kurbanımı kesmeye ve dağıtmaya Ezan Vakfı'nı vekil tayin ettim.",
+        uz: "Qurbonligimni so'yishga va tarqatishga Ezan Vakfı'ni vakil qildim.",
+        en: "I appoint Ezan Foundation as my proxy to slaughter and distribute my Qurbani.",
+        ar: "وكلت وقف الأذان في ذبح أضحيتي وتوزيعها."
       }
     });
 
@@ -544,6 +550,7 @@ describe("Phase 2 — Kurban, Personal Videos, SMS/WhatsApp, Donor Cabinet & Vaq
   it("Step 8: syncs live Qurban donations without PII/videos, verifies HMAC summary, and handles refund -> cancelled", async () => {
     const prevLive = process.env.DONATIONS_LIVE;
     process.env.DONATIONS_LIVE = "true";
+    let liveOrderExtId = "";
 
     try {
       const sheepOfferRes = await dbQuery<{ id: number }>(
@@ -560,6 +567,7 @@ describe("Phase 2 — Kurban, Personal Videos, SMS/WhatsApp, Donor Cabinet & Vaq
         donor: { name: "Gizli Bağışçı", phone: "+905440001122", email: "gizli@example.com" }
       });
 
+      liveOrderExtId = liveOrder.donation.external_id;
       const paidPayload = JSON.stringify({
         eventId: `evt-live-paid-${liveOrder.order.orderNo}`,
         donationExternalId: liveOrder.donation.external_id,
@@ -611,6 +619,9 @@ describe("Phase 2 — Kurban, Personal Videos, SMS/WhatsApp, Donor Cabinet & Vaq
       expect(refundedSyncItem?.status).toBe("refunded");
     } finally {
       process.env.DONATIONS_LIVE = prevLive;
+      if (typeof liveOrderExtId === "string" && liveOrderExtId) {
+        await dbQuery("UPDATE donations SET is_test = TRUE WHERE external_id = $1::uuid", [liveOrderExtId]);
+      }
     }
   });
 

@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(request: NextRequest) {
-  const title = request.nextUrl.searchParams.get("title") || "Ezan Vakfı – İlim ve Hayırda Öncü";
+  const ogType = request.nextUrl.searchParams.get("type") || "";
+  if (ogType === "gift" && process.env.GIFT_ENABLED !== "true" && process.env.GIFT_DONATIONS_ENABLED !== "true") {
+    return NextResponse.json({ error: "Not Found (GIFT_ENABLED=false)" }, { status: 404 });
+  }
+  const title = request.nextUrl.searchParams.get("title") || "Ezan Vakfı – Hakka Davetin Kutlu Sedası";
   const locale = request.nextUrl.searchParams.get("locale") || "tr";
   const progress = Number(request.nextUrl.searchParams.get("progress") || "0");
   const isRtl = locale === "ar";

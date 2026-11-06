@@ -1,10 +1,12 @@
-import { describe, it } from "vitest";
-import { ensureSchema } from "../src/db/schema";
-import { seedDatabase } from "../src/db/seed";
+import { seedDatabase } from '../src/db/seed';
+import { getDbPool } from '../src/db/schema';
 
-describe("Database Seed Runner", () => {
-  it("seeds initial [TASLIK] data", async () => {
-    await ensureSchema();
-    await seedDatabase();
-  });
+async function main() {
+  const res = await seedDatabase();
+  console.log('Seed completed:', res);
+  await getDbPool().end();
+}
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
 });

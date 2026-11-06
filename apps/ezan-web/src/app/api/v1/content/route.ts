@@ -1,7 +1,11 @@
+import { getGrowthFeatureFlags } from "../../../../growth/service";
 import { NextRequest, NextResponse } from "next/server";
-import { ensureSchema, dbQuery } from "@/db/schema";
+import { ensureSchema, dbQuery } from "../../../../db/schema";
 
 export async function GET(request: NextRequest) {
+  if (!getGrowthFeatureFlags().API_V1_ENABLED) {
+    return NextResponse.json({ error: "Not Found (API_V1_ENABLED=false)" }, { status: 404 });
+  }
   await ensureSchema();
   const locale = request.nextUrl.searchParams.get("locale") || "tr";
   const news = await dbQuery(

@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { ensureSchema, dbQuery } from "../db/schema";
 import type { Locale } from "../i18n/country-locale";
 
@@ -605,15 +607,34 @@ Ayrıca talebelerin sağlığı da her zaman vakıf yetkililerinin gözetimi alt
 
 Bu enstitümüzün hedefleri; İslam dininin temel değerleri ve çağdaş ilim ve fen ile uyumlu olarak toplumda yeni bir düşünce tarzının oluşmasına katkıda bulunmak, dînî ilimleri çağımızın diline uygun olarak ifade etmeye katkı sağlamaktır.
 
-Temel maksat ve hedefler:
-1. Günümüz insanını İslam düşüncesi ile tanıştırmak.
-2. Dini ilimlerin geliştirilmesi ve eğitim.
-3. İslam'ın ahlaki değerlerini gençler arasında yaygınlaştırmak.
-4. İslam dininin sosyal adalet ilkesini teşvik etmek ve yaymak.
-5. Fikir hürriyetinin ve ilmi bağımsızlığın sağlanması.
-6. Müslümanların dünyadaki yeri ve rolü hakkında araştırma yapmak.
+**Temel maksat ve hedefler:**
 
-Kısaca: İslam Düşüncesi Enstitüsü, İslam'ı çağımızda doğru bir şekilde anlamak ve anlatmak, yaymak, uygulamak ve Müslümanların genel olarak dinî, ilmî, felsefî, sosyal ve hayatın her alanındaki mühim rolüne katkıda bulunmayı gaye edinir. İslam düşüncesinin gelişmesi, Müslümanların toplumdaki konumunun güçlendirilmesi ve küresel ölçekte toplumsal istikrarın sağlanması yolunda karşılık beklemeden hizmet eder.`,
+1. **Günümüz insanını İslam düşüncesi ile tanıştırmak.** İslam felsefesi ve düşüncesinin temel ilkelerinin çağımızın meseleleri ve şartları ile uyumlu olarak öğrenilmesi gerektiğinden hareketle:
+   - İslam düşüncesinin günümüzün sosyal, siyasi ve ekonomik meseleleriyle uyumunun sağlanması;
+   - Müslüman toplumların çağdaş dünyadaki yerini ve rolünü incelemek;
+   - İslam düşüncesi adına günümüzün ilmi ve felsefi meselelerine çözüm teklifleri sunmak.
+2. **Dini ilimlerin geliştirilmesi ve eğitim.** İslam dini çerçevesinde derinlemesine ilmi araştırmalar yapmak, din eğitiminin kapsamını genişletmek ve dini bakış açısını kamuoyuna sunmak:
+   - Kur'an, hadis, fıkıh, kelam ve tasavvuf gibi İslami ilimlerin ilmi esaslara uygun olarak öğretilmesi;
+   - İslam dünyasının ilmi mirasını incelemek ve günümüze uygulamak;
+   - Müslümanlar arasında dini bilgileri yaymak ve ilmi araştırmalar yoluyla yenilikler ortaya koymak.
+3. **İslam'ın ahlaki değerlerini gençler arasında yaygınlaştırmak**, gençlere İslam ahlakını tanıtmak ve günümüz toplumunda bu değerlere göre yaşamalarını teşvik etmek:
+   - Gençler arasında dürüst, adaletli ve ahlaklı İslami hayat tarzını yaygınlaştırmak;
+   - Gençleri ilim öğrenmeye, sabırlı ve şefkatli olmaya teşvik ve davet etmek;
+   - Gençlere İslam'ın cihad anlayışının gerçek ruhunu aşılamak.
+4. **İslam dininin sosyal adalet ilkesini teşvik etmek ve yaymak.** Toplumda ortaya çıkan çeşitli problemlere İslam ahlakına uygun tavsiyelerde bulunmak ve çözümler sunmak:
+   - Toplumsal adalet ve eşitliğin sağlanması;
+   - İslam ekonomisi, aile değerleri, çevre konuları gibi alanlarda uygun çözüm önerileri sunmak.
+5. **Fikir hürriyetinin ve ilmi bağımsızlığın sağlanması.** İslam düşüncesinin hür bir şekilde gelişmesini, ilmi araştırma ve fikri faaliyetlerin hür ve bağımsız bir şekilde yürütülmesini desteklemek:
+   - İslam'da akademik özerkliğe, fikri gelişime ve her Müslümanın fikirlerini hiçbir baskı altında kalmadan hür bir fert olarak ifade etme hakkına saygı göstermek ve desteklemek;
+   - Fikirlerin ve ilmi kavramların serbestçe paylaşılabileceği bir zemin oluşturmak.
+6. **Müslümanların dünyadaki yeri ve rolü hakkında araştırma yapmak:**
+   - İslam'ın dünya görüşünün günümüz küresel meselelerine nasıl yansıdığını araştırmak;
+   - İslam'ın uluslararası ilişkilere, küresel barış ve istikrara katkısı konusunda araştırmalar yapmak;
+   - Müslümanlar ile diğer halklar arasındaki ilişkilerin iyileştirilmesine yönelik ilmi ve günümüze uygun yaklaşımlar, teklifler ortaya koymak;
+   - Müslümanların dünyadaki eski ve yüksek statülerine kavuşmalarının yollarını araştırmak;
+   - Dünyadaki bütün milletlerin İslam adaletinin gölgesinden faydalanmalarının yolları ve esasları hakkında kapsamlı araştırmalar yapmak.
+
+**Kısaca:** İslam Düşüncesi Enstitüsü, İslam'ı çağımızda doğru bir şekilde anlamak ve anlatmak, yaymak, uygulamak ve Müslümanların genel olarak dinî, ilmî, felsefî, sosyal ve hayatın her alanındaki mühim rolüne katkıda bulunmayı gaye edinir. İslam düşüncesinin gelişmesi, Müslümanların toplumdaki konumunun güçlendirilmesi ve küresel ölçekte toplumsal istikrarın sağlanması yolunda karşılık beklemeden hizmet eder.`,
     bodyUz: `Islom Tafakkuri Instituti — Islom tamadduni, tafakkuri, ilmiy va diniy merosiga tayangan holda zamonamizda dinimiz talab etgan dunyoqarash va to'g'ri ilmiy yondashuvni qaror toptirishni maqsad qilgan ilm va ta'lim muassasasidir.
 
 Asosiy maqsad va yo'nalishlar:
@@ -707,25 +728,26 @@ Bu gelenekleri devam ettirmek maksadıyla Türk ilim adamlarının ilmi mirasın
       ar: "المشاريع والأهداف المستقبلية المخططة لوقف أذان في مجالات الإغاثة الاجتماعية والمراكز الصحية والمزارع ومراكز الشباب."
     },
     bodyTr: `Ezan Vakfı yakın gelecekte faaliyet alanını daha da genişletmek maksadıyla aşağıdaki faaliyetleri hayata geçirmeyi planlamaktadır:
+
 - Sosyal korumaya ihtiyaç duyan mahalli halka ve Orta Asya'dan gelen göçmenlere maddi yardım sağlanması,
 - İstanbul'da kitapseverler için bir merkez kurulması,
 - Göçmen işçi çocuklarının eğitimine destek,
 - TİKA, Diyanet ve diğer kamu kuruluşlarıyla anlaşmalar temelinde iş birliği yapmak ve bir dizi projeyi hayata geçirmek.
 
-Sosyal yardımlar (Yıllık Hedeflerimiz):
+**Sosyal yardımlar.** Her yıl hayata geçirilen ve önümüzdeki yıllarda da güzel gelişmelere imza atacak olan sosyal yardım programlarının istikrarlı olarak devamını sağlamak maksadıyla şu yardımları sürekli olarak gerçekleştirmek (hedef):
 - Ramazan ayı boyunca her gün 1.000 kişiye iftar yemeği verilmesi,
 - 5.000 adet gıda paketi dağıtımı,
 - 500 öğrenciye burs / eğitim yardımı verilmesi,
 - 1.000 yetimin bakımı,
 - 500 adet kurban kesimi ve dağıtımı.
 
-Ticaret: Vakfımızın sadece bağış ve yardımlara bağımlı kalmaması için Orta Asyalı girişimcilerin katılımıyla Türkiye'de ticari projeler ve tesisler kurmayı planlıyoruz.
+**Ticaret.** Ekonomi her kurumu ayakta tutan omurgadır. Vakfımızın sadece bağış ve yardımlara bağımlı kalmaması için bir dizi ticari projeyi hayata geçirmek istiyoruz. Özellikle Orta Asyalı girişimcilerin katılımıyla Türkiye'de çok sayıda fabrika ve tesis kurmayı planlıyoruz.
 
-Sağlık kurumları: Başta yabancı öğrenciler olmak üzere, tedavi için Türkiye'ye gelen Orta Asyalı / Türkistanlı hastalar için uygun fiyata, kaliteli sağlık hizmeti sunacak klinikler kurmayı hedefliyoruz.
+**Sağlık kurumları.** Başta yabancı öğrenciler olmak üzere, tedavi için Türkiye'ye gelen Orta Asyalı / Türkistanlı hastalar için buradaki pahalı sağlık hizmetlerinin yükünü biraz olsun hafifletmek, hatta tamamen ortadan kaldırmak için klinikler kurmayı hedefliyoruz. Teşhis ve tedavi amacıyla bu sağlık kuruluşlarına gelenlere uygun fiyata, kaliteli sağlık hizmeti sunulması planlanıyor.
 
-Çiftlik işleri: Öncelikle öğrencilere mahalli üretim et ve yumurta ürünleri sağlamak üzere bir hayvancılık çiftliği kuruyoruz. Bu konuda ilk adımlar atıldı.
+**Çiftlik işleri.** Öncelikle öğrencilere mahalli üretim et ve yumurta ürünleri sağlamak üzere bir hayvancılık çiftliği kuruyoruz. Bu konuda ilk adımlar atıldı.
 
-Kız ve erkek öğrenciler için gençlik merkezleri: Türkiye'ye okumak için gelen kabiliyetli ve ihtiyaç sahibi lise, lisans, yüksek lisans ve doktora talebelerine yönelik hizmetleri koordine edecek gençlik merkezleri kurmayı hedefliyoruz.`,
+**Kız ve erkek öğrenciler için gençlik merkezleri.** Türkiye'ye okumak için gelen kabiliyetli ve ihtiyaç sahibi lise, lisans, yüksek lisans ve doktora talebelerine yönelik hizmetleri koordine etmek amacıyla kurulacak olan bu merkezlerde, onlara maddi destek sağlamayı, üniversitelere yerleştirmeyi ve üniversite hayatları boyunca eğitimlerine destek olmayı hedefliyoruz. Maksadımız bu merkezlerde yürütülen çalışmaları daha da yaygınlaştırmak ve uluslararası bir kuruluş olarak çok sayıda ihtiyaç sahibi öğrenciye burs ve eğitim yardımı sağlamaktır.`,
     bodyUz: `Ezan Vakfı yaqin kelajakda faoliyat doirasini kengaytirish maqsadida quyidagi istiqbolli rejalarni amalga oshirishni maqsad qilgan (bular kelajak rejalari bo'lib, amalga oshirilgan hisobotdan alohida ko'rsatiladi):
 - Ijtimoiy himoyaga muhtoj mahalliy aholi va Markaziy Osiyodan kelgan muhojirlarga moddiy ko'mak berish;
 - Istanbulda kitobxonlar markazini ochish;
@@ -759,6 +781,203 @@ Shuningdek, vaqfning moliyaviy barqarorligi uchun tijoriy korxonalar, talabalar 
 export function hasCyrillicCharacters(text: string): boolean {
   return /[\u0400-\u04FF]/.test(text);
 }
+
+const SECTION_HEADER_BY_SLUG: Record<string, string> = {
+  "azon-global-medya": "## 8. Habercilik ve Medya",
+  "mezana-akademisi": "## 9. \"Mezana\" Uluslararası Dini İlimler Akademisi",
+  "medrese": "## 10. Medrese",
+  "kadin-medresesi": "## 11. \"Mezana\" Kadın Medresesi",
+  "kuran-kursu": "## 12. Çocuklar ve Yetişkinler İçin Kur'ân Kursu",
+  "talebe-yurdu": "## 13. Talebelere Kalacak Yer Sağlama",
+  "burslar": "## 14. Geniş Kapsamlı Burslar ve Eğitim Yardımları",
+  "sosyal-kulturel": "## 15. Sosyal ve Kültürel Faaliyetler",
+  "islam-dusuncesi-enstitusu": "## 16. İslam Düşüncesi Enstitüsü",
+  "yayincilik": "## 17. Yayıncılık",
+  "gelecek-planlarimiz": "## 18. Gelecek İçin Planlarımız ve Projelerimiz"
+};
+
+export function extractCatalogProjectBodyTrFromMarkdown(markdownContent: string, projectSlug: string): string {
+  const headerPrefix = SECTION_HEADER_BY_SLUG[projectSlug];
+  if (!headerPrefix) {
+    throw new Error(`Unknown catalog project slug: ${projectSlug}`);
+  }
+  const lines = markdownContent.split(/\r?\n/);
+  let inSection = false;
+  const collected: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (!inSection) {
+      if (line.startsWith(headerPrefix)) {
+        inSection = true;
+      }
+      continue;
+    }
+    if (line.startsWith("---") || line.startsWith("## ")) {
+      break;
+    }
+    if (line.startsWith("Hedef:") || line.startsWith("Görsel")) {
+      continue;
+    }
+    if (line.startsWith("**Rakamlar") || line.startsWith("**Hesaplar")) {
+      // Skip metadata bullets at the end of sections 8..14
+      while (i + 1 < lines.length && !lines[i + 1]!.startsWith("---") && !lines[i + 1]!.startsWith("## ")) {
+        i++;
+      }
+      break;
+    }
+    const cleanedLine = line.replace(/\s*\(görsel:\s*`[^`]+`\)\s*$/g, "");
+    collected.push(cleanedLine);
+  }
+
+  return collected.join("\n").trim();
+}
+
+export function normalizeTextForCatalogDiff(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+export function loadCatalogMarkdownContent(): string {
+  const candidates = [
+    path.resolve(process.cwd(), ".import/katalog/ezan-katalog/icerik/katalog-icerik-tr.md"),
+    "/srv/data/apps/mezana-platform/apps/ezan-web/.import/katalog/ezan-katalog/icerik/katalog-icerik-tr.md",
+    "/tmp/katalog_inspect/ezan-katalog/icerik/katalog-icerik-tr.md"
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) {
+      return fs.readFileSync(p, "utf8");
+    }
+  }
+  throw new Error("katalog-icerik-tr.md not found in expected paths");
+}
+
+export function diffCatalogProjectBodyTr(
+  arg1: string,
+  arg2: string,
+  arg3?: string
+): { matches: boolean; diffCount: number; expectedNormalized: string; actualNormalized: string } {
+  const markdownContent = arg3 !== undefined ? arg1 : loadCatalogMarkdownContent();
+  const projectSlug = arg3 !== undefined ? arg2 : arg1;
+  const actualText = arg3 !== undefined ? arg3 : arg2;
+
+  const expectedRaw = extractCatalogProjectBodyTrFromMarkdown(markdownContent, projectSlug);
+  const expectedNormalized = normalizeTextForCatalogDiff(expectedRaw);
+  const actualNormalized = normalizeTextForCatalogDiff(actualText);
+  const matches = expectedNormalized === actualNormalized;
+  return {
+    matches,
+    diffCount: matches ? 0 : 1,
+    expectedNormalized,
+    actualNormalized
+  };
+}
+
+export const CATALOG_CAMPAIGNS = [
+  {
+    slug: "mezana-akademisi-egitim-bursu",
+    purposeCode: "EGITIM-BURS",
+    restricted: true,
+    coverImage: "/media/katalog/egitim/talebe-not-aliyor-800.webp",
+    sideImage: "/media/katalog/burs/talebeler-laptop-800.webp",
+    presetAmounts: [500, 1000, 2500, 5000],
+    title: {
+      tr: "Geniş Kapsamlı Burslar ve Eğitim Yardımları",
+      uz: "Keng Qamrovli Stipendiyalar va Ta'lim Yordamlari",
+      en: "Comprehensive Scholarships & Educational Aid",
+      ar: "المنح الدراسية الشاملة والمساعدات التعليمية"
+    },
+    summary: {
+      tr: "Akademi talebeleri tam burslu olarak eğitim görüyorlar. Genel olarak talebelerin üçte ikisi burslu eğitim görmekte ve sağlık giderleri vakıf tarafından karşılanmaktadır.",
+      uz: "Akademiya talabalari to'liq grant asosida tahsil oladi, umumiy hisobda talabalarning uchdan ikki qismi stipendiya bilan ta'minlangan.",
+      en: "Academy students receive full scholarships, two-thirds of all students study on scholarship, and healthcare expenses are covered by the Foundation.",
+      ar: "يدرس طلاب الأكاديمية بمنح كاملة، ويستفيد ثلثا الطلاب عموماً من المنح الدراسية مع تكفل الوقف بنفقات الرعاية الصحية."
+    },
+    description: {
+      tr: "Vakfımız faaliyetlerinde eğitim konusuna ağırlık vermiştir. Akademi talebeleri tam burslu olarak eğitim görüyorlar. Bütün eğitim giderleri vakıf tarafından karşılanıyor. Medrese, talebelerine ücretli eğitim vermekle birlikte kabiliyetli talebelere burs imkânı da sağlıyor. Ayrıca dar gelirli talebelerin eğitimlerine devam edebilmeleri için sözleşme bedelinin bir kısmı veya tamamı ödeniyor. Genel olarak talebelerin üçte ikisi burslu olarak eğitim görüyor.",
+      uz: "Vaqfimiz faoliyatida ta'limga ustuvor ahamiyat qaratilgan. Akademiya talabalari to'liq grant asosida tahsil oladi, ularning barcha o'qish va davolanish xarajatlari vaqf tomonidan qoplanadi.",
+      en: "Our Foundation prioritizes education: all Academy students receive full scholarships, and overall two-thirds of students receive financial aid and medical care support.",
+      ar: "يركز الوقف على التعليم، حيث يتمتع طلاب الأكاديمية بمنح كاملة ويحصل ثلثا الطلاب على منح دراسية ورعاية صحية شاملة."
+    }
+  },
+  {
+    slug: "ramazan-2027-iftar-ve-kumanya",
+    purposeCode: "RAMAZAN-IFTAR",
+    restricted: true,
+    coverImage: "/media/katalog/yardim/gida-kolisi-800.webp",
+    sideImage: "/media/katalog/sosyal/kazanda-yemek-hazirligi-800.webp",
+    presetAmounts: [300, 900, 1800, 3600],
+    title: {
+      tr: "Ramazan İftar Sofrası ve Gıda Paketi Destek Programı",
+      uz: "Ramazon Iftorlik Dasturxoni va Oziq-ovqat Qutisi Dasturi",
+      en: "Ramadan Iftar Meal & Food Parcel Support Program",
+      ar: "برنامج موائد إفطار رمضان والسلال الغذائية"
+    },
+    summary: {
+      tr: "Sosyal yardım programlarımız kapsamında Ramazan ayı boyunca ihtiyaç sahiplerine ve ilim talebelerine iftar yemeği ve gıda paketi ulaştırılmaktadır.",
+      uz: "Ijtimoiy yordam dasturlarimiz doirasida Ramazon oyi davomida ehtiyojmand oilalar va ilm toliblariga iftorlik hamda oziq-ovqat qutilari yetkaziladi.",
+      en: "Delivering daily Ramadan Iftar meals and food parcels to students of knowledge and families in need.",
+      ar: "تقديم وجبات الإفطار اليومية والسلال الغذائية لطلبة العلم والأسر المتعففة خلال شهر رمضان."
+    },
+    description: {
+      tr: "Her yıl hayata geçirilen sosyal yardım programlarımızın istikrarlı olarak devamını sağlamak maksadıyla Ramazan ayı boyunca ihtiyaç sahiplerine ve talebelerimize iftar yemeği verilmesi ve gıda paketi dağıtımı gerçekleştirilmektedir.",
+      uz: "Har yili amalga oshiriladigan ijtimoiy yordam dasturlarimizning barqaror davom etishi uchun Ramazon oyi davomida iftorlik dasturxonlari va oziq-ovqat paketlari tarqatiladi.",
+      en: "Ensuring the continuity of our annual social welfare programs through Ramadan Iftar meals and food parcel distributions.",
+      ar: "استمراراً لبرامج التكافل الاجتماعي السنوية، يقوم الوقف بتفطير الصائمين وتوزيع السلال الغذائية في شهر رمضان."
+    }
+  },
+  {
+    slug: "genel-bagis",
+    purposeCode: "GENEL-BAGIS",
+    restricted: false,
+    coverImage: "/media/katalog/hakkimizda/mezana-bina-dis-cephe-800.webp",
+    sideImage: "/media/katalog/egitim/sinav-salonu-genis-800.webp",
+    presetAmounts: [250, 500, 1000, 2500],
+    title: {
+      tr: "Genel Vakıf Bağışı (Hayrat ve Eğitim Hizmetleri)",
+      uz: "Umumiy Vaqf Xayriyasi (Xayrot va Ta'lim Xizmatlari)",
+      en: "General Endowment Donation (Education & Charitable Works)",
+      ar: "التبرع العام للوقف (الخيرات والخدمات التعليمية)"
+    },
+    summary: {
+      tr: "Vakfımız, Ezan'ın manasına uygun hizmet vermek, insanlığın ilmi, medeni ve manevi yönlerden yükselmesine destek olmak için hizmet vermektedir.",
+      uz: "Vaqfimiz Azonning ma'nosiga muvofiq xizmat qilish, insoniyatning ilmiy, madaniy va ma'naviy yuksalishiga ko'maklashish uchun faoliyat yuritadi.",
+      en: "Supporting Ezan Foundation's educational, scholarly, publishing, and humanitarian services where most needed.",
+      ar: "دعم أنشطة وقف أذان التعليمية والعلمية والإنسانية في المجالات الأكثر احتياجاً."
+    },
+    description: {
+      tr: "\"Bir hayra vesile olan sanki onu işlemiş gibidir.\" Vakfımız, yardıma ihtiyacı olan kabiliyetli gençlerin yüksek seviyede eğitim almasına, barınma ve ilmi çalışmalarına destek olmak üzere faaliyetlerini sürdürmektedir.",
+      uz: "\"Bir yaxshilikka sababchi bo'lgan kishi xuddi uni o'zi bajargandek savob oladi.\" Umumiy xayriyangiz vaqfning eng zarur ta'lim, yotoqxona va xayriya ehtiyojlariga yo'naltiriladi.",
+      en: "\"Whoever guides to a good deed is like the one who performs it.\" General donations support the Foundation's core educational, dormitory, and charitable operations.",
+      ar: "\"الدال على الخير كفاعله.\" تُوجَّه التبرعات العامة لدعم برامج التعليم والسكن الطلابي والخدمات الخيرية للوقف."
+    }
+  },
+  {
+    slug: "zekat-ve-fitre-fonu",
+    purposeCode: "ZEKAT-FONU",
+    restricted: true,
+    coverImage: "/media/katalog/egitim/mushaf-okuyan-talebe-800.webp",
+    sideImage: "/media/katalog/egitim/talebe-kitap-okuyor-800.webp",
+    presetAmounts: [1000, 2500, 5000, 10000],
+    title: {
+      tr: "Zekât ve Eğitim Hizmetleri Fonu",
+      uz: "Zakot va Ta'lim Xizmatlari Fondi",
+      en: "Zakat & Educational Services Fund",
+      ar: "صندوق الزكاة والخدمات التعليمية"
+    },
+    summary: {
+      tr: "Zekât emanetleriniz, İslami usullere riayet edilerek ihtiyaç sahibi ilim talebelerine ve gerçek hak sahiplerine ulaştırılır.",
+      uz: "Zakot omonatlaringiz shar'iy qoidalarga to'liq rioya qilingan holda muhtoj ilm toliblari va haqdor oilalarga yetkaziladi.",
+      en: "Your Zakat contributions are strictly segregated and distributed to eligible students of knowledge and recipients in need.",
+      ar: "تُحفظ أموال الزكاة في حساب مخصص وتُصرف في مصارفها الشرعية لطلبة العلم والمستحقين."
+    },
+    description: {
+      tr: "Vefakâr, zarif, ahlaklı, çalışkan, milli manevi değerlerine bağlı insan yetiştirmek suretiyle huzurlu bir cemiyet ortamı meydana getirmek, ancak gönüllerin merhamet ve şefkat hissi ile dolması ve en güzel tezahürü olan zekât ve eğitim hizmetleri ile mümkündür. Zira bütün bunlar kulun Rabbine karşı en mühim bir şükür borcudur.",
+      uz: "Mehr-shafqatning eng go'zal ifodasi bo'lgan zakot va ta'lim xizmatlari orqali muhtoj talabalar hamda ehtiyojmand oilalar qo'llab-quvvatlanadi.",
+      en: "Through Zakat and educational services, we support deserving students of knowledge and families in need in accordance with Islamic principles.",
+      ar: "من خلال خدمات الزكاة والتعليم يتم دعم طلبة العلم المحتاجين والأسر المتعففة وفق الضوابط الشرعية."
+    }
+  }
+];
 
 export async function getPublicProjectHeroImage(
   projectSlug: string,
@@ -1116,15 +1335,122 @@ The door to brotherhood opens with love and endures through loyalty. Our Foundat
   }
 
   // Hadislar va Bosh sahifa katalog raqamlarini cms_site_settings jadvaliga saqlash
+  const cleanSiteSettings = {
+    foundationName: {
+      tr: "Ezan Vakfı",
+      uz: "Azon Vaqfi (Ezan Vakfı)",
+      en: "Ezan Foundation",
+      ar: "وقف الأذان (Ezan Vakfı)"
+    },
+    contact: {
+      address: "",
+      phone: "",
+      email: "",
+      whatsapp: "",
+      mapEmbedUrl: ""
+    },
+    bankAccounts: [],
+    socialLinks: {
+      youtube: "",
+      instagram: "",
+      telegram: "",
+      x: "",
+      facebook: "",
+      tiktok: "",
+      whatsappChannel: ""
+    },
+    stats: [],
+    announcementBanner: {
+      enabled: false,
+      text: { tr: "", uz: "", en: "", ar: "" }
+    }
+  };
+
   await dbQuery(
     `INSERT INTO cms_site_settings (key, value, updated_at)
      VALUES
+       ('siteSettings', $3::jsonb, NOW()),
        ('catalog_quotes', $1::jsonb, NOW()),
        ('homepage_catalog_numbers', $2::jsonb, NOW())
      ON CONFLICT (key) DO UPDATE SET
        value = EXCLUDED.value,
        updated_at = NOW()`,
-    [JSON.stringify(CATALOG_HADITHS_AND_QUOTES), JSON.stringify(getHomepageCatalogNumbers())]
+    [
+      JSON.stringify(CATALOG_HADITHS_AND_QUOTES),
+      JSON.stringify(getHomepageCatalogNumbers()),
+      JSON.stringify(cleanSiteSettings)
+    ]
+  );
+
+  // Kampaniyalarni katalog matni bilan yangilash va target_amount = NULL qilish
+  await dbQuery(`ALTER TABLE cms_campaigns ALTER COLUMN target_amount DROP NOT NULL`);
+  await dbQuery(`UPDATE cms_campaigns SET target_amount = NULL`);
+  // Sinov paytida yaratilgan dublikat kampaniyalarni draft qilish
+  await dbQuery(
+    `UPDATE cms_campaigns SET status = 'draft'
+     WHERE slug NOT IN ('mezana-akademisi-egitim-bursu', 'ramazan-2027-iftar-ve-kumanya', 'genel-bagis', 'zekat-ve-fitre-fonu', 'fitre', 'fidye')`
+  );
+
+  for (const c of CATALOG_CAMPAIGNS) {
+    await dbQuery(
+      `INSERT INTO cms_campaigns (
+         slug, purpose_code, status, restricted, currency,
+         target_amount, collected_amount, preset_amounts,
+         cover_image, side_image,
+         title, summary, description, needs_review, updated_at
+       ) VALUES (
+         $1, $2, 'published', $3, 'TRY',
+         NULL, 0, $4::jsonb,
+         $5, $6,
+         $7::jsonb, $8::jsonb, $9::jsonb, '{"tr":false,"uz":true,"en":true,"ar":true}'::jsonb, NOW()
+       )
+       ON CONFLICT (slug) DO UPDATE SET
+         purpose_code = EXCLUDED.purpose_code,
+         status = 'published',
+         restricted = EXCLUDED.restricted,
+         target_amount = NULL,
+         preset_amounts = EXCLUDED.preset_amounts,
+         cover_image = EXCLUDED.cover_image,
+         side_image = EXCLUDED.side_image,
+         title = EXCLUDED.title,
+         summary = EXCLUDED.summary,
+         description = EXCLUDED.description,
+         updated_at = NOW()`,
+      [
+        c.slug,
+        c.purposeCode,
+        c.restricted,
+        JSON.stringify(c.presetAmounts),
+        c.coverImage,
+        c.sideImage,
+        JSON.stringify(c.title),
+        JSON.stringify(c.summary),
+        JSON.stringify(c.description)
+      ]
+    );
+  }
+
+  // Barcha seed yangiliklarini 'draft' holatiga o'tkazish (sodir bo'lmagan voqealar saytda chiqmasin)
+  await dbQuery(`UPDATE cms_news SET status = 'draft', updated_at = NOW()`);
+
+  // Soxta / [TASLIK] videolarni 'draft' holatiga o'tkazish
+  await dbQuery(`UPDATE cms_videos SET status = 'draft'`);
+
+  // FAQ savol-javoblaridan [TASLIK] belgisini tozalash
+  await dbQuery(`
+    UPDATE cms_faqs
+    SET
+      question = regexp_replace(question::text, '\\s*\\[TASLIK\\]', '', 'g')::jsonb,
+      answer = regexp_replace(answer::text, '\\s*\\[TASLIK\\]', '', 'g')::jsonb
+  `);
+
+  // Rais portreti (mutevelli-heyet-baskani.jpg) tasdiqlanmagani uchun needs_review = true va alt matnda ism yo'q
+  await dbQuery(
+    `UPDATE cms_media
+     SET
+       alt_text = '{"tr":"Mütevelli Heyet Başkanı otururken konuşuyor","uz":"Vasiylar kengashi raisi o''tirgan holda suhbatlashmoqda","en":"Chairman of the Board of Trustees speaking while seated","ar":"رئيس مجلس الأمناء يتحدث جالساً"}'::jsonb,
+       needs_review = '{"tr":true,"uz":true,"en":true,"ar":true}'::jsonb
+     WHERE file_key = 'rasmlar/hakkimizda/mutevelli-heyet-baskani.jpg'`
   );
 
   return {

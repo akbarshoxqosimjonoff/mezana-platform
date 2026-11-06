@@ -38,28 +38,13 @@ export async function seedDatabase(): Promise<{ seeded: boolean }> {
       ar: "وقف الأذان (Ezan Vakfı)"
     },
     contact: {
-      address: "[TASLIK] Başakşehir / İstanbul, Türkiye",
-      phone: "[TASLIK]",
-      email: "bilgi@ezanvakfi.org",
+      address: "",
+      phone: "",
+      email: "",
       whatsapp: "",
       mapEmbedUrl: ""
     },
-    bankAccounts: [
-      {
-        bankName: "Kuveyt Türk Katılım Bankası [TASLIK]",
-        branch: "Başakşehir Şubesi [TASLIK]",
-        accountHolder: "Ezan Vakfı [TASLIK]",
-        currency: "TRY",
-        iban: "TR00 0000 0000 0000 0000 0000 00 [TASLIK]"
-      },
-      {
-        bankName: "Ziraat Katılım Bankası [TASLIK]",
-        branch: "İstanbul [TASLIK]",
-        accountHolder: "Ezan Vakfı [TASLIK]",
-        currency: "USD",
-        iban: "TR00 0000 0000 0000 0000 0000 01 [TASLIK]"
-      }
-    ],
+    bankAccounts: [],
     socialLinks: {
       youtube: "",
       instagram: "",
@@ -71,12 +56,12 @@ export async function seedDatabase(): Promise<{ seeded: boolean }> {
     },
     stats: [],
     announcementBanner: {
-      enabled: true,
+      enabled: false,
       text: {
-        tr: "[TASLIK] Ezan Vakfı resmi web sitesi 1. aşama yayını. Ramazan 2027 hazırlıkları devam ediyor.",
-        uz: "[TASLIK] Azon Vaqfi rasmiy veb-sayti 1-bosqich talqini. Ramazon 2027 tayyorgarliklari davom etmoqda.",
-        en: "[TASLIK] Ezan Foundation official website Phase 1 launch. Ramadan 2027 preparations underway.",
-        ar: "[TASLIK] الموقع الرسمي لوقف الأذان - المرحلة الأولى. الاستعدادات لشهر رمضان 2027 مستمرة."
+        tr: "",
+        uz: "",
+        en: "",
+        ar: ""
       }
     }
   };
@@ -271,8 +256,8 @@ export async function seedDatabase(): Promise<{ seeded: boolean }> {
   for (const p of projects) {
     await dbQuery(
       `INSERT INTO cms_projects (slug, category, project_status, status, location_name, title, summary, content)
-       VALUES ($1, $2, $3, 'published', $4, $5::jsonb, $6::jsonb, $6::jsonb)
-       ON CONFLICT (slug) DO UPDATE SET title = EXCLUDED.title, summary = EXCLUDED.summary`,
+       VALUES ($1, $2, $3, 'draft', $4, $5::jsonb, $6::jsonb, $6::jsonb)
+       ON CONFLICT (slug) DO UPDATE SET status = 'draft', title = EXCLUDED.title, summary = EXCLUDED.summary`,
       [p.slug, p.category, p.projectStatus, p.locationName, JSON.stringify(p.title), JSON.stringify(p.summary)]
     );
   }
@@ -331,8 +316,8 @@ export async function seedDatabase(): Promise<{ seeded: boolean }> {
   for (const n of newsItems) {
     await dbQuery(
       `INSERT INTO cms_news (slug, status, category, title, excerpt, body)
-       VALUES ($1, 'published', $2, $3::jsonb, $4::jsonb, $4::jsonb)
-       ON CONFLICT (slug) DO UPDATE SET title = EXCLUDED.title, excerpt = EXCLUDED.excerpt`,
+       VALUES ($1, 'draft', $2, $3::jsonb, $4::jsonb, $4::jsonb)
+       ON CONFLICT (slug) DO UPDATE SET status = 'draft', title = EXCLUDED.title, excerpt = EXCLUDED.excerpt`,
       [n.slug, n.category, JSON.stringify(n.title), JSON.stringify(n.excerpt)]
     );
   }
@@ -349,46 +334,13 @@ export async function seedDatabase(): Promise<{ seeded: boolean }> {
         en: "Ezan Foundation Introduction — Bridge of Knowledge & Charity [TASLIK]",
         ar: "الفيلم التعريفي لوقف الأذان — جسر العلم والخير [TASLIK]"
       }
-    },
-    {
-      youtubeId: "ysz5S6PUM-U",
-      category: "education",
-      projectSlug: "mezana-akademisi-egitim-programi",
-      title: {
-        tr: "Mezana Akademisi'nde Bir Gün — Talebelerimizin Eğitim Hayatı [TASLIK]",
-        uz: "Mezana Akademiyasida bir kun — Talabalarimizning o'quv hayoti [TASLIK]",
-        en: "A Day at Mezana Academy — Student Life & Studies [TASLIK]",
-        ar: "يوم في أكاديمية ميزانا — الحياة التعليمية لطلابنا [TASLIK]"
-      }
-    },
-    {
-      youtubeId: "jNQXAC9IVRw",
-      category: "social_aid",
-      projectSlug: "sosyal-yardim-ve-kardes-aile",
-      title: {
-        tr: "Sosyal Yardım ve Kardeş Aile Çalışmalarımız [TASLIK]",
-        uz: "Ijtimoiy yordam va qardosh oila faoliyatimiz [TASLIK]",
-        en: "Our Social Aid & Family Support Operations [TASLIK]",
-        ar: "أعمال التكافل الاجتماعي ودعم الأسر المتعففة [TASLIK]"
-      }
-    },
-    {
-      youtubeId: "aqz-KE-bpKQ",
-      category: "ramadan",
-      projectSlug: "sosyal-yardim-ve-kardes-aile",
-      title: {
-        tr: "Ramazan İftar Sofraları ve Kumanya Dağıtımı [TASLIK]",
-        uz: "Ramazon iftorlik dasturxonlari va oziq-ovqat ulashish [TASLIK]",
-        en: "Ramadan Iftar Gatherings & Food Parcel Distribution [TASLIK]",
-        ar: "موائد إفطار رمضان وتوزيع السلال الغذائية [TASLIK]"
-      }
     }
   ];
 
   for (const v of videos) {
     await dbQuery(
-      `INSERT INTO cms_videos (youtube_id, category, project_slug, title, description)
-       VALUES ($1, $2, $3, $4::jsonb, $4::jsonb)`,
+      `INSERT INTO cms_videos (youtube_id, status, category, project_slug, title, description)
+       VALUES ($1, 'draft', $2, $3, $4::jsonb, $4::jsonb)`,
       [v.youtubeId, v.category, v.projectSlug, JSON.stringify(v.title)]
     );
   }
@@ -399,32 +351,32 @@ export async function seedDatabase(): Promise<{ seeded: boolean }> {
       category: "donation",
       sortOrder: 1,
       question: {
-        tr: "Bağışlarım nasıl kayıt altına alınıyor ve şeffaflık nasıl sağlanıyor? [TASLIK]",
-        uz: "Xayriyalarim qanday qayd etiladi va shaffoflik qanday ta'minlanadi? [TASLIK]",
-        en: "How are my donations recorded and how is transparency ensured? [TASLIK]",
-        ar: "كيف يتم تسجيل تبرعاتي وضمان الشفافية المالية؟ [TASLIK]"
+        tr: "Bağışlarım nasıl kayıt altına alınıyor ve şeffaflık nasıl sağlanıyor?",
+        uz: "Xayriyalarim qanday qayd etiladi va shaffoflik qanday ta'minlanadi?",
+        en: "How are my donations recorded and how is transparency ensured?",
+        ar: "كيف يتم تسجيل تبرعاتي وضمان الشفافية المالية؟"
       },
       answer: {
-        tr: "Her bağış benzersiz bir kayıt numarası (EZ-2027-...) alır, iç vakıf muhasebe sistemimizle senkronize edilir ve bağımsız denetim raporlarıyla paylaşılır. [TASLIK]",
-        uz: "Har bir xayriya unikal raqam (EZ-2027-...) oladi, ichki vaqf moliya tizimiga sinxronlanadi va shaffoflik hisobotlarida e'lon qilinadi. [TASLIK]",
-        en: "Every donation receives a unique tracking number (EZ-2027-...), syncs with our internal foundation ledger, and is published in transparency reports. [TASLIK]",
-        ar: "يحصل كل تبرع على رقم مرجعي فريد (EZ-2027-...) ويتم ربطه بنظام المحاسبة الداخلي للوقف ونشره في تقارير الشفافية. [TASLIK]"
+        tr: "Her bağış benzersiz bir kayıt numarası (EZ-...) alır, iç vakıf muhasebe sistemimizle senkronize edilir ve bağımsız denetim raporlarıyla paylaşılır.",
+        uz: "Har bir xayriya unikal raqam (EZ-...) oladi, ichki vaqf moliya tizimiga sinxronlanadi va shaffoflik hisobotlarida e'lon qilinadi.",
+        en: "Every donation receives a unique tracking number (EZ-...), syncs with our internal foundation ledger, and is published in transparency reports.",
+        ar: "يحصل كل تبرع على رقم مرجعي فريد (EZ-...) ويتم ربطه بنظام المحاسبة الداخلي للوقف ونشره في تقارير الشفافية."
       }
     },
     {
       category: "zakat",
       sortOrder: 2,
       question: {
-        tr: "Şartlı (zekât, burs) bağışlarım başka bir alanda kullanılır mı? [TASLIK]",
-        uz: "Maqsadli (zakot, stipendiya) xayriyalarim boshqa maqsadda ishlatiladimi? [TASLIK]",
-        en: "Are restricted donations (Zakat, scholarship) ever used for other purposes? [TASLIK]",
-        ar: "هل تُستخدم التبرعات المشروطة (الزكاة، المنح) في مجالات أخرى؟ [TASLIK]"
+        tr: "Şartlı (zekât, burs) bağışlarım başka bir alanda kullanılır mı?",
+        uz: "Maqsadli (zakot, stipendiya) xayriyalarim boshqa maqsadda ishlatiladimi?",
+        en: "Are restricted donations (Zakat, scholarship) ever used for other purposes?",
+        ar: "هل تُستخدم التبرعات المشروطة (الزكاة، المنح) في مجالات أخرى؟"
       },
       answer: {
-        tr: "Hayır. Şartlı bağışlar iç sistemimizde 'restricted=true' olarak ayrılır ve yalnızca belirttiğiniz amaca harcanır. [TASLIK]",
-        uz: "Yo'q. Maqsadli xayriyalar ichki tizimda 'restricted=true' sifatida alohida hisobga olinadi va faqat tanlangan maqsadga sarflanadi. [TASLIK]",
-        en: "No. Restricted donations are tracked separately with 'restricted=true' in our internal system and spent strictly on your designated purpose. [TASLIK]",
-        ar: "لا، يتم تمييز التبرعات المشروطة في نظامنا الداخلي وتُصرف حصرياً في الغرض الذي حدده المتبرع. [TASLIK]"
+        tr: "Hayır. Şartlı bağışlar iç sistemimizde 'restricted=true' olarak ayrılır ve yalnızca belirttiğiniz amaca harcanır.",
+        uz: "Yo'q. Maqsadli xayriyalar ichki tizimda 'restricted=true' sifatida alohida hisobga olinadi va faqat tanlangan maqsadga sarflanadi.",
+        en: "No. Restricted donations are tracked separately with 'restricted=true' in our internal system and spent strictly on your designated purpose.",
+        ar: "لا، يتم تمييز التبرعات المشروطة في نظامنا الداخلي وتُصرف حصرياً في الغرض الذي حدده المتبرع."
       }
     }
   ];

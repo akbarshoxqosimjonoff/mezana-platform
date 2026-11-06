@@ -354,7 +354,7 @@ export async function createDonationOrder(input: CreateDonationInput) {
   if (!isAllowedPaymentHost(input.originHost)) {
     throw new Error(`Host ruxsat etilmagan (SITE_HOSTS allowlist): ${input.originHost}`);
   }
-  if (input.frequency === "monthly" && !SITE_CONFIG.recurringEnabled) {
+  if (input.frequency === "monthly" && process.env.RECURRING_ENABLED !== "true") {
     throw new Error("Oylik (abonement) xayriya hozircha o'chirilgan (RECURRING_ENABLED=false)");
   }
   if (!Array.isArray(input.items) || input.items.length === 0) {
@@ -444,7 +444,7 @@ export async function createDonationOrder(input: CreateDonationInput) {
     locale: input.locale || "tr"
   });
 
-  const isTest = typeof input.isTestOverride === "boolean" ? input.isTestOverride : !SITE_CONFIG.donationsLive;
+  const isTest = process.env.DONATIONS_LIVE === "true" ? (typeof input.isTestOverride === "boolean" ? input.isTestOverride : false) : true;
 
   const ins = await dbQuery(
     `INSERT INTO donations (

@@ -1,8 +1,12 @@
+import { getGrowthFeatureFlags } from "../../../../growth/service";
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "node:crypto";
-import { ensureSchema, dbQuery } from "@/db/schema";
+import { ensureSchema, dbQuery } from "../../../../db/schema";
 
 export async function GET(request: NextRequest) {
+  if (!getGrowthFeatureFlags().API_V1_ENABLED) {
+    return NextResponse.json({ error: "Not Found (API_V1_ENABLED=false)" }, { status: 404 });
+  }
   await ensureSchema();
   const authHeader = request.headers.get("authorization") || "";
   if (!authHeader.startsWith("Bearer ")) {

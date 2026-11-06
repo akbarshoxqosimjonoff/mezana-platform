@@ -1,5 +1,6 @@
+import { getGrowthFeatureFlags } from "../../../../growth/service";
 import { notFound } from "next/navigation";
-import { ensureSchema, dbQuery } from "@/db/schema";
+import { ensureSchema, dbQuery } from "../../../../db/schema";
 
 export const dynamic = "force-dynamic";
 
@@ -8,6 +9,7 @@ export default async function P2pCampaignPage({
 }: {
   params: Promise<{ locale: string; slug: string }>;
 }) {
+  if (!getGrowthFeatureFlags().P2P_ENABLED) { notFound(); }
   const { locale, slug } = await params;
   await ensureSchema();
 

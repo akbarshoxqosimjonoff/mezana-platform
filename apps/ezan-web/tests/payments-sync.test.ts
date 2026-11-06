@@ -47,7 +47,7 @@ describe("1–9-bandlar: Xavfsizlik, Sinov Xayriyalari Izolyatsiyasi, Admin 2FA/
     await ensureSchema();
     await seedDatabase();
     // Bazadagi barcha eski sinov yozuvlarini is_test = TRUE qilib belgilaymiz
-    await dbQuery(`UPDATE donations SET is_test = TRUE`);
+    // Existing rows in donations are preserved untouched for audit
   });
 
   it("1-band: Env sirlari yo'q yoki 32 belgidan qisqa bo'lsa, getWebhookSecret() va getSyncSecret() xato beradi", () => {
@@ -130,6 +130,10 @@ describe("1–9-bandlar: Xavfsizlik, Sinov Xayriyalari Izolyatsiyasi, Admin 2FA/
   });
 
   it("2 va 6-qadam: Faqat is_test=false bo'lgan haqiqiy xayriya sync javobiga chiqadi va ack qilinadi", async () => {
+    const prevLive = process.env.DONATIONS_LIVE;
+    process.env.DONATIONS_LIVE = "true";
+    let createdExtId = "";
+    try {
     const liveOrder = await createDonationOrder({
       originHost: "azonvaqfi.org",
       locale: "uz",
@@ -137,7 +141,7 @@ describe("1–9-bandlar: Xavfsizlik, Sinov Xayriyalari Izolyatsiyasi, Admin 2FA/
       isTestOverride: false,
       items: [
         { campaignSlug: "mezana-akademisi-egitim-bursu", amount: 250 },
-        { campaignSlug: "ramazan-2027-iftar-ve-kumanya", amount: 300 }
+        { campaignSlug: "genel-bagis", amount: 300 }
       ],
       donor: {
         fullName: "Abdulloh Karimov",
@@ -170,8 +174,15 @@ describe("1–9-bandlar: Xavfsizlik, Sinov Xayriyalari Izolyatsiyasi, Admin 2FA/
     expect(found).toBeDefined();
     expect(found?.donor.full_name).toBe("Abdulloh Karimov");
 
+    createdExtId = liveOrder.donation.external_id;
     const ackRes = await acknowledgeSyncedDonations([liveOrder.donation.external_id]);
     expect(ackRes.acknowledged).toBe(1);
+    } finally {
+      process.env.DONATIONS_LIVE = prevLive;
+      if (createdExtId) {
+        await dbQuery("UPDATE donations SET is_test = TRUE WHERE external_id = $1::uuid", [createdExtId]);
+      }
+    }
   });
 
   it("3-band: Admin IP filtri — IP bo'lmasa, Cloudflare peer bo'lmasa yoki 127.0.0.1 bo'lsa rad etadi", () => {

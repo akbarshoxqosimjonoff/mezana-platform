@@ -845,6 +845,8 @@ ALTER TABLE cms_projects ADD COLUMN IF NOT EXISTS external_links JSONB NOT NULL 
 ALTER TABLE cms_projects ADD COLUMN IF NOT EXISTS seo_title JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE cms_projects ADD COLUMN IF NOT EXISTS seo_description JSONB NOT NULL DEFAULT '{}'::jsonb;
 
+ALTER TABLE cms_campaigns ALTER COLUMN target_amount DROP NOT NULL;
+ALTER TABLE cms_campaigns ALTER COLUMN target_amount SET DEFAULT NULL;
 ALTER TABLE cms_campaigns ADD COLUMN IF NOT EXISTS cover_image TEXT;
 ALTER TABLE cms_campaigns ADD COLUMN IF NOT EXISTS side_image TEXT;
 ALTER TABLE cms_campaigns ADD COLUMN IF NOT EXISTS gallery JSONB NOT NULL DEFAULT '[]'::jsonb;

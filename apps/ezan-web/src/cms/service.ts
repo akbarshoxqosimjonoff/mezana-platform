@@ -1,6 +1,4 @@
 import { z } from "zod";
-import { getPayload } from "payload";
-import payloadConfig from "../payload.config";
 import { dbQuery, ensureSchema } from "../db/schema";
 import { Locale } from "../i18n/country-locale";
 import { isAdminIpAllowed, verifyCloudflareAccessJwt } from "../lib/security";
@@ -26,6 +24,10 @@ export const PAYLOAD_COLLECTIONS = [
 let cachedPayloadInstance: any = null;
 export async function getPayloadRuntimeInstance() {
   if (!cachedPayloadInstance) {
+    const [{ getPayload }, { default: payloadConfig }] = await Promise.all([
+      import("payload"),
+      import("../payload.config")
+    ]);
     cachedPayloadInstance = await getPayload({ config: payloadConfig });
   }
   return cachedPayloadInstance;
@@ -93,93 +95,275 @@ async function ensureCmsSchemaOnly() {
   }
 }
 
+export function containsTaslikOrFakeData(val: unknown): boolean {
+  if (!val) return false;
+  const str = typeof val === "string" ? val : JSON.stringify(val);
+  return /\[TASLIK\]|TR00\s*0000|lorem\s+ipsum/i.test(str);
+}
+
+export function sanitizePublicField(str: string | null | undefined): string {
+  if (!str || typeof str !== "string") return "";
+  if (containsTaslikOrFakeData(str)) return "";
+  return str.trim();
+}
+
 export function pickLocalized(field: Record<string, string> | null | undefined, locale: Locale): string {
   if (!field || typeof field !== "object") return "";
-  return field[locale] || field.tr || field.en || field.uz || "";
+  const raw = field[locale] || field.tr || field.en || field.uz || "";
+  return sanitizePublicField(raw);
 }
 
 export async function getPublicSiteData(locale: Locale) {
   await ensureCmsSchemaOnly();
 
-  const [settingsRes, campaignsRes, projectsRes, newsRes, videosRes, faqsRes, qurbanRes] = await Promise.all([
-    dbQuery(`SELECT value FROM cms_site_settings WHERE key = 'siteSettings' LIMIT 1`),
+  const [
+    settingsRes,
+    campaignsRes,
+    projectsRes,
+    newsRes,
+    videosRes,
+    faqsRes,
+    qurbanRes,
+    pagesRes,
+    teamRes,
+    ramadanRes,
+    mediaRes
+  ] = await Promise.all([
+    dbQuery(`SELECT key, value FROM cms_site_settings WHERE key IN ('siteSettings', 'catalog_quotes', 'homepage_catalog_numbers')`),
     dbQuery(`SELECT * FROM cms_campaigns WHERE status = 'published' ORDER BY id ASC`),
     dbQuery(`SELECT * FROM cms_projects WHERE status = 'published' ORDER BY id ASC`),
     dbQuery(`SELECT * FROM cms_news WHERE status = 'published' ORDER BY published_at DESC, id DESC`),
-    dbQuery(`SELECT * FROM cms_videos ORDER BY id ASC`),
+    dbQuery(`SELECT * FROM cms_videos WHERE status = 'published' ORDER BY id ASC`),
     dbQuery(`SELECT * FROM cms_faqs ORDER BY sort_order ASC, id ASC`),
-    dbQuery(`SELECT * FROM kurban_countries ORDER BY id ASC`)
+    dbQuery(`SELECT * FROM kurban_countries ORDER BY id ASC`),
+    dbQuery(`SELECT * FROM cms_pages WHERE status = 'published' ORDER BY id ASC`),
+    dbQuery(`SELECT * FROM cms_team ORDER BY sort_order ASC, id ASC`),
+    dbQuery(`SELECT * FROM cms_ramadan_settings WHERE year = 2027 LIMIT 1`),
+    dbQuery(`SELECT file_key, file_url, consent_verified FROM cms_media`)
   ]);
 
-  const rawSettings = settingsRes.rows[0]?.value || {};
+  const mediaUrlMap = new Map<string, { fileUrl: string; consentVerified: boolean }>();
+  for (const m of mediaRes.rows) {
+    mediaUrlMap.set(m.file_key, { fileUrl: m.file_url, consentVerified: Boolean(m.consent_verified) });
+  }
+  const resolveCatalogMediaUrl = (fileKey: string): string => {
+    if (
+      !fileKey ||
+      fileKey === "rasmlar/egitim/kuran-kursu-cocuklar.jpg" ||
+      fileKey === "rasmlar/yardim/mezana-konteyner-cocuklar.jpg"
+    ) {
+      return "/media/katalog/egitim/mushaf-okuyan-talebe-800.webp";
+    }
+    const found = mediaUrlMap.get(fileKey);
+    if (found) {
+      if (!found.consentVerified) {
+        return "/media/katalog/egitim/mushaf-okuyan-talebe-800.webp";
+      }
+      if (found.fileUrl) {
+        return found.fileUrl;
+      }
+    }
+    const rel = fileKey.replace(/^rasmlar\//, "");
+    const dot = rel.lastIndexOf(".");
+    if (dot > 0) {
+      const stem = rel.slice(0, dot);
+      const size =
+        stem.endsWith("azon-studyo-roportaj") || stem.endsWith("kadin-medresesi-talebeler")
+          ? "480"
+          : "800";
+      return `/media/katalog/${stem}-${size}.webp`;
+    }
+    return "/media/katalog/egitim/sinav-salonu-genis-800.webp";
+  };
+
+  const settingsMap = new Map<string, any>();
+  for (const row of settingsRes.rows) {
+    settingsMap.set(row.key, row.value);
+  }
+
+  const rawSettings = settingsMap.get("siteSettings") || {};
+  const rawQuotes = Array.isArray(settingsMap.get("catalog_quotes")) ? settingsMap.get("catalog_quotes") : [];
+  const rawHomepageNumbers = settingsMap.get("homepage_catalog_numbers") || null;
+  const rawCurrentStatsObj = rawHomepageNumbers?.currentStats || rawHomepageNumbers?.vakfimizRakamlarla || null;
+  const ramadanRow = ramadanRes.rows[0] || null;
+  const fitreReady = ramadanRow && ramadanRow.fitre_amount_try != null && Number(ramadanRow.fitre_amount_try) > 0;
+
   const socialLinks = rawSettings.socialLinks || {};
   const activeSocials = Object.entries(socialLinks).filter(
-    ([, url]) => typeof url === "string" && url.trim().length > 0
+    ([, url]) => typeof url === "string" && url.trim().length > 0 && !containsTaslikOrFakeData(url)
   ) as [string, string][];
+
+  const rawContact = rawSettings.contact || {};
+  const cleanContact = {
+    address: sanitizePublicField(rawContact.address),
+    phone: sanitizePublicField(rawContact.phone),
+    email: sanitizePublicField(rawContact.email),
+    whatsapp: sanitizePublicField(rawContact.whatsapp),
+    mapEmbedUrl: sanitizePublicField(rawContact.mapEmbedUrl)
+  };
+
+  const cleanBankAccounts = (Array.isArray(rawSettings.bankAccounts) ? rawSettings.bankAccounts : []).filter(
+    (b: any) =>
+      b &&
+      sanitizePublicField(b.iban) &&
+      sanitizePublicField(b.bankName) &&
+      !containsTaslikOrFakeData(b)
+  );
+
+  const cleanStats = (Array.isArray(rawSettings.stats) ? rawSettings.stats : []).filter(
+    (st: any) => st && !containsTaslikOrFakeData(st)
+  );
+
+  const announcementText = rawSettings.announcementBanner?.enabled
+    ? pickLocalized(rawSettings.announcementBanner.text, locale)
+    : "";
 
   return {
     settings: {
       foundationName: pickLocalized(rawSettings.foundationName, locale) || "Ezan Vakfı",
-      contact: rawSettings.contact || {},
-      bankAccounts: Array.isArray(rawSettings.bankAccounts) ? rawSettings.bankAccounts : [],
+      contact: cleanContact,
+      bankAccounts: cleanBankAccounts,
       activeSocials,
-      stats: Array.isArray(rawSettings.stats) ? rawSettings.stats : [],
-      announcement: rawSettings.announcementBanner?.enabled
-        ? pickLocalized(rawSettings.announcementBanner.text, locale)
-        : ""
+      stats: cleanStats,
+      announcement: announcementText,
+      homepageCatalogNumbers: {
+        currentStats: (Array.isArray(rawCurrentStatsObj?.items)
+          ? rawCurrentStatsObj.items
+          : []
+        ).map((it: any) => ({
+          value: String(it.value || ""),
+          label: pickLocalized(it.label, locale),
+          badge: String(rawCurrentStatsObj?.asOf || pickLocalized(rawCurrentStatsObj?.badgeLabel, locale) || "Katalog verisi (2025/2026)")
+        })),
+        futureTargets: (Array.isArray(rawHomepageNumbers?.plannedTargets?.items)
+          ? rawHomepageNumbers.plannedTargets.items
+          : []
+        ).map((it: any) => ({
+          value: String(it.value || ""),
+          label: pickLocalized(it.label, locale)
+        }))
+      },
+      quotes: rawQuotes.map((q: any) => ({
+        id: q.id,
+        type: q.type,
+        source: q.sourceTr || "",
+        sourceTr: q.sourceTr || "",
+        targetPages: Array.isArray(q.targetPages) ? q.targetPages : [],
+        text: pickLocalized(q.text, locale)
+      }))
     },
-    campaigns: campaignsRes.rows.map((c) => ({
-      id: c.id,
-      slug: c.slug,
-      purposeCode: c.purpose_code,
-      restricted: Boolean(c.restricted),
-      currency: c.currency || "TRY",
-      targetAmount: Number(c.target_amount || 0),
-      collectedAmount: Number(c.collected_amount || 0),
-      presetAmounts: Array.isArray(c.preset_amounts) ? c.preset_amounts : [250, 500, 1000, 2500],
-      title: pickLocalized(c.title, locale),
-      summary: pickLocalized(c.summary, locale),
-      description: pickLocalized(c.description, locale),
-      needsReview: Boolean(c.needs_review?.[locale])
-    })),
-    projects: projectsRes.rows.map((p) => ({
-      id: p.id,
-      slug: p.slug,
-      category: p.category,
-      projectStatus: p.project_status,
-      locationName: p.location_name || "",
-      title: pickLocalized(p.title, locale),
-      summary: pickLocalized(p.summary, locale),
-      needsReview: Boolean(p.needs_review?.[locale])
-    })),
-    news: newsRes.rows.map((n) => ({
-      id: n.id,
-      slug: n.slug,
-      category: n.category,
-      publishedAt: new Date(n.published_at).toISOString().slice(0, 10),
-      title: pickLocalized(n.title, locale),
-      excerpt: pickLocalized(n.excerpt, locale),
-      needsReview: Boolean(n.needs_review?.[locale])
-    })),
-    videos: videosRes.rows.map((v) => ({
-      id: v.id,
-      youtubeId: v.youtube_id,
-      category: v.category,
-      projectSlug: v.project_slug,
-      title: pickLocalized(v.title, locale),
-      needsReview: Boolean(v.needs_review?.[locale])
-    })),
-    faqs: faqsRes.rows.map((f) => ({
-      id: f.id,
-      category: f.category,
-      question: pickLocalized(f.question, locale),
-      answer: pickLocalized(f.answer, locale)
-    })),
-    qurbanCountries: qurbanRes.rows.map((q) => ({
-      code: q.code,
-      active: Boolean(q.is_active),
-      name: pickLocalized(q.name, locale)
-    }))
+    campaigns: campaignsRes.rows
+      .filter((c) => {
+        if (containsTaslikOrFakeData(c.title) || containsTaslikOrFakeData(c.summary) || containsTaslikOrFakeData(c.description)) {
+          return false;
+        }
+        if ((c.requires_fitre_amount || c.slug === "fitre" || c.slug === "fidye") && !fitreReady) {
+          return false;
+        }
+        return Boolean(pickLocalized(c.title, locale));
+      })
+      .map((c) => ({
+        id: c.id,
+        slug: c.slug,
+        purposeCode: c.purpose_code,
+        restricted: Boolean(c.restricted),
+        currency: c.currency || "TRY",
+        targetAmount: c.target_amount != null && Number(c.target_amount) > 0 ? Number(c.target_amount) : 0,
+        collectedAmount: Number(c.collected_amount || 0),
+        presetAmounts: Array.isArray(c.preset_amounts) ? c.preset_amounts : [250, 500, 1000, 2500],
+        coverImage: c.cover_image || "",
+        sideImage: c.side_image || "",
+        title: pickLocalized(c.title, locale),
+        summary: pickLocalized(c.summary, locale),
+        description: pickLocalized(c.description, locale),
+        needsReview: Boolean(c.needs_review?.[locale])
+      })),
+    projects: projectsRes.rows
+      .filter((p) => !containsTaslikOrFakeData(p.title) && !containsTaslikOrFakeData(p.summary) && !containsTaslikOrFakeData(p.content) && Boolean(pickLocalized(p.title, locale)))
+      .map((p) => {
+        const heroKey = p.hero_image || "";
+        return {
+          id: p.id,
+          slug: p.slug,
+          category: p.category,
+          projectStatus: p.project_status,
+          projectState: p.project_state || p.project_status,
+          locationName: sanitizePublicField(p.location_name),
+          title: pickLocalized(p.title, locale),
+          summary: pickLocalized(p.summary, locale),
+          content: pickLocalized(p.content, locale),
+          contentTr: p.content?.tr || "",
+          heroImage: resolveCatalogMediaUrl(heroKey),
+          gallery: (Array.isArray(p.gallery) ? p.gallery : [])
+            .filter((g: string) => g !== "rasmlar/egitim/kuran-kursu-cocuklar.jpg" && g !== "rasmlar/yardim/mezana-konteyner-cocuklar.jpg")
+            .map((g: string) => resolveCatalogMediaUrl(g)),
+          statsBadge: (Array.isArray(p.stats_badge?.metrics) ? p.stats_badge.metrics : []).map((m: any) => ({
+            key: String(m.key || ""),
+            value: String(m.value || ""),
+            label: pickLocalized(m.label, locale)
+          })),
+          hadithQuote: p.hadith_quote?.text
+            ? `${pickLocalized(p.hadith_quote.text, locale)}${p.hadith_quote.sourceTr ? ` — ${p.hadith_quote.sourceTr}` : ""}`
+            : "",
+          supportCampaignSlug: p.support_campaign_slug || "genel-bagis",
+          externalLinks: Array.isArray(p.external_links) ? p.external_links : [],
+          needsReview: Boolean(p.needs_review?.[locale])
+        };
+      }),
+    news: newsRes.rows
+      .filter((n) => !containsTaslikOrFakeData(n.title) && !containsTaslikOrFakeData(n.excerpt) && !containsTaslikOrFakeData(n.body) && Boolean(pickLocalized(n.title, locale)))
+      .map((n) => ({
+        id: n.id,
+        slug: n.slug,
+        category: n.category,
+        publishedAt: new Date(n.published_at).toISOString().slice(0, 10),
+        title: pickLocalized(n.title, locale),
+        excerpt: pickLocalized(n.excerpt, locale),
+        needsReview: Boolean(n.needs_review?.[locale])
+      })),
+    videos: videosRes.rows
+      .filter((v) => !containsTaslikOrFakeData(v.title) && Boolean(pickLocalized(v.title, locale)))
+      .map((v) => ({
+        id: v.id,
+        youtubeId: v.youtube_id,
+        category: v.category,
+        projectSlug: v.project_slug,
+        title: pickLocalized(v.title, locale),
+        needsReview: Boolean(v.needs_review?.[locale])
+      })),
+    faqs: faqsRes.rows
+      .filter((f) => !containsTaslikOrFakeData(f.question) && !containsTaslikOrFakeData(f.answer) && Boolean(pickLocalized(f.question, locale)))
+      .map((f) => ({
+        id: f.id,
+        category: f.category,
+        question: pickLocalized(f.question, locale),
+        answer: pickLocalized(f.answer, locale)
+      })),
+    pages: pagesRes.rows
+      .filter((pg) => !containsTaslikOrFakeData(pg.title) && !containsTaslikOrFakeData(pg.body))
+      .map((pg) => ({
+        slug: pg.slug,
+        title: pickLocalized(pg.title, locale),
+        summary: pickLocalized(pg.summary, locale),
+        body: pickLocalized(pg.body, locale)
+      })),
+    team: teamRes.rows
+      .filter((t) => !containsTaslikOrFakeData(t.full_name))
+      .map((t) => ({
+        id: t.id,
+        groupType: t.group_type,
+        fullName: t.full_name,
+        photoUrl: t.photo_url,
+        roleTitle: pickLocalized(t.role_title, locale),
+        bio: pickLocalized(t.bio, locale)
+      })),
+    qurbanCountries: qurbanRes.rows
+      .filter((q) => Boolean(q.is_active) && !containsTaslikOrFakeData(q.name))
+      .map((q) => ({
+        code: q.code,
+        active: Boolean(q.is_active),
+        name: pickLocalized(q.name, locale)
+      }))
   };
 }
 
@@ -206,8 +390,16 @@ export const KurbanSeasonUpdateSchema = z.object({
   autoApproveVideos: z.boolean().optional().default(false),
   videoRetentionDays: z.number().int().min(30).max(3650).optional().default(365),
   originalRetentionDays: z.number().int().min(7).max(365).optional().default(30),
-  vekaletVersion: z.string().min(2).max(32),
-  vekaletText: LocalizedMapSchema
+  vekaletVersion: z.string().min(1).max(32).optional().default("v2027.1"),
+  vekaletText: z
+    .object({
+      tr: z.string().default(""),
+      uz: z.string().default(""),
+      en: z.string().default(""),
+      ar: z.string().default("")
+    })
+    .optional()
+    .default({ tr: "", uz: "", en: "", ar: "" })
 });
 
 export const KurbanCountryUpdateSchema = z.object({

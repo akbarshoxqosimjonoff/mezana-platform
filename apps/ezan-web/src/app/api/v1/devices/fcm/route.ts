@@ -1,7 +1,11 @@
+import { getGrowthFeatureFlags } from "../../../../../growth/service";
 import { NextRequest, NextResponse } from "next/server";
-import { ensureSchema, dbQuery } from "@/db/schema";
+import { ensureSchema, dbQuery } from "../../../../../db/schema";
 
 export async function POST(request: NextRequest) {
+  if (!getGrowthFeatureFlags().API_V1_ENABLED) {
+    return NextResponse.json({ error: "Not Found (API_V1_ENABLED=false)" }, { status: 404 });
+  }
   await ensureSchema();
   const body = await request.json();
   const deviceId = String(body.deviceId || "").trim();

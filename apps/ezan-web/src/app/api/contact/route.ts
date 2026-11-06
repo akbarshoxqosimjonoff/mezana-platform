@@ -33,6 +33,9 @@ export async function POST(req: NextRequest) {
 
   await ensureSchema();
   const kind = ["contact", "qurban_notify", "newsletter"].includes(body.kind) ? body.kind : "contact";
+  if (kind === "newsletter" && process.env.NEWSLETTER_ENABLED !== "true") {
+    return NextResponse.json({ error: "Not Found (NEWSLETTER_ENABLED=false)" }, { status: 404 });
+  }
   await dbQuery(
     `INSERT INTO contact_submissions (kind, full_name, email, phone, message, locale)
      VALUES ($1, $2, $3, $4, $5, $6)`,

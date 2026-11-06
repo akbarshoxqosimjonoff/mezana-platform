@@ -76,7 +76,9 @@ export function getTranslatedPath(currentPath: string, targetLocale: Locale): { 
 export const UI_DICTIONARY: Record<Locale, Record<string, string>> = {
   tr: {
     siteName: "Ezan Vakfı",
-    tagline: "İlim, Eğitim ve İnsani Yardım Vakfı",
+    tagline: "Hakka Davetin Kutlu Sedası",
+    heroIntro:
+      "Ezan Vakfı; insanlığın ilmi, medeni ve manevi yönlerden yükselmesine destek olmak, birlik ve beraberliği sağlamak için İstanbul'da kurulmuş ilim, eğitim ve hayır müessesesidir.",
     sandboxBanner: "Deneme Modu (Sandbox) — Gerçek ödeme alınmamaktadır (DONATIONS_LIVE=false)",
     navAbout: "Biz Kimiz",
     navActivities: "Faaliyetler",
@@ -110,7 +112,7 @@ export const UI_DICTIONARY: Record<Locale, Record<string, string>> = {
     kvkkConsent: "KVKK Aydınlatma Metni'ni okudum, kişisel verilerimin bağış süreçleri için işlenmesini kabul ediyorum.",
     payWithIyzico: "3D Secure ile Güvenli Ödeme Yap",
     zakatCalcTitle: "Zekât Hesaplama Aracı",
-    zakatRuleNote: "Diyanet tavsiyesine göre (85g altın nisap, %2.5 oran) [TASLIK]",
+    zakatRuleNote: "Diyanet tavsiyesine göre (85g altın nisap, %2.5 oran)",
     payZakatBtn: "Zekâtı Bağışla",
     qurbanSoonTitle: "Kurban Bağışı (2. Aşamada Açılacak)",
     qurbanNotifyBtn: "Açıldığında Haber Ver",
@@ -126,7 +128,9 @@ export const UI_DICTIONARY: Record<Locale, Record<string, string>> = {
   },
   uz: {
     siteName: "Azon Vaqfi (Ezan Vakfı)",
-    tagline: "Ilm-ma'rifat, ta'lim va ijtimoiy ko'mak vaqfi",
+    tagline: "Haqqa Da'vatning Qutlug' Sadosi",
+    heroIntro:
+      "Ezan Vakfı (Azon Vaqfi) — insoniyatning ilmiy, madaniy va ma'naviy yuksalishiga ko'maklashish, birlik va hamjihatlikni mustahkamlash maqsadida Istanbulda ta'sis etilgan ilm, ta'lim va xayriya muassasasidir.",
     sandboxBanner: "Sinov rejimi (Sandbox) — Haqiqiy to'lov yechilmaydi (DONATIONS_LIVE=false)",
     navAbout: "Biz kimiz",
     navActivities: "Faoliyat",
@@ -160,7 +164,7 @@ export const UI_DICTIONARY: Record<Locale, Record<string, string>> = {
     kvkkConsent: "KVKK ma'lumotnomasini o'qidim va shaxsiy ma'lumotlarim qayta ishlanishiga roziman.",
     payWithIyzico: "3D Secure orqali xavfsiz to'lash",
     zakatCalcTitle: "Zakot kalkulyatori",
-    zakatRuleNote: "Diyanet tavsiyasi bo'yicha (nisob 85 g oltin, 2.5%) [TASLIK]",
+    zakatRuleNote: "Diyanet tavsiyasi bo'yicha (nisob 85 g oltin, 2.5%)",
     payZakatBtn: "Zakotni to'lash",
     qurbanSoonTitle: "Qurbonlik xayriyasi (2-bosqichda ishga tushadi)",
     qurbanNotifyBtn: "Ochilganda xabar bering",
@@ -176,7 +180,9 @@ export const UI_DICTIONARY: Record<Locale, Record<string, string>> = {
   },
   en: {
     siteName: "Ezan Foundation",
-    tagline: "Endowment for Knowledge, Education & Humanitarian Aid",
+    tagline: "The Blessed Call to Truth",
+    heroIntro:
+      "Founded in Istanbul in 2023, Ezan Foundation is an educational, scholarly, and charitable endowment dedicated to advancing knowledge, unity, and human dignity.",
     sandboxBanner: "Sandbox Test Mode — No real payments are charged (DONATIONS_LIVE=false)",
     navAbout: "Who We Are",
     navActivities: "Activities",
@@ -210,7 +216,7 @@ export const UI_DICTIONARY: Record<Locale, Record<string, string>> = {
     kvkkConsent: "I have read the KVKK Privacy Notice and consent to the processing of my personal data.",
     payWithIyzico: "Pay Securely with 3D Secure",
     zakatCalcTitle: "Zakat Calculator",
-    zakatRuleNote: "According to Diyanet guidelines (Nisab 85g gold, 2.5% rate) [TASLIK]",
+    zakatRuleNote: "According to Diyanet guidelines (Nisab 85g gold, 2.5% rate)",
     payZakatBtn: "Pay Zakat Now",
     qurbanSoonTitle: "Qurban Campaign (Coming in Phase 2)",
     qurbanNotifyBtn: "Notify Me When Open",
@@ -226,7 +232,9 @@ export const UI_DICTIONARY: Record<Locale, Record<string, string>> = {
   },
   ar: {
     siteName: "وقف الأذان (Ezan Vakfı)",
-    tagline: "وقف العلم والتعليم والتكافل الاجتماعي",
+    tagline: "النداء المبارك للدعوة إلى الحق",
+    heroIntro:
+      "تأسس وقف الأذان في إسطنبول عام ٢٠٢٣ للمساهمة في النهضة العلمية والتربوية والإنسانية وترسيخ الأخوة والتكافل.",
     sandboxBanner: "وضع التجربة (Sandbox) — لا يتم خصم مبالغ حقيقية (DONATIONS_LIVE=false)",
     navAbout: "من نحن",
     navActivities: "أنشطتنا",
@@ -260,7 +268,7 @@ export const UI_DICTIONARY: Record<Locale, Record<string, string>> = {
     kvkkConsent: "لقد قرأت إشعار حماية البيانات الشخصية (KVKK) وأوافق على معالجة بياناتي لإتمام التبرع.",
     payWithIyzico: "الدفع الآمن عبر 3D Secure",
     zakatCalcTitle: "حاسبة الزكاة الشرعية",
-    zakatRuleNote: "وفق توصيات رئاسة الشؤون الدينية التركية (النصاب 85 غرام ذهب، النسبة 2.5%) [TASLIK]",
+    zakatRuleNote: "وفق توصيات رئاسة الشؤون الدينية التركية (النصاب 85 غرام ذهب، النسبة 2.5%)",
     payZakatBtn: "إخراج الزكاة الآن",
     qurbanSoonTitle: "مشروع الأضاحي (سيتم افتتاحه في المرحلة الثانية)",
     qurbanNotifyBtn: "أعلمني عند الافتتاح",

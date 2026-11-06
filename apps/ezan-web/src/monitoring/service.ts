@@ -325,31 +325,33 @@ export async function updateRamadanSettings(input: {
         '{"tr":"Zekat Fonu","uz":"Zakot fondi","en":"Zakat Fund","ar":"صندوق الزكاة"}'::jsonb,
         '{"tr":"İlim talebeleri ve gerçek ihtiyaç sahiplerine ulaştırılan zekat fonu.","uz":"Ilm toliblari va haqiqiy muhtojlarga yetkaziladigan zakot fondi.","en":"Zakat fund delivered to students of knowledge and those in need.","ar":"صندوق الزكاة لطلبة العلم والمستحقين."}'::jsonb,
         '{"tr":"Zekat bağışlarınız şer''i ölçülere uygun olarak ayrı fonda tutulur.","uz":"Zakot xayriyalaringiz shar''iy mezonlarga muvofiq alohida fondda saqlanadi.","en":"Your Zakat donations are kept in a dedicated restricted fund.","ar":"تحفظ أموال الزكاة في صندوق مخصص."}'::jsonb),
-       ('iftar', 'IFTAR', 'published', TRUE, 0, '[300,900,3000,9000]'::jsonb,
+       ('iftar', 'IFTAR', $5, TRUE, NULL, '[300,900,3000,9000]'::jsonb,
         '{"tr":"Ramazan İftar Sofrası","uz":"Ramazon iftorlik dasturxoni","en":"Ramadan Iftar Meal","ar":"إفطار صائم"}'::jsonb,
         '{"tr":"Talebeler ve ihtiyaç sahipleri için sıcak iftar ikramı.","uz":"Talabalar va muhtojlar uchun issiq iftorlik tuhfasi.","en":"Hot Iftar meals for students and people in need.","ar":"وجبات إفطار ساخنة للطلاب والمحتاجين."}'::jsonb,
         '{"tr":"Ramazan boyunca her akşam iftar sofraları kuruyoruz.","uz":"Ramazon davomida har oqshom iftorlik dasturxonlari yozamiz.","en":"Setting up Iftar tables every evening throughout Ramadan.","ar":"نقيم موائد الإفطار كل مساء في رمضان."}'::jsonb),
-       ('fitre', 'FITRE', $1, TRUE, 0, $2::jsonb,
+       ('fitre', 'FITRE', $1, TRUE, NULL, $2::jsonb,
         '{"tr":"Fitre (Sadaka-i Fıtır)","uz":"Fitr sadaqasi","en":"Fitrah (Zakat al-Fitr)","ar":"صدقة الفطر"}'::jsonb,
         '{"tr":"Ramazan Bayramı namazından önce ihtiyaç sahiplerine ulaştırılan vacip sadaka.","uz":"Ramazon hayiti namozidan oldin muhtojlarga yetkaziladigan vojib sadaqa.","en":"Obligatory charity delivered to those in need before Eid al-Fitr prayer.","ar":"صدقة واجبة توصل للمحتاجين قبل صلاة عيد الفطر."}'::jsonb,
         '{"tr":"Fitre bağışlarınız gerçek ihtiyaç sahiplerine ve ilim talebelerine ulaştırılır.","uz":"Fitr xayriyalaringiz haqiqiy muhtojlarga va ilm toliblariga yetkaziladi.","en":"Your Fitrah donations reach genuine people in need and students of knowledge.","ar":"تصل صدقات الفطر إلى مستحقيها وطلبة العلم."}'::jsonb),
-       ('fidye', 'FIDYE', $3, TRUE, 0, $4::jsonb,
+       ('fidye', 'FIDYE', $3, TRUE, NULL, $4::jsonb,
         '{"tr":"Oruç Fidyesi","uz":"Ro''za fidyasi","en":"Fasting Fidyah","ar":"فدية الصيام"}'::jsonb,
         '{"tr":"Sağlık sebebiyle oruç tutamayanların her gün için verdiği fidye.","uz":"Salomatlik sababli ro''za tutolmaydiganlarning har bir kun uchun beradigan fidyasi.","en":"Compensation per day for those permanently unable to fast due to health.","ar":"فدية عن كل يوم لمن لا يطيق الصيام دائماً."}'::jsonb,
         '{"tr":"Fidye bağışlarınız ihtiyaç sahiplerinin sofrasına aş olur.","uz":"Fidya xayriyalaringiz muhtojlar dasturxoniga taom bo''ladi.","en":"Your Fidyah donations provide meals for those in need.","ar":"تبرعات الفدية تطعم المحتاجين."}'::jsonb),
-       ('ramazan-genel', 'RAMAZAN_GENEL', 'published', TRUE, 0, '[250,500,1000,2500]'::jsonb,
+       ('ramazan-genel', 'RAMAZAN_GENEL', $5, TRUE, NULL, '[250,500,1000,2500]'::jsonb,
         '{"tr":"Ramazan Genel Bağış","uz":"Ramazon umumiy xayriya","en":"Ramadan General Donation","ar":"تبرع رمضان العام"}'::jsonb,
         '{"tr":"Ramazan ayı boyunca yürütülen tüm hayır ve eğitim faaliyetlerine destek.","uz":"Ramazon oyi davomida olib boriladigan barcha xayriya va ta''lim faoliyatlariga ko''mak.","en":"Support all charity and educational activities throughout Ramadan.","ar":"دعم جميع الأنشطة الخيرية والتعليمية طوال شهر رمضان."}'::jsonb,
         '{"tr":"Ramazan bereketini ihtiyaç sahipleri ve talebelerle paylaşıyoruz.","uz":"Ramazon barakasini muhtojlar va talabalar bilan baham ko''ramiz.","en":"Sharing the blessings of Ramadan with students and people in need.","ar":"نتشارك بركة رمضان مع الطلاب والمحتاجين."}'::jsonb)
      ON CONFLICT (slug) DO UPDATE SET
        status = EXCLUDED.status,
+       target_amount = NULL,
        preset_amounts = EXCLUDED.preset_amounts,
        updated_at = NOW()`,
     [
-      fitreVal ? "published" : "draft",
+      input.ramadanMode && fitreVal ? "published" : "draft",
       JSON.stringify(fitreVal ? [fitreVal, fitreVal * 2, fitreVal * 4, fitreVal * 30] : []),
-      fidyeVal ? "published" : "draft",
-      JSON.stringify(fidyeVal ? [fidyeVal, fidyeVal * 10, fidyeVal * 30] : [])
+      input.ramadanMode && fidyeVal ? "published" : "draft",
+      JSON.stringify(fidyeVal ? [fidyeVal, fidyeVal * 10, fidyeVal * 30] : []),
+      input.ramadanMode ? "published" : "draft"
     ]
   );
 

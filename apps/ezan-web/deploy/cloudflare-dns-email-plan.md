@@ -24,7 +24,10 @@ Asosiy `@ezanvakfi.org` korporativ pochtasiga (MX) zarar yetkazmaslik uchun barc
 | --- | --- | --- | --- |
 | `TXT` | `notify.ezanvakfi.org` | `v=spf1 include:amazonses.com include:_spf.resend.com ~all` | DNS Only |
 | `CNAME` | `resend._domainkey.notify` | `<DKIM_VALUE_FROM_PROVIDER>` | DNS Only |
-| `TXT` | `_dmarc.notify` | `v=DMARC1; p=quarantine; rua=mailto:dmarc@ezanvakfi.org; pct=100; adkim=s; aspf=s` | DNS Only |
+| `TXT` | `_dmarc.notify` (Dastlabki 2 hafta — monitoring) | `v=DMARC1; p=none; rua=mailto:dmarc@ezanvakfi.org; pct=100; adkim=s; aspf=s` | DNS Only |
+| `TXT` | `_dmarc.notify` (2 haftalik `rua` hisobotlari tekshirilgach) | `v=DMARC1; p=quarantine; rua=mailto:dmarc@ezanvakfi.org; pct=100; adkim=s; aspf=s` | DNS Only |
+
+> **DMARC bosqichma-bosqich o'tish qoidasi**: Domen ishga tushgach dastlabki **2 hafta** davomida DMARC siyosati `p=none` holatida turadi va `dmarc@ezanvakfi.org` manziliga keluvchi agregat hisobotlar (`rua`) tahlil qilinadi. SPF va DKIM 100% tekshiruvdan o'tayotgani tasdiqlangandan keyin `p=quarantine` ga o'tkaziladi.
 
 ## 3. Cloudflare SSL/TLS va WAF Qoidalari
 - **SSL/TLS**: `Full (Strict)` + Cloudflare Origin Certificate (`/etc/ssl/cloudflare/ezan-origin.pem`).

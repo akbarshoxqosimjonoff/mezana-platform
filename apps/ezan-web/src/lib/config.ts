@@ -45,13 +45,18 @@ export const SITE_CONFIG = {
     return process.env.RECURRING_ENABLED === "true";
   },
 
+  // Bülten / Newsletter obunasi bayrog'i (sukut bo'yicha o'chiq)
+  get newsletterEnabled(): boolean {
+    return process.env.NEWSLETTER_ENABLED === "true";
+  },
+
   // 3. Zakot kalkulyatori diniy hisoblash qoidalari (bitta config faylda)
   zakatRules: {
     goldNisabGrams: Number(process.env.ZAKAT_NISAB_GOLD_GRAMS || 85),
     silverNisabGrams: Number(process.env.ZAKAT_NISAB_SILVER_GRAMS || 595),
     ratePercent: Number(process.env.ZAKAT_RATE_PERCENT || 2.5),
     rateFraction: Number(process.env.ZAKAT_RATE_PERCENT || 2.5) / 100,
-    diyanetDisclaimerTag: "[TASLIK] Diyanet İşleri Başkanlığı tavsiyasi (85g oltin nisobi, 2.5%)"
+    diyanetDisclaimerTag: "Diyanet İşleri Başkanlığı tavsiyasi (85g oltin nisobi, 2.5%)"
   },
 
   // 4. Ichki vaqf tizimi (Mezana) bilan sinxronlash xaritalash jadvali
@@ -84,7 +89,7 @@ export const SITE_CONFIG = {
     titleEn: "DONATION RECEIPT CERTIFICATE (BAĞIŞ ALINDI BELGESİ)",
     titleAr: "إيصال استلام تبرع (BAĞIŞ ALINDI BELGESİ)",
     foundationName: "EZAN VAKFI",
-    footnoteTr: "Bu belge bilgilendirme amacıyla elektronik ortamda düzenlenmiştir. [TASLIK]",
+    footnoteTr: "Bu belge bilgilendirme amacıyla elektronik ortamda düzenlenmiştir.",
     includeTaxExemptionClause: false
   },
 

@@ -1,8 +1,12 @@
+import { getGrowthFeatureFlags } from "../../../../../growth/service";
 import { NextRequest, NextResponse } from "next/server";
-import { createDonationOrder } from "@/payments/service";
-import { checkRateLimit } from "@/lib/security";
+import { createDonationOrder } from "../../../../../payments/service";
+import { checkRateLimit } from "../../../../../lib/security";
 
 export async function POST(request: NextRequest) {
+  if (!getGrowthFeatureFlags().API_V1_ENABLED) {
+    return NextResponse.json({ error: "Not Found (API_V1_ENABLED=false)" }, { status: 404 });
+  }
   const ip = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for") || "127.0.0.1";
   const rl = checkRateLimit(`v1_checkout:${ip}`, 10, 60_000);
   if (!rl.allowed) {

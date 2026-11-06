@@ -77,7 +77,9 @@ export async function runKatalogMediaImport(options?: {
   const appRoot = path.resolve(__dirname, "..");
   const manifestPath = path.join(appRoot, "src/cms/katalog-manifest.json");
   const sourceRoot =
-    options?.sourceRootDir || path.join(appRoot, ".import/katalog/ezan-katalog");
+    options?.sourceRootDir && fs.existsSync(options.sourceRootDir)
+      ? options.sourceRootDir
+      : path.join(appRoot, ".import/katalog/ezan-katalog");
   const publicDir = options?.publicDir || path.join(appRoot, "public");
 
   const manifest: KatalogManifestItem[] = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
@@ -118,7 +120,8 @@ export async function runKatalogMediaImport(options?: {
     const focal = FOCAL_POINTS[item.fayl] || { x: 0.5, y: 0.5 };
     const consentVerified = !CHILDREN_CONSENT_REQUIRED.has(item.fayl);
     const isStock = item.turi === "stok";
-    const needsReview = isStock
+    const isUnverifiedPortrait = item.fayl === "rasmlar/hakkimizda/mutevelli-heyet-baskani.jpg";
+    const needsReview = isStock || isUnverifiedPortrait
       ? { tr: true, uz: true, en: true, ar: true }
       : { tr: false, uz: false, en: true, ar: true };
     const altText = buildFourLocaleAlt(item);
@@ -166,7 +169,10 @@ export async function runKatalogMediaImport(options?: {
     };
     let blurDataUrl = "data:image/webp;base64,UklGRiQAAABXRUJQVlA4IBgAAAAwAQCdASoUAA0AAUAmJaQAA3AA/vuUAAA=";
     let finalWidth = item.en || 800;
-    let finalHeight = item.boy || 600;
+    let finalHeight =
+      item.fayl === "rasmlar/yayincilik/usulus-sunan-kitaplari.jpg"
+        ? Math.floor((item.boy || 602) * 0.92)
+        : item.boy || 600;
 
     if (fs.existsSync(srcFile) && !options?.skipRasterEncoding) {
       let basePipeline = sharp(srcFile).rotate(); // auto-orient & strip EXIF
