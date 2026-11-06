@@ -278,11 +278,34 @@ CREATE TABLE IF NOT EXISTS fx_rates_cache (
 );
 `;
 
+let schemaPromise: Promise<void> | null = null;
+
 export async function ensureSchema(): Promise<void> {
-  const pool = getDbPool();
-  await pool.query(SCHEMA_SQL);
-  await pool.query(EXTRA_SCHEMA_SQL);
-  await pool.query(PHASE2_KURBAN_SCHEMA_SQL);
+  if (schemaPromise) {
+    return schemaPromise;
+  }
+  schemaPromise = (async () => {
+    const pool = getDbPool();
+    const client = await pool.connect();
+    try {
+      await client.query("SELECT pg_advisory_lock(20270516)");
+      await client.query(SCHEMA_SQL);
+      await client.query(EXTRA_SCHEMA_SQL);
+      await client.query(PHASE2_KURBAN_SCHEMA_SQL);
+      await client.query(PHASE3_4_5_SCHEMA_SQL);
+    } finally {
+      try {
+        await client.query("SELECT pg_advisory_unlock(20270516)");
+      } catch {
+        // ignore unlock error
+      }
+      client.release();
+    }
+  })().catch((err) => {
+    schemaPromise = null;
+    throw err;
+  });
+  return schemaPromise;
 }
 
 export const EXTRA_SCHEMA_SQL = `
@@ -563,3 +586,256 @@ CREATE TABLE IF NOT EXISTS kvkk_deletion_requests (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 `;
+
+export const PHASE3_4_5_SCHEMA_SQL = `
+CREATE SEQUENCE IF NOT EXISTS donation_public_no_seq START 10000;
+SELECT setval('donation_public_no_seq', GREATEST((SELECT COALESCE(MAX(id), 0) + 10000 FROM donations), nextval('donation_public_no_seq')));
+
+-- 3-bosqich: Kuzatuv, Zaxira, Analitika va Ramazon sozlamalari
+CREATE TABLE IF NOT EXISTS worker_heartbeats (
+  worker_name VARCHAR(80) PRIMARY KEY,
+  status VARCHAR(24) NOT NULL DEFAULT 'ok',
+  details JSONB NOT NULL DEFAULT '{}'::jsonb,
+  last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS backup_logs (
+  id SERIAL PRIMARY KEY,
+  file_name VARCHAR(200) NOT NULL,
+  size_bytes BIGINT NOT NULL DEFAULT 0,
+  sha256_hash VARCHAR(128),
+  status VARCHAR(24) NOT NULL DEFAULT 'ok',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS analytics_funnel_events (
+  id SERIAL PRIMARY KEY,
+  event_name VARCHAR(60) NOT NULL,
+  locale VARCHAR(10) NOT NULL DEFAULT 'tr',
+  host VARCHAR(120) NOT NULL DEFAULT 'ezanvakfi.org',
+  campaign_slug VARCHAR(120),
+  ab_variant VARCHAR(32),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS cms_ramadan_settings (
+  year INTEGER PRIMARY KEY,
+  fitre_amount_try NUMERIC(12,2),
+  fidye_amount_try NUMERIC(12,2),
+  ramadan_start_date DATE,
+  ramadan_end_date DATE,
+  ramadan_mode_active BOOLEAN NOT NULL DEFAULT FALSE,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 4-bosqich: Oylik takroriy xayriya, Ramazon 30 kecha, P2P, Sovg'a, Nomli loyihalar, Ta'sir hisobotlari, IYS, Bank, Mobil API
+CREATE TABLE IF NOT EXISTS recurring_subscriptions (
+  id SERIAL PRIMARY KEY,
+  external_id UUID NOT NULL UNIQUE,
+  donor_phone VARCHAR(60),
+  donor_email VARCHAR(160),
+  donor_name VARCHAR(200) NOT NULL DEFAULT 'Bağışçı',
+  campaign_slug VARCHAR(120) NOT NULL DEFAULT 'genel-bagis',
+  amount_try NUMERIC(14,2) NOT NULL CHECK (amount_try > 0),
+  billing_day INTEGER NOT NULL CHECK (billing_day BETWEEN 1 AND 28),
+  card_token VARCHAR(160) NOT NULL,
+  provider_sub_ref VARCHAR(160),
+  status VARCHAR(24) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused', 'cancelled')),
+  pause_until DATE,
+  dunning_attempt INTEGER NOT NULL DEFAULT 0,
+  next_retry_at TIMESTAMPTZ,
+  last_charged_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS ramadan_autopay_plans (
+  id SERIAL PRIMARY KEY,
+  external_id UUID NOT NULL UNIQUE,
+  year INTEGER NOT NULL DEFAULT 2027,
+  donor_phone VARCHAR(60),
+  donor_email VARCHAR(160),
+  donor_name VARCHAR(200) NOT NULL DEFAULT 'Bağışçı',
+  campaign_slug VARCHAR(120) NOT NULL DEFAULT 'ramazan-genel',
+  nightly_amount_try NUMERIC(14,2) NOT NULL CHECK (nightly_amount_try > 0),
+  last_ten_multiplier NUMERIC(6,2) NOT NULL DEFAULT 1,
+  card_token VARCHAR(160) NOT NULL,
+  status VARCHAR(24) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused', 'completed', 'cancelled')),
+  nights_schedule JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS p2p_campaigns (
+  id SERIAL PRIMARY KEY,
+  slug VARCHAR(120) NOT NULL UNIQUE,
+  owner_phone VARCHAR(60),
+  owner_email VARCHAR(160),
+  owner_name VARCHAR(160) NOT NULL,
+  target_campaign_slug VARCHAR(120) NOT NULL,
+  title JSONB NOT NULL DEFAULT '{}'::jsonb,
+  story JSONB NOT NULL DEFAULT '{}'::jsonb,
+  photo_url TEXT,
+  goal_amount_try NUMERIC(14,2) NOT NULL CHECK (goal_amount_try > 0),
+  collected_amount_try NUMERIC(14,2) NOT NULL DEFAULT 0,
+  status VARCHAR(24) NOT NULL DEFAULT 'pending_review' CHECK (status IN ('pending_review', 'approved', 'rejected', 'reported')),
+  report_count INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS gift_donations (
+  id SERIAL PRIMARY KEY,
+  donation_id INTEGER REFERENCES donations(id) ON DELETE CASCADE,
+  occasion VARCHAR(32) NOT NULL CHECK (occasion IN ('birthday', 'wedding', 'condolence', 'eid')),
+  sender_name VARCHAR(160) NOT NULL,
+  recipient_name VARCHAR(160) NOT NULL,
+  recipient_email VARCHAR(160),
+  recipient_phone VARCHAR(60),
+  personal_message TEXT,
+  locale VARCHAR(10) NOT NULL DEFAULT 'tr',
+  card_token VARCHAR(64) NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS named_projects (
+  id SERIAL PRIMARY KEY,
+  code VARCHAR(60) NOT NULL UNIQUE,
+  category VARCHAR(60) NOT NULL DEFAULT 'water_well',
+  dedication_name VARCHAR(200) NOT NULL,
+  sponsor_phone VARCHAR(60),
+  sponsor_email VARCHAR(160),
+  target_amount_try NUMERIC(14,2) NOT NULL CHECK (target_amount_try > 0),
+  funded_amount_try NUMERIC(14,2) NOT NULL DEFAULT 0,
+  stage VARCHAR(24) NOT NULL DEFAULT 'collecting' CHECK (stage IN ('collecting', 'building', 'completed')),
+  title JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updates JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS project_updates (
+  id SERIAL PRIMARY KEY,
+  project_slug VARCHAR(120) NOT NULL,
+  title JSONB NOT NULL DEFAULT '{}'::jsonb,
+  body JSONB NOT NULL DEFAULT '{}'::jsonb,
+  media_urls JSONB NOT NULL DEFAULT '[]'::jsonb,
+  notified_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS annual_reports (
+  year INTEGER PRIMARY KEY,
+  is_published BOOLEAN NOT NULL DEFAULT FALSE,
+  total_donations_try NUMERIC(14,2) NOT NULL DEFAULT 0,
+  allocation_breakdown JSONB NOT NULL DEFAULT '[]'::jsonb,
+  kurban_stats JSONB NOT NULL DEFAULT '{}'::jsonb,
+  projects_map JSONB NOT NULL DEFAULT '[]'::jsonb,
+  auditor_pdf_url TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS newsletter_subscribers (
+  id SERIAL PRIMARY KEY,
+  email VARCHAR(160) NOT NULL UNIQUE,
+  phone VARCHAR(60),
+  locale VARCHAR(10) NOT NULL DEFAULT 'tr',
+  interests JSONB NOT NULL DEFAULT '[]'::jsonb,
+  status VARCHAR(24) NOT NULL DEFAULT 'pending_confirm' CHECK (status IN ('pending_confirm', 'confirmed', 'unsubscribed')),
+  confirm_token VARCHAR(64) NOT NULL UNIQUE,
+  unsubscribe_token VARCHAR(64) NOT NULL UNIQUE,
+  iys_status VARCHAR(32) NOT NULL DEFAULT 'not_synced',
+  iys_consent_at TIMESTAMPTZ,
+  last_donation_at TIMESTAMPTZ,
+  is_monthly_donor BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS bank_transfer_codes (
+  code VARCHAR(16) PRIMARY KEY,
+  donor_phone VARCHAR(60),
+  donor_email VARCHAR(160),
+  donor_name VARCHAR(160),
+  campaign_slug VARCHAR(120) NOT NULL DEFAULT 'genel-bagis',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS bank_statement_rows (
+  id SERIAL PRIMARY KEY,
+  row_hash VARCHAR(64) NOT NULL UNIQUE,
+  tx_date DATE NOT NULL,
+  amount_try NUMERIC(14,2) NOT NULL CHECK (amount_try > 0),
+  currency VARCHAR(10) NOT NULL DEFAULT 'TRY',
+  sender_name VARCHAR(200),
+  description TEXT,
+  matched_code VARCHAR(16),
+  matched_donation_id INTEGER REFERENCES donations(id),
+  status VARCHAR(24) NOT NULL DEFAULT 'unmatched' CHECK (status IN ('matched', 'unmatched', 'confirmed')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS social_posts_cache (
+  id SERIAL PRIMARY KEY,
+  platform VARCHAR(24) NOT NULL CHECK (platform IN ('youtube', 'instagram')),
+  external_id VARCHAR(120) NOT NULL UNIQUE,
+  url TEXT NOT NULL,
+  caption TEXT,
+  thumbnail_url TEXT,
+  published_at TIMESTAMPTZ,
+  token_expires_at TIMESTAMPTZ,
+  fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS mobile_api_tokens (
+  id SERIAL PRIMARY KEY,
+  donor_phone VARCHAR(60),
+  donor_email VARCHAR(160),
+  device_id VARCHAR(120) NOT NULL,
+  access_token_hash VARCHAR(128) NOT NULL UNIQUE,
+  refresh_token_hash VARCHAR(128) NOT NULL UNIQUE,
+  fcm_push_token TEXT,
+  revoked_at TIMESTAMPTZ,
+  access_expires_at TIMESTAMPTZ NOT NULL,
+  refresh_expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 5-bosqich: Katalog media va loyiha ustunlari
+ALTER TABLE cms_media ADD COLUMN IF NOT EXISTS file_key VARCHAR(200) UNIQUE;
+ALTER TABLE cms_media ADD COLUMN IF NOT EXISTS source VARCHAR(60) NOT NULL DEFAULT 'katalog-2025';
+ALTER TABLE cms_media ADD COLUMN IF NOT EXISTS catalog_page INTEGER;
+ALTER TABLE cms_media ADD COLUMN IF NOT EXISTS kind VARCHAR(32) NOT NULL DEFAULT 'foto';
+ALTER TABLE cms_media ADD COLUMN IF NOT EXISTS is_stock BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE cms_media ADD COLUMN IF NOT EXISTS consent_verified BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE cms_media ADD COLUMN IF NOT EXISTS notes TEXT;
+ALTER TABLE cms_media ADD COLUMN IF NOT EXISTS width INTEGER;
+ALTER TABLE cms_media ADD COLUMN IF NOT EXISTS height INTEGER;
+ALTER TABLE cms_media ADD COLUMN IF NOT EXISTS focal_point VARCHAR(32) NOT NULL DEFAULT 'center';
+ALTER TABLE cms_media ADD COLUMN IF NOT EXISTS usages JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE cms_media ADD COLUMN IF NOT EXISTS variants JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE cms_media ADD COLUMN IF NOT EXISTS needs_review JSONB NOT NULL DEFAULT '{"tr":false,"uz":true,"en":true,"ar":true}'::jsonb;
+
+ALTER TABLE cms_projects DROP CONSTRAINT IF EXISTS cms_projects_status_check;
+ALTER TABLE cms_projects ADD COLUMN IF NOT EXISTS project_state VARCHAR(32) NOT NULL DEFAULT 'davom etmoqda';
+ALTER TABLE cms_projects ADD COLUMN IF NOT EXISTS hero_image TEXT;
+ALTER TABLE cms_projects ADD COLUMN IF NOT EXISTS banner_image TEXT;
+ALTER TABLE cms_projects ADD COLUMN IF NOT EXISTS mobile_hero_image TEXT;
+ALTER TABLE cms_projects ADD COLUMN IF NOT EXISTS illustration_image TEXT;
+ALTER TABLE cms_projects ADD COLUMN IF NOT EXISTS gallery JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE cms_projects ADD COLUMN IF NOT EXISTS stats_badge JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE cms_projects ADD COLUMN IF NOT EXISTS stats_as_of VARCHAR(40);
+ALTER TABLE cms_projects ADD COLUMN IF NOT EXISTS hadith_quote JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE cms_projects ADD COLUMN IF NOT EXISTS hadith_arabic_original TEXT;
+ALTER TABLE cms_projects ADD COLUMN IF NOT EXISTS support_campaign_slug VARCHAR(120);
+ALTER TABLE cms_projects ADD COLUMN IF NOT EXISTS external_links JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE cms_projects ADD COLUMN IF NOT EXISTS seo_title JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE cms_projects ADD COLUMN IF NOT EXISTS seo_description JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+ALTER TABLE cms_campaigns ADD COLUMN IF NOT EXISTS cover_image TEXT;
+ALTER TABLE cms_campaigns ADD COLUMN IF NOT EXISTS side_image TEXT;
+ALTER TABLE cms_campaigns ADD COLUMN IF NOT EXISTS gallery JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE cms_campaigns ADD COLUMN IF NOT EXISTS is_ramadan BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE cms_campaigns ADD COLUMN IF NOT EXISTS requires_fitre_amount BOOLEAN NOT NULL DEFAULT FALSE;
+`;
+
