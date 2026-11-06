@@ -827,7 +827,9 @@ ALTER TABLE cms_media ADD COLUMN IF NOT EXISTS variants JSONB NOT NULL DEFAULT '
 ALTER TABLE cms_media ADD COLUMN IF NOT EXISTS blur_data_url TEXT;
 ALTER TABLE cms_media ADD COLUMN IF NOT EXISTS needs_review JSONB NOT NULL DEFAULT '{"tr":false,"uz":true,"en":true,"ar":true}'::jsonb;
 
+ALTER TABLE cms_pages ADD COLUMN IF NOT EXISTS body JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE cms_projects DROP CONSTRAINT IF EXISTS cms_projects_status_check;
+ALTER TABLE cms_projects DROP CONSTRAINT IF EXISTS cms_projects_project_status_check;
 ALTER TABLE cms_projects ADD COLUMN IF NOT EXISTS project_state VARCHAR(32) NOT NULL DEFAULT 'davom etmoqda';
 ALTER TABLE cms_projects ADD COLUMN IF NOT EXISTS hero_image TEXT;
 ALTER TABLE cms_projects ADD COLUMN IF NOT EXISTS banner_image TEXT;

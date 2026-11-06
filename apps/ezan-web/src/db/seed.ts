@@ -1,5 +1,6 @@
 import { hashPasswordScrypt } from "../lib/security";
 import { dbQuery, ensureSchema } from "./schema";
+import { seedCatalogContentIntoCms } from "../cms/katalog-seed";
 
 export async function seedDatabase(): Promise<{ seeded: boolean }> {
   await ensureSchema();
@@ -551,6 +552,9 @@ export async function seedDatabase(): Promise<{ seeded: boolean }> {
       [c.code]
     );
   }
+
+  // 5-bosqich: 2025 Katalog kontentini (12 loyiha, 13 kampaniya, 7 videodarars va sahifalar) 4 tilda yuklash
+  await seedCatalogContentIntoCms();
 
   return { seeded: true };
 }

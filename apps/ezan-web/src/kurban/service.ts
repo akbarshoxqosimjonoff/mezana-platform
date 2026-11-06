@@ -326,7 +326,7 @@ export async function createKurbanOrderWithQuotaLock(input: CreateKurbanOrderInp
     const notes = `${shareCount} hisse (${offer.animal_type})`;
     const isTest = !SITE_CONFIG.donationsLive;
 
-    const suffix = crypto.randomBytes(3).toString("hex").toUpperCase();
+    const suffix = crypto.randomBytes(6).toString("hex").toUpperCase();
     const publicNo = `EZ-${offer.season_year}-KRB-${suffix}`;
     const orderNo = `KRB-${offer.season_year}-${suffix}`;
     const donorName = (input.donor?.name || input.shares[0]!.ownerName).trim();

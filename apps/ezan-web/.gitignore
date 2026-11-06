@@ -9,3 +9,8 @@ playwright-report/
 .local-s3/
 test-results/
 playwright-report/
+
+# Phase 5 catalog raw imports & generated variants
+.import/
+*.zip
+public/media/katalog/

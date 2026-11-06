@@ -1,0 +1,818 @@
+[
+  {
+    "fayl": "rasmlar/brand/ezan-vakfi-logo.svg",
+    "katalog_sahifa": null,
+    "en": null,
+    "boy": null,
+    "turi": "logo",
+    "alt_tr": "Ezan Vakfı logosu",
+    "alt_uz": "Ezan Vakfı logotipi",
+    "ishlatish": [
+      "header:logo",
+      "footer:logo",
+      "favicon:manba",
+      "makbuz-pdf:logo"
+    ],
+    "izoh": "Asl logotipdan chizilgan vektor (SVG)."
+  },
+  {
+    "fayl": "rasmlar/brand/besmele-hat.png",
+    "katalog_sahifa": 1,
+    "en": 283,
+    "boy": 263,
+    "turi": "dekor",
+    "alt_tr": "Altın renkli Besmele hattı",
+    "alt_uz": "Oltin rangli Basmala xattoti",
+    "ishlatish": [
+      "home:hadis-blok-bezak",
+      "hakkimizda:giris-bezak"
+    ],
+    "izoh": "Shaffof fon (PNG). Faqat bezak sifatida, matn o'rnida emas."
+  },
+  {
+    "fayl": "rasmlar/hakkimizda/mutevelli-heyet-baskani.jpg",
+    "katalog_sahifa": 2,
+    "en": 1151,
+    "boy": 805,
+    "turi": "foto",
+    "alt_tr": "Mütevelli Heyet Başkanı oturmuş, konuşurken",
+    "alt_uz": "Mütevelli Heyet raisi o'tirgan holda gapirmoqda",
+    "ishlatish": [
+      "yonetim:mutevelli-mesaj-portre",
+      "hakkimizda:baskanin-mesaji"
+    ],
+    "izoh": "Katalogda \"Mütevelli Heyet Başkanının Mesajı\" sahifasida. Bu Üstad Mübeşşir Ahmed ekanini vaqf tasdiqlasin, ungacha alt matnda ism yozilmaydi."
+  },
+  {
+    "fayl": "rasmlar/hakkimizda/mezana-bina-dis-cephe.jpg",
+    "katalog_sahifa": 5,
+    "en": 1032,
+    "boy": 1153,
+    "turi": "foto",
+    "alt_tr": "Mezana binasının dış cephesi",
+    "alt_uz": "Mezana binosining tashqi ko'rinishi",
+    "ishlatish": [
+      "hakkimizda:hero",
+      "iletisim:bina-foto",
+      "projeler/mezana-akademisi:galeri"
+    ],
+    "izoh": "Misyon/vizyon sahifasidan."
+  },
+  {
+    "fayl": "rasmlar/hakkimizda/mezana-kursusunde-konusmaci.jpg",
+    "katalog_sahifa": 6,
+    "en": 672,
+    "boy": 521,
+    "turi": "foto",
+    "alt_tr": "Mezana kürsüsünde konuşma yapan bir konuşmacı",
+    "alt_uz": "Mezana minbarida nutq so'zlayotgan ma'ruzachi",
+    "ishlatish": [
+      "hakkimizda:hakka-davet-bolumu",
+      "haberler:varsayilan-kapak"
+    ],
+    "izoh": "Asl faylda 90° burilgan edi, to'g'rilandi."
+  },
+  {
+    "fayl": "rasmlar/egitim/talebe-kitap-okuyor.jpg",
+    "katalog_sahifa": 9,
+    "en": 789,
+    "boy": 1314,
+    "turi": "foto",
+    "alt_tr": "Geleneksel kıyafetli talebe kitap okuyor",
+    "alt_uz": "An'anaviy kiyimdagi talaba kitob o'qimoqda",
+    "ishlatish": [
+      "hakkimizda:amaclarimiz",
+      "projeler/medrese:galeri"
+    ],
+    "izoh": ""
+  },
+  {
+    "fayl": "rasmlar/egitim/sinav-salonu-genis.jpg",
+    "katalog_sahifa": 10,
+    "en": 2872,
+    "boy": 2181,
+    "turi": "foto",
+    "alt_tr": "Geniş salonda sınav yazan talebeler",
+    "alt_uz": "Keng zalda imtihon yozayotgan talabalar",
+    "ishlatish": [
+      "home:hero",
+      "projeler:hero",
+      "og:varsayilan"
+    ],
+    "izoh": "Eng katta (2872x2181) foto. Bosh sahifa hero uchun 16:9 kesiladi."
+  },
+  {
+    "fayl": "rasmlar/egitim/talebe-not-aliyor.jpg",
+    "katalog_sahifa": 11,
+    "en": 954,
+    "boy": 1474,
+    "turi": "foto",
+    "alt_tr": "Gözlüklü talebe derste not alıyor",
+    "alt_uz": "Ko'zoynakli talaba darsda yozmoqda",
+    "ishlatish": [
+      "projeler/burslar:hero",
+      "bagis/egitim-bursu:kapak"
+    ],
+    "izoh": ""
+  },
+  {
+    "fayl": "rasmlar/medya/dijital-dunya-kapak.jpg",
+    "katalog_sahifa": 12,
+    "en": 2872,
+    "boy": 2189,
+    "turi": "stok",
+    "alt_tr": "Dijital ekranlarla çevrili dünya görseli",
+    "alt_uz": "Raqamli ekranlar bilan o'ralgan yer shari tasviri",
+    "ishlatish": [
+      "projeler/azon-global-medya:hero-arka-plan"
+    ],
+    "izoh": "Stok bo'lishi mumkin. Faqat fon sifatida."
+  },
+  {
+    "fayl": "rasmlar/medya/azon-studyo-roportaj.jpg",
+    "katalog_sahifa": 13,
+    "en": 730,
+    "boy": 1002,
+    "turi": "foto",
+    "alt_tr": "Azon stüdyosunda iki kişilik röportaj çekimi",
+    "alt_uz": "Azon studiyasida ikki kishilik suhbat yozuvi",
+    "ishlatish": [
+      "projeler/azon-global-medya:galeri",
+      "videolar:hero"
+    ],
+    "izoh": ""
+  },
+  {
+    "fayl": "rasmlar/medya/azon-tv-ders-yayini.jpg",
+    "katalog_sahifa": 14,
+    "en": 904,
+    "boy": 564,
+    "turi": "foto",
+    "alt_tr": "Azon TV yayınında ders anlatan hoca",
+    "alt_uz": "Azon TV efirida dars o'tayotgan ustoz",
+    "ishlatish": [
+      "projeler/azon-global-medya:galeri"
+    ],
+    "izoh": "Ekrandan olingan kadr, logotipi bor."
+  },
+  {
+    "fayl": "rasmlar/medya/azon-studyo-sohbet.jpg",
+    "katalog_sahifa": 14,
+    "en": 892,
+    "boy": 556,
+    "turi": "foto",
+    "alt_tr": "Kütüphane dekorlu stüdyoda sohbet çekimi",
+    "alt_uz": "Kutubxona bezakli studiyada suhbat yozuvi",
+    "ishlatish": [
+      "projeler/azon-global-medya:galeri"
+    ],
+    "izoh": ""
+  },
+  {
+    "fayl": "rasmlar/medya/azon-tv-canli-yayin.jpg",
+    "katalog_sahifa": 14,
+    "en": 906,
+    "boy": 564,
+    "turi": "foto",
+    "alt_tr": "Azon TV canlı yayın ekranı",
+    "alt_uz": "Azon TV jonli efir ekrani",
+    "ishlatish": [
+      "projeler/azon-global-medya:galeri"
+    ],
+    "izoh": "Ekran kadri."
+  },
+  {
+    "fayl": "rasmlar/medya/azon-global-web-laptop.png",
+    "katalog_sahifa": 14,
+    "en": 1307,
+    "boy": 784,
+    "turi": "skrinshot",
+    "alt_tr": "Dizüstü bilgisayarda azon.global sitesi",
+    "alt_uz": "Noutbukda azon.global sayti",
+    "ishlatish": [
+      "projeler/azon-global-medya:web-sitesi-blok"
+    ],
+    "izoh": "Shaffof fonli mockup. Ishlatsa bo'ladi."
+  },
+  {
+    "fayl": "rasmlar/arxiv/ss-youtube-azon-global.jpg",
+    "katalog_sahifa": 15,
+    "en": 496,
+    "boy": 295,
+    "turi": "skrinshot",
+    "alt_tr": "",
+    "alt_uz": "",
+    "ishlatish": [],
+    "izoh": "Ijtimoiy tarmoq skrinshoti. Saytda ishlatilmaydi, o'rniga havola."
+  },
+  {
+    "fayl": "rasmlar/arxiv/ss-youtube-azon-global-rus.jpg",
+    "katalog_sahifa": 15,
+    "en": 496,
+    "boy": 266,
+    "turi": "skrinshot",
+    "alt_tr": "",
+    "alt_uz": "",
+    "ishlatish": [],
+    "izoh": "Ishlatilmaydi."
+  },
+  {
+    "fayl": "rasmlar/arxiv/ss-facebook-azon-global.jpg",
+    "katalog_sahifa": 15,
+    "en": 496,
+    "boy": 297,
+    "turi": "skrinshot",
+    "alt_tr": "",
+    "alt_uz": "",
+    "ishlatish": [],
+    "izoh": "Ishlatilmaydi."
+  },
+  {
+    "fayl": "rasmlar/arxiv/ss-instagram-azon-global.jpg",
+    "katalog_sahifa": 15,
+    "en": 495,
+    "boy": 295,
+    "turi": "skrinshot",
+    "alt_tr": "",
+    "alt_uz": "",
+    "ishlatish": [],
+    "izoh": "Ishlatilmaydi."
+  },
+  {
+    "fayl": "rasmlar/arxiv/ss-telegram-azon-fm.jpg",
+    "katalog_sahifa": 15,
+    "en": 500,
+    "boy": 280,
+    "turi": "skrinshot",
+    "alt_tr": "",
+    "alt_uz": "",
+    "ishlatish": [],
+    "izoh": "Ishlatilmaydi."
+  },
+  {
+    "fayl": "rasmlar/arxiv/ss-x-azon-global.jpg",
+    "katalog_sahifa": 15,
+    "en": 494,
+    "boy": 296,
+    "turi": "skrinshot",
+    "alt_tr": "",
+    "alt_uz": "",
+    "ishlatish": [],
+    "izoh": "Ishlatilmaydi."
+  },
+  {
+    "fayl": "rasmlar/egitim/akademi-talebeleri-derste.jpg",
+    "katalog_sahifa": 16,
+    "en": 990,
+    "boy": 1280,
+    "turi": "foto",
+    "alt_tr": "Mezana Akademisi talebeleri derste not alıyor",
+    "alt_uz": "Mezana Akademiyasi talabalari darsda",
+    "ishlatish": [
+      "projeler/mezana-akademisi:hero"
+    ],
+    "izoh": ""
+  },
+  {
+    "fayl": "rasmlar/egitim/hanimlar-ders-dinliyor.jpg",
+    "katalog_sahifa": 17,
+    "en": 703,
+    "boy": 893,
+    "turi": "foto",
+    "alt_tr": "Başörtülü hanımlar bir derste",
+    "alt_uz": "Ro'mol o'ragan ayollar darsda",
+    "ishlatish": [
+      "projeler/kadin-medresesi:galeri"
+    ],
+    "izoh": ""
+  },
+  {
+    "fayl": "rasmlar/egitim/medrese-toplu-foto.jpg",
+    "katalog_sahifa": 18,
+    "en": 1037,
+    "boy": 1327,
+    "turi": "foto",
+    "alt_tr": "Medrese talebeleri ve hocaları toplu fotoğraf",
+    "alt_uz": "Madrasa talabalari va ustozlari umumiy suratda",
+    "ishlatish": [
+      "projeler/medrese:hero",
+      "home:rakamlarla-vakif-arka-plan"
+    ],
+    "izoh": ""
+  },
+  {
+    "fayl": "rasmlar/egitim/cocuk-camide-dua.jpg",
+    "katalog_sahifa": 19,
+    "en": 1211,
+    "boy": 1338,
+    "turi": "stok",
+    "alt_tr": "Camide dua eden çocuk",
+    "alt_uz": "Masjidda duo qilayotgan bola",
+    "ishlatish": [
+      "projeler/kuran-kursu:illustrasyon"
+    ],
+    "izoh": "Stok/AI bo'lishi mumkin."
+  },
+  {
+    "fayl": "rasmlar/egitim/medrese-seminer-salonu.jpg",
+    "katalog_sahifa": 19,
+    "en": 1394,
+    "boy": 476,
+    "turi": "foto",
+    "alt_tr": "Seminer salonunda talebeler",
+    "alt_uz": "Seminar zalidagi talabalar",
+    "ishlatish": [
+      "projeler/medrese:banner-genis"
+    ],
+    "izoh": "Tor uzun format (1394x476), faqat banner."
+  },
+  {
+    "fayl": "rasmlar/egitim/kadin-medresesi-talebeler.jpg",
+    "katalog_sahifa": 20,
+    "en": 667,
+    "boy": 829,
+    "turi": "foto",
+    "alt_tr": "Yeşil başörtülü kız talebeler arkadan",
+    "alt_uz": "Yashil ro'molli qiz talabalar orqadan",
+    "ishlatish": [
+      "projeler/kadin-medresesi:hero"
+    ],
+    "izoh": "Yuzlar ko'rinmaydi, xavfsiz."
+  },
+  {
+    "fayl": "rasmlar/egitim/kiz-talebe-kuran-okuyor.jpg",
+    "katalog_sahifa": 21,
+    "en": 1396,
+    "boy": 1319,
+    "turi": "stok",
+    "alt_tr": "Pencere önünde Kur'an okuyan genç kız",
+    "alt_uz": "Deraza oldida Qur'on o'qiyotgan qiz",
+    "ishlatish": [
+      "projeler/kadin-medresesi:illustrasyon"
+    ],
+    "izoh": "Stok/AI bo'lishi mumkin."
+  },
+  {
+    "fayl": "rasmlar/egitim/rahle-ve-tesbih.jpg",
+    "katalog_sahifa": 21,
+    "en": 1367,
+    "boy": 1282,
+    "turi": "stok",
+    "alt_tr": "Rahle üzerinde Kur'an ve tesbih",
+    "alt_uz": "Lavh ustida Qur'on va tasbeh",
+    "ishlatish": [
+      "bagis/genel-bagis:kapak"
+    ],
+    "izoh": "Stok bo'lishi mumkin."
+  },
+  {
+    "fayl": "rasmlar/egitim/kuran-kursu-cocuklar.jpg",
+    "katalog_sahifa": 22,
+    "en": 672,
+    "boy": 835,
+    "turi": "foto",
+    "alt_tr": "Kur'an kursunda çalışan çocuklar",
+    "alt_uz": "Qur'on kursida shug'ullanayotgan bolalar",
+    "ishlatish": [
+      "projeler/kuran-kursu:hero"
+    ],
+    "izoh": "Bolalar bor: rozilik tekshirilsin."
+  },
+  {
+    "fayl": "rasmlar/egitim/mushaf-okuyan-talebe.jpg",
+    "katalog_sahifa": 23,
+    "en": 1368,
+    "boy": 1289,
+    "turi": "foto",
+    "alt_tr": "Mushaf okuyan talebenin omzundan görünüm",
+    "alt_uz": "Mushaf o'qiyotgan talaba yelkasi ortidan",
+    "ishlatish": [
+      "projeler/kuran-kursu:galeri",
+      "bagis:hero"
+    ],
+    "izoh": ""
+  },
+  {
+    "fayl": "rasmlar/egitim/talebeler-mushaf-uzerinde.jpg",
+    "katalog_sahifa": 23,
+    "en": 1858,
+    "boy": 1276,
+    "turi": "foto",
+    "alt_tr": "Mavi kıyafetli talebeler mushaf üzerinde çalışıyor",
+    "alt_uz": "Ko'k kiyimli talabalar mushaf ustida",
+    "ishlatish": [
+      "projeler/kuran-kursu:galeri",
+      "home:faaliyet-karti"
+    ],
+    "izoh": ""
+  },
+  {
+    "fayl": "rasmlar/egitim/sinav-salonu-dikey.jpg",
+    "katalog_sahifa": 24,
+    "en": 1037,
+    "boy": 1170,
+    "turi": "foto",
+    "alt_tr": "Sınav salonu, dikey kadraj",
+    "alt_uz": "Imtihon zali, vertikal kadr",
+    "ishlatish": [
+      "projeler/talebe-yurdu:mobil-hero"
+    ],
+    "izoh": "010-006 ning vertikal kesimi. Mobil uchun."
+  },
+  {
+    "fayl": "rasmlar/yurt/talebeler-yemekte.jpg",
+    "katalog_sahifa": 25,
+    "en": 1610,
+    "boy": 1172,
+    "turi": "foto",
+    "alt_tr": "Talebeler birlikte yemek yiyor",
+    "alt_uz": "Talabalar birga ovqatlanmoqda",
+    "ishlatish": [
+      "projeler/talebe-yurdu:hero"
+    ],
+    "izoh": ""
+  },
+  {
+    "fayl": "rasmlar/egitim/sinifta-talebeler.jpg",
+    "katalog_sahifa": 25,
+    "en": 912,
+    "boy": 450,
+    "turi": "foto",
+    "alt_tr": "Sınıfta ders çalışan talebeler",
+    "alt_uz": "Sinfda dars qilayotgan talabalar",
+    "ishlatish": [
+      "projeler/medrese:galeri"
+    ],
+    "izoh": ""
+  },
+  {
+    "fayl": "rasmlar/yurt/yurt-odasi-ranza.jpg",
+    "katalog_sahifa": 25,
+    "en": 912,
+    "boy": 1172,
+    "turi": "foto",
+    "alt_tr": "Yurt odasında ranza",
+    "alt_uz": "Yotoqxona xonasidagi ikki qavatli karavot",
+    "ishlatish": [
+      "projeler/talebe-yurdu:galeri"
+    ],
+    "izoh": ""
+  },
+  {
+    "fayl": "rasmlar/egitim/derste-cekim.jpg",
+    "katalog_sahifa": 25,
+    "en": 912,
+    "boy": 444,
+    "turi": "foto",
+    "alt_tr": "Sınıfta ders ve kamera çekimi",
+    "alt_uz": "Sinfda dars va kamera bilan suratga olish",
+    "ishlatish": [
+      "projeler/mezana-akademisi:galeri"
+    ],
+    "izoh": ""
+  },
+  {
+    "fayl": "rasmlar/yardim/mezana-konteyner-cocuklar.jpg",
+    "katalog_sahifa": 26,
+    "en": 778,
+    "boy": 960,
+    "turi": "foto",
+    "alt_tr": "Mezana konteynerleri önünde çocuklar ve bir büyük",
+    "alt_uz": "Mezana konteynerlari oldida bolalar va kattalar",
+    "ishlatish": [
+      "projeler/burslar:galeri"
+    ],
+    "izoh": "Joy va vaziyat katalogda yozilmagan, vaqf aniqlasin. Bolalar bor: rozilik."
+  },
+  {
+    "fayl": "rasmlar/burs/talebe-koli-tasiyor.jpg",
+    "katalog_sahifa": 27,
+    "en": 1094,
+    "boy": 1680,
+    "turi": "stok",
+    "alt_tr": "Elinde koli taşıyan genç talebe",
+    "alt_uz": "Qo'lida quti ko'targan yosh talaba",
+    "ishlatish": [
+      "projeler/burslar:illustrasyon"
+    ],
+    "izoh": "Stok/AI bo'lishi mumkin."
+  },
+  {
+    "fayl": "rasmlar/sosyal/kazanda-yemek-hazirligi.jpg",
+    "katalog_sahifa": 27,
+    "en": 1264,
+    "boy": 853,
+    "turi": "foto",
+    "alt_tr": "Büyük kazanda toplu yemek hazırlığı",
+    "alt_uz": "Katta qozonda ommaviy ovqat tayyorlash",
+    "ishlatish": [
+      "bagis/iftar:kapak",
+      "projeler/gelecek-planlarimiz:sosyal-yardimlar"
+    ],
+    "izoh": "Tadbir nomi va joyi vaqf tomonidan aniqlansin."
+  },
+  {
+    "fayl": "rasmlar/sosyal/cami-ziyareti.jpg",
+    "katalog_sahifa": 28,
+    "en": 1028,
+    "boy": 1284,
+    "turi": "foto",
+    "alt_tr": "Talebeler büyük bir camide",
+    "alt_uz": "Talabalar katta masjidda",
+    "ishlatish": [
+      "projeler/sosyal-kulturel:hero"
+    ],
+    "izoh": "Asl faylda 90° burilgan edi, to'g'rilandi."
+  },
+  {
+    "fayl": "rasmlar/sosyal/kis-gezisi-toplu.jpg",
+    "katalog_sahifa": 29,
+    "en": 1600,
+    "boy": 704,
+    "turi": "foto",
+    "alt_tr": "Karlı arazide toplu fotoğraf",
+    "alt_uz": "Qorli joyda umumiy surat",
+    "ishlatish": [
+      "projeler/sosyal-kulturel:galeri"
+    ],
+    "izoh": ""
+  },
+  {
+    "fayl": "rasmlar/sosyal/talebeler-toplu-salon.jpg",
+    "katalog_sahifa": 29,
+    "en": 1600,
+    "boy": 704,
+    "turi": "foto",
+    "alt_tr": "Salonda talebeler toplu fotoğraf",
+    "alt_uz": "Zalda talabalar umumiy surat",
+    "ishlatish": [
+      "projeler/sosyal-kulturel:galeri",
+      "hakkimizda:ekibimiz-banner"
+    ],
+    "izoh": ""
+  },
+  {
+    "fayl": "rasmlar/sosyal/gezi-toplu-avlu.jpg",
+    "katalog_sahifa": 29,
+    "en": 1401,
+    "boy": 616,
+    "turi": "foto",
+    "alt_tr": "Gezi sırasında avluda toplu fotoğraf",
+    "alt_uz": "Sayohat paytida hovlida umumiy surat",
+    "ishlatish": [
+      "projeler/sosyal-kulturel:galeri"
+    ],
+    "izoh": ""
+  },
+  {
+    "fayl": "rasmlar/sosyal/piknik-toplu.jpg",
+    "katalog_sahifa": 29,
+    "en": 1401,
+    "boy": 616,
+    "turi": "foto",
+    "alt_tr": "Çimenlikte toplu fotoğraf",
+    "alt_uz": "Maysazorda umumiy surat",
+    "ishlatish": [
+      "projeler/sosyal-kulturel:galeri"
+    ],
+    "izoh": ""
+  },
+  {
+    "fayl": "rasmlar/yayincilik/katta-fiqh-kitaplar.jpg",
+    "katalog_sahifa": 30,
+    "en": 920,
+    "boy": 1300,
+    "turi": "foto",
+    "alt_tr": "\"Katta Fiqh\" kitapları",
+    "alt_uz": "\"Katta Fiqh\" kitoblari",
+    "ishlatish": [
+      "projeler/yayincilik:galeri"
+    ],
+    "izoh": ""
+  },
+  {
+    "fayl": "rasmlar/enstitu/mezana-kursusu-yildiz-cerceve.png",
+    "katalog_sahifa": 32,
+    "en": 2480,
+    "boy": 2110,
+    "turi": "dekor",
+    "alt_tr": "Yıldız çerçeve içinde Mezana kürsüsünde konuşan talebe",
+    "alt_uz": "Yulduz ramkada Mezana minbarida gapirayotgan talaba",
+    "ishlatish": [
+      "projeler/islam-dusuncesi-enstitusu:hero"
+    ],
+    "izoh": "Oq fonli kompozitsiya (yulduz ramka va naqsh). Oq fonli bo'limda ishlatiladi."
+  },
+  {
+    "fayl": "rasmlar/enstitu/talebeler-yazili-calisma.jpg",
+    "katalog_sahifa": 33,
+    "en": 1261,
+    "boy": 1280,
+    "turi": "foto",
+    "alt_tr": "Talebeler yazılı çalışma yapıyor",
+    "alt_uz": "Talabalar yozma ish bajarmoqda",
+    "ishlatish": [
+      "projeler/islam-dusuncesi-enstitusu:galeri",
+      "projeler/mezana-akademisi:galeri"
+    ],
+    "izoh": ""
+  },
+  {
+    "fayl": "rasmlar/enstitu/heyet-ziyareti-bayrak.jpg",
+    "katalog_sahifa": 34,
+    "en": 1072,
+    "boy": 1472,
+    "turi": "foto",
+    "alt_tr": "Türk bayrağı önünde hocalar ve misafirler",
+    "alt_uz": "Turk bayrog'i oldida ustozlar va mehmonlar",
+    "ishlatish": [
+      "projeler/islam-dusuncesi-enstitusu:galeri",
+      "haberler:arsiv"
+    ],
+    "izoh": "Shaxslar nomi yozilmaydi (vaqf aniqlamaguncha)."
+  },
+  {
+    "fayl": "rasmlar/enstitu/hocalar-heyeti.jpg",
+    "katalog_sahifa": 35,
+    "en": 1144,
+    "boy": 1472,
+    "turi": "foto",
+    "alt_tr": "Hocalar heyeti toplu fotoğraf",
+    "alt_uz": "Ustozlar hay'ati umumiy surat",
+    "ishlatish": [
+      "yonetim:hocalar-banner"
+    ],
+    "izoh": "Shaxslar nomi yozilmaydi."
+  },
+  {
+    "fayl": "rasmlar/yayincilik/usulus-sunan-kitaplari.jpg",
+    "katalog_sahifa": 36,
+    "en": 1037,
+    "boy": 602,
+    "turi": "skrinshot",
+    "alt_tr": "\"Usulus Sunan\" kitap serisi",
+    "alt_uz": "\"Usulus Sunan\" kitoblar turkumi",
+    "ishlatish": [
+      "projeler/yayincilik:galeri"
+    ],
+    "izoh": "Video kadridan olingan (pastda pleyer chizig'i bor), kesish kerak."
+  },
+  {
+    "fayl": "rasmlar/arxiv/ss-azon-global-web.jpg",
+    "katalog_sahifa": 36,
+    "en": 1165,
+    "boy": 687,
+    "turi": "skrinshot",
+    "alt_tr": "",
+    "alt_uz": "",
+    "ishlatish": [],
+    "izoh": "Ishlatilmaydi."
+  },
+  {
+    "fayl": "rasmlar/yayincilik/katta-fiqh-ensiklopedi.jpg",
+    "katalog_sahifa": 37,
+    "en": 1390,
+    "boy": 1300,
+    "turi": "foto",
+    "alt_tr": "\"Katta Fiqh\" ansiklopedisi ciltleri",
+    "alt_uz": "\"Katta Fiqh\" ensiklopediyasi jildlari",
+    "ishlatish": [
+      "projeler/yayincilik:hero"
+    ],
+    "izoh": ""
+  },
+  {
+    "fayl": "rasmlar/yayincilik/nuqta-yayinlari-kitaplar.jpg",
+    "katalog_sahifa": 37,
+    "en": 1359,
+    "boy": 1289,
+    "turi": "foto",
+    "alt_tr": "Yayınevi kitapları ve çanta",
+    "alt_uz": "Nashriyot kitoblari va sumka",
+    "ishlatish": [
+      "projeler/yayincilik:galeri"
+    ],
+    "izoh": ""
+  },
+  {
+    "fayl": "rasmlar/egitim/talebe-yaziyor-yakin.jpg",
+    "katalog_sahifa": 38,
+    "en": 1028,
+    "boy": 1289,
+    "turi": "foto",
+    "alt_tr": "Kalemle yazan talebenin eli",
+    "alt_uz": "Qalam bilan yozayotgan talaba qo'li",
+    "ishlatish": [
+      "projeler/gelecek-planlarimiz:hero"
+    ],
+    "izoh": "Asl faylda 90° burilgan edi, to'g'rilandi."
+  },
+  {
+    "fayl": "rasmlar/kurban/kuzu.jpg",
+    "katalog_sahifa": 39,
+    "en": 673,
+    "boy": 660,
+    "turi": "stok",
+    "alt_tr": "Kuzu",
+    "alt_uz": "Qo'zichoq",
+    "ishlatish": [
+      "kurban:hero-gecici",
+      "bagis/kurban:kapak-gecici"
+    ],
+    "izoh": "Stok bo'lishi mumkin. Haqiqiy qurbonlik fotosi kelguncha vaqtincha."
+  },
+  {
+    "fayl": "rasmlar/burs/talebeler-laptop.jpg",
+    "katalog_sahifa": 39,
+    "en": 673,
+    "boy": 664,
+    "turi": "foto",
+    "alt_tr": "Sınıfta dizüstü bilgisayarla çalışan talebeler",
+    "alt_uz": "Sinfda noutbukda ishlayotgan talabalar",
+    "ishlatish": [
+      "bagis/egitim-bursu:galeri",
+      "projeler/burslar:galeri"
+    ],
+    "izoh": ""
+  },
+  {
+    "fayl": "rasmlar/yardim/gida-kolisi.jpg",
+    "katalog_sahifa": 39,
+    "en": 673,
+    "boy": 660,
+    "turi": "stok",
+    "alt_tr": "Gıda kolisi taşıyan eller",
+    "alt_uz": "Oziq-ovqat qutisini ko'targan qo'llar",
+    "ishlatish": [
+      "bagis/gida-paketi:kapak",
+      "projeler/gelecek-planlarimiz:sosyal-yardimlar"
+    ],
+    "izoh": "Stok bo'lishi mumkin."
+  },
+  {
+    "fayl": "rasmlar/burs/okul-cantasi-kirtasiye.jpg",
+    "katalog_sahifa": 39,
+    "en": 673,
+    "boy": 660,
+    "turi": "stok",
+    "alt_tr": "Okul çantası ve kırtasiye",
+    "alt_uz": "Maktab sumkasi va kanselyariya",
+    "ishlatish": [
+      "bagis/egitim-bursu:yan-gorsel"
+    ],
+    "izoh": "Stok bo'lishi mumkin."
+  },
+  {
+    "fayl": "rasmlar/projeler/saglik-hasta-eli.jpg",
+    "katalog_sahifa": 41,
+    "en": 848,
+    "boy": 1345,
+    "turi": "stok",
+    "alt_tr": "Hastanın elini tutan sağlık görevlisi",
+    "alt_uz": "Bemorning qo'lini ushlagan tibbiyot xodimi",
+    "ishlatish": [
+      "projeler/gelecek-planlarimiz:saglik-kurumlari"
+    ],
+    "izoh": "Stok bo'lishi mumkin."
+  },
+  {
+    "fayl": "rasmlar/projeler/ciftlik-koyun-tavuk.jpg",
+    "katalog_sahifa": 41,
+    "en": 704,
+    "boy": 1248,
+    "turi": "stok",
+    "alt_tr": "Çiftlikte koyunlar ve tavuklar",
+    "alt_uz": "Fermada qo'ylar va tovuqlar",
+    "ishlatish": [
+      "projeler/gelecek-planlarimiz:ciftlik"
+    ],
+    "izoh": "Stok bo'lishi mumkin."
+  },
+  {
+    "fayl": "rasmlar/projeler/bos-sinif.jpg",
+    "katalog_sahifa": 41,
+    "en": 787,
+    "boy": 660,
+    "turi": "foto",
+    "alt_tr": "Yeni düzenlenmiş boş sınıf",
+    "alt_uz": "Yangi jihozlangan bo'sh sinf",
+    "ishlatish": [
+      "projeler/gelecek-planlarimiz:genclik-merkezleri",
+      "projeler/talebe-yurdu:galeri"
+    ],
+    "izoh": ""
+  },
+  {
+    "fayl": "rasmlar/egitim/hanim-talebeler-derste.jpg",
+    "katalog_sahifa": 41,
+    "en": 1124,
+    "boy": 945,
+    "turi": "foto",
+    "alt_tr": "Derste başörtülü hanım talebeler",
+    "alt_uz": "Darsdagi ro'molli ayol talabalar",
+    "ishlatish": [
+      "projeler/kadin-medresesi:galeri"
+    ],
+    "izoh": ""
+  }
+]
