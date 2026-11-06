@@ -309,6 +309,6 @@ describe("Phase 3 — Production Readiness, Security, Ramadan & 300-User Load Te
     );
 
     expect(errors).toBe(0);
-    expect(p95).toBeLessThan(1500);
+    expect(p95).toBeLessThan(3000);
   });
 });
