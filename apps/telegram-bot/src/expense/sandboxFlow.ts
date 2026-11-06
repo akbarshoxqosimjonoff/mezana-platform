@@ -439,7 +439,7 @@ function fmtNum(n: number, decimals = 2): string {
 async function fetchLiveUsdRate(): Promise<number> {
   try {
     const rows: any[] = await moliyPrisma.$queryRawUnsafe(
-      `SELECT rate::float AS rate FROM "ExchangeRate" WHERE "fromCurrency" = 'USD' AND "toCurrency" = 'TL' ORDER BY "effectiveDate" DESC, "createdAt" DESC LIMIT 1`
+      `SELECT rate::float AS rate FROM "ExchangeRate" WHERE "fromCurrency" = 'USD' AND "toCurrency" = 'TL' ORDER BY "effectiveAt" DESC, "createdAt" DESC LIMIT 1`
     );
     const r = Number(rows?.[0]?.rate || 0);
     if (r > 1) return r;
@@ -498,7 +498,7 @@ export function buildReplyKeyboard(userId: string): Keyboard {
       .text("📝 Talabnoma yaratish")
       .row()
       .text(`💼 Hisobim (${accLabel})`)
-      .text("🏛 Vaqf endi alohida botda");
+      .text("🏛 Vaqf");
   } else {
     kb.text("➕ Xarajat kiritish")
       .text("💵 Talaba to'lovi")
@@ -510,7 +510,7 @@ export function buildReplyKeyboard(userId: string): Keyboard {
       .text("📊 Oxirgi xarajatlar")
       .row()
       .text("📂 Kategoriyalar")
-      .text("🏛 Vaqf endi alohida botda");
+      .text("🏛 Vaqf");
   }
 
   if (CAMERA_OWNER_IDS.has(String(userId))) {
@@ -755,7 +755,7 @@ async function saveExpenseRequestToDatabase(
        $1, $2, $3, $4, $5, $6,
        $7, $8, 'PENDING', $9, $10, $11,
        $12, $13, $14, $15, $16::timestamp,
-       $17, NOW(), NOW()
+       $17::int, NOW(), NOW()
      ) RETURNING id, "requestNumber"`,
     reqId,
     amtOrig,
@@ -773,7 +773,7 @@ async function saveExpenseRequestToDatabase(
     target.key,
     `${item.sourcePersonName} (${target.label})`,
     `${neededDate}T12:00:00.000Z`,
-    item.messageId ? String(item.messageId) : null
+    item.messageId ? Number(item.messageId) : null
   );
 
   const reqNum = inserted?.[0]?.requestNumber || 1;
@@ -2121,7 +2121,7 @@ async function searchStudentsInCrm(queryText: string): Promise<any[]> {
        COALESCE(g.name, '') AS "groupName"
      FROM "Student" s
      LEFT JOIN "Group" g ON g.id = s."groupId"
-     WHERE s."isDeleted" = false
+     WHERE s."isDeleted" = false AND s."isActive" = true AND COALESCE(s."isArchived", false) = false
      ORDER BY s."isActive" DESC, s.fullname ASC`
   );
 
@@ -3063,8 +3063,8 @@ async function processUserExpenseInput(params: {
     const newRate = Number(result.newUsdRate);
     const rateId = "rate_tg_" + crypto.randomBytes(8).toString("hex");
     await moliyPrisma.$executeRawUnsafe(
-      `INSERT INTO "ExchangeRate" (id, "fromCurrency", "toCurrency", rate, "effectiveDate", "createdAt")
-       VALUES ($1, 'USD', 'TL', $2, NOW(), NOW())`,
+      `INSERT INTO "ExchangeRate" (id, "fromCurrency", "toCurrency", rate, "setById", "effectiveAt", "createdAt")
+       VALUES ($1, 'USD', 'TL', $2, 'cmtlai0bg000ipir95hv9hfez', NOW(), NOW())`,
       rateId,
       newRate
     );
@@ -3576,6 +3576,102 @@ export function registerExpenseSandboxFlow(bot: Bot) {
     }
   });
 
+  // Callback queries for System Full Backup & 1-Click Restore (`sys:backup:now`, `sys:restore:ask:<file>`, `sys:restore:confirm:<file>`, `sys:restore:cancel`)
+  bot.callbackQuery(/^sys:(backup|restore):(.+)$/, async (ctx) => {
+    const userId = String(ctx.from.id);
+    const auth = AUTHORIZED_USERS[userId];
+    if (!auth?.isDirector) {
+      await ctx.answerCallbackQuery({ text: "⛔ Faqat Direktor uchun!", show_alert: true });
+      return;
+    }
+    const mode = ctx.match[1]!;
+    const sub = ctx.match[2]!;
+
+    if (mode === "backup" && sub === "now") {
+      await ctx.answerCallbackQuery({ text: "📦 To'liq zahira nusxa tayyorlanmoqda..." });
+      const waitMsg = await ctx.reply("⏳ *To'liq zahira nusxa (DB + Kodlar + Tokenlar/Parollar) yig'ilmoqda...*", { parse_mode: "Markdown" });
+      try {
+        const res = await fetch("http://127.0.0.1:3003/fin-api/internal/backup/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sendToTelegram: true, reason: `bot_manual_by_${userId}` }),
+        });
+        const data: any = await res.json();
+        try { await bot.api.deleteMessage(ctx.chat!.id, waitMsg.message_id); } catch {}
+        if (!data?.ok) {
+          await ctx.reply(`❌ Zahira olishda xatolik: ${data?.error || "Noma'lum xato"}`);
+        }
+      } catch (e: any) {
+        try { await bot.api.editMessageText(ctx.chat!.id, waitMsg.message_id, `❌ Xatolik: ${e?.message}`); } catch {}
+      }
+      return;
+    }
+
+    if (mode === "restore") {
+      if (sub === "cancel") {
+        await ctx.answerCallbackQuery({ text: "Bekor qilindi" });
+        await ctx.reply("✅ Qayta tiklash amali bekor qilindi.");
+        return;
+      }
+      if (sub.startsWith("ask:")) {
+        const fileName = sub.slice(4);
+        await ctx.answerCallbackQuery();
+        const kb = new InlineKeyboard()
+          .text("⚠️ Ha, shu zahiradan qayta tikla!", `sys:restore:confirm:${fileName}`)
+          .row()
+          .text("🔙 Bekor qilish", "sys:restore:cancel");
+        await ctx.reply(
+          [
+            `⚠️ *DIQQAT! TIZIMNI ZAHIRADAN QAYTA TIKLASH (1-CLICK RESTORE)*`,
+            `────────────────────`,
+            `📦 Tanlangan zahira fayli: \`${fileName}\``,
+            ``,
+            `Tasdiqlasangiz:`,
+            `1️⃣ Avval hozirgi holatdan avtomatik himoya nusxasi olinadi;`,
+            `2️⃣ Uchala ma'lumotlar bazasi (\`mezana\`, \`financebot\`, \`mezana_platform\`) va parollar aynan shu zahiradagi holatga qaytariladi.`,
+            ``,
+            `Haqiqatan ham qayta tiklashni tasdiqlaysizmi?`,
+          ].join("\n"),
+          { parse_mode: "Markdown", reply_markup: kb }
+        );
+        return;
+      }
+      if (sub.startsWith("confirm:")) {
+        const fileName = sub.slice(8);
+        await ctx.answerCallbackQuery({ text: "♻️ Qayta tiklash boshlandi..." });
+        await ctx.editMessageText(`⏳ \`${fileName}\` zahirasidan barcha bazalar va sozlamalar qayta tiklanmoqda, iltimos kuting...`, {
+          parse_mode: "Markdown",
+        });
+        try {
+          const res = await fetch("http://127.0.0.1:3003/fin-api/internal/backup/restore", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ fileName, restoreCode: false }),
+          });
+          const data: any = await res.json();
+          if (res.ok && data?.ok) {
+            await ctx.editMessageText(
+              [
+                `✅ *TIZIM MUVAFFAQIYATLI QAYTA TIKLANDI!*`,
+                `────────────────────`,
+                `📦 Zahira fayli: \`${fileName}\``,
+                `🗄 Tiklangan bazalar: *${(data.restored?.databases || []).join(", ")}*`,
+                `🔑 Tiklangan kalitlar: *${(data.restored?.secrets || []).length} ta fayl*`,
+                `🕒 Vaqt: *${new Date().toLocaleString("sv-SE", { timeZone: "Europe/Istanbul" })}*`,
+              ].join("\n"),
+              { parse_mode: "Markdown" }
+            );
+          } else {
+            await ctx.editMessageText(`❌ Qayta tiklashda xatolik: ${data?.error || "Noma'lum xato"}`);
+          }
+        } catch (e: any) {
+          await ctx.editMessageText(`❌ Qayta tiklashda xatolik: ${e?.message}`);
+        }
+        return;
+      }
+    }
+  });
+
   // Callback queries for interactive Draft Card & Confirmed Card buttons
   bot.callbackQuery(/^exp:([a-z_]+):([^:]+)(?::(.+))?$/, async (ctx) => {
     const action = ctx.match[1]!;
@@ -3583,8 +3679,108 @@ export function registerExpenseSandboxFlow(bot: Bot) {
     const extra = ctx.match[3];
     const userId = String(ctx.from.id);
 
+    // Handle DB-level Pending Expense Approve (`exp:app:<expId>`) and Reject (`exp:rej:<expId>`) directly
+    if (action === "app" || action === "rej") {
+      const auth = AUTHORIZED_USERS[userId];
+      if (!auth?.isDirector) {
+        await ctx.answerCallbackQuery({ text: "⛔ Faqat Direktor tasdiqlashi yoki rad etishi mumkin!", show_alert: true });
+        return;
+      }
+      const expRows: any[] = await moliyPrisma.$queryRawUnsafe(
+        `SELECT e.id, e."employeeId", e."categoryId", e.title, e.description,
+                e."amountInDefault"::float AS amt_tl, e.status::text AS status,
+                COALESCE(c.name, 'Xarajat') AS cat_name
+         FROM "Expense" e
+         LEFT JOIN "Category" c ON c.id = e."categoryId"
+         WHERE e.id = $1 AND e."deletedAt" IS NULL
+         LIMIT 1`,
+        draftId
+      );
+      const exp = expRows?.[0];
+      if (!exp) {
+        await ctx.answerCallbackQuery({ text: "Bu xarajat topilmadi yoki o'chirilgan", show_alert: true });
+        return;
+      }
+      const amtTl = Number(exp.amt_tl || 0);
+      if (action === "rej") {
+        await moliyPrisma.$executeRawUnsafe(
+          `UPDATE "Expense" SET status = 'REJECTED'::"ExpenseStatus", "rejectionReason" = 'Direktor tomonidan bot orqali rad etildi', "updatedAt" = NOW() WHERE id = $1`,
+          draftId
+        );
+        if (exp.status === "PENDING" || exp.status === "APPROVED") {
+          await moliyPrisma.$executeRawUnsafe(
+            `UPDATE "Wallet" SET "pendingAmount" = GREATEST(0, "pendingAmount" - $1), "updatedAt" = NOW() WHERE "employeeId" = $2`,
+            amtTl,
+            exp.employeeId
+          );
+        } else if (exp.status === "PAID") {
+          await moliyPrisma.$executeRawUnsafe(
+            `UPDATE "Wallet" SET balance = balance + $1, "totalSpent" = GREATEST(0, "totalSpent" - $1), "updatedAt" = NOW() WHERE "employeeId" = $2`,
+            amtTl,
+            exp.employeeId
+          );
+        }
+        await ctx.answerCallbackQuery({ text: "❌ Xarajat rad etildi!" });
+        await ctx.editMessageText(
+          `❌ *XARAJAT RAD ETILDI*\n\n📂 Toifa: *${exp.cat_name}*\n📝 Izoh: *${exp.description || exp.title || "-"}*\n💰 Summa: *₺${fmtNum(amtTl)} TL*\n👤 Rad etdi: *${auth.personName}*`,
+          { parse_mode: "Markdown" }
+        );
+        return;
+      } else {
+        // action === "app" -> mark PAID and deduct from Wallet
+        if (exp.status !== "PAID") {
+          await moliyPrisma.$executeRawUnsafe(
+            `UPDATE "Expense" SET status = 'PAID'::"ExpenseStatus", "approvedAt" = COALESCE("approvedAt", NOW()), "paidAt" = COALESCE("paidAt", NOW()), "updatedAt" = NOW() WHERE id = $1`,
+            draftId
+          );
+          await moliyPrisma.$executeRawUnsafe(
+            `UPDATE "Wallet"
+             SET balance = balance - $1,
+                 "totalSpent" = "totalSpent" + $1,
+                 "pendingAmount" = GREATEST(0, "pendingAmount" - $1),
+                 "updatedAt" = NOW()
+             WHERE "employeeId" = $2`,
+            amtTl,
+            exp.employeeId
+          );
+        }
+        await ctx.answerCallbackQuery({ text: "✅ Xarajat tasdiqlandi!" });
+        await ctx.editMessageText(
+          `✅ *XARAJAT TASDIQLANDI (TO'LANDI)*\n\n📂 Toifa: *${exp.cat_name}*\n📝 Izoh: *${exp.description || exp.title || "-"}*\n💰 Summa: *₺${fmtNum(amtTl)} TL*\n👤 Tasdiqladi: *${auth.personName}*`,
+          { parse_mode: "Markdown" }
+        );
+        return;
+      }
+    }
+
     const draft = draftsById.get(draftId);
     if (!draft) {
+      if (action === "undo") {
+        const msgText = String((ctx.callbackQuery.message as any)?.text || "");
+        const extractedExpId = draftId.startsWith("exp_")
+          ? draftId
+          : (msgText.match(/Xarajat ID:\s*(exp_[a-zA-Z0-9_]+)/i)?.[1] || "");
+        if (extractedExpId) {
+          try {
+            const auth = AUTHORIZED_USERS[userId];
+            const v = await voidExpenseByIdFromDatabases(extractedExpId, auth?.personName || "Xodim");
+            await ctx.answerCallbackQuery({ text: "?????? Xarajat bazadan o'chirildi va balans qaytarildi!" });
+            await ctx.editMessageText(
+              [
+                `?????? BAZADAN BEKOR QILINDI (#${extractedExpId})`,
+                `???? ${v.title} ??? ???${fmtNum(v.amountTl)} TL (${fmtNum(v.amountUsd)} USD)`,
+                `???? "${v.targetLabel}" hamyonining tiklangan balansi: ???${fmtNum(v.restoredBalance)} TL`,
+              ].join("\n")
+            );
+          } catch (err: any) {
+            await ctx.answerCallbackQuery({
+              text: "??? Bekor qilishda xato: " + (err?.message || "Noma'lum").slice(0, 120),
+              show_alert: true,
+            });
+          }
+          return;
+        }
+      }
       await ctx.answerCallbackQuery({ text: "Bu qoralama topilmadi (eskirgan bo'lishi mumkin)" });
       return;
     }
@@ -4785,8 +4981,8 @@ export function registerExpenseSandboxFlow(bot: Bot) {
             directorPendingByUser.delete(userId);
             const rateId = "rate_tg_" + crypto.randomBytes(8).toString("hex");
             await moliyPrisma.$executeRawUnsafe(
-              `INSERT INTO "ExchangeRate" (id, "fromCurrency", "toCurrency", rate, "effectiveDate", "createdAt")
-               VALUES ($1, 'USD', 'TL', $2, NOW(), NOW())`,
+              `INSERT INTO "ExchangeRate" (id, "fromCurrency", "toCurrency", rate, "setById", "effectiveAt", "createdAt")
+       VALUES ($1, 'USD', 'TL', $2, 'cmtlai0bg000ipir95hv9hfez', NOW(), NOW())`,
               rateId,
               num
             );

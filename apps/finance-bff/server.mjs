@@ -2653,27 +2653,67 @@ async function handleApi(req, res, url) {
       if (!access.isDirector) {
         return sendJson(res, 403, { error: "Xarajatni tasdiqlash, rad etish, to'lash yoki bekor qilish faqat Direktor uchun ruxsat etilgan" });
       }
-      const [, id, action] = expActionMatch;
+      const [, rawId, action] = expActionMatch;
+      const id = decodeURIComponent(rawId);
       const body = await readJsonBody(req);
 
       const expRows = await queryPgJson(
         erpEnv.DATABASE_URL,
-        `SELECT e.id, e."employeeId", e."categoryId", e.title, e.description,
+        `SELECT e.id, e."employeeId", e."categoryId", e."requestId", e.title, e.description,
                 e.amount::float AS amount, e.currency, e."amountInDefault"::float AS "amountInDefault",
-                e."amountUsd"::float AS "amountUsd", e.status::text AS status,
+                e."amountUsd"::float AS "amountUsd", e.status::text AS status, e."deletedAt",
+                TO_CHAR(e.date, 'YYYY-MM-DD') AS "expenseDate",
                 COALESCE(c.name, 'Xarajat') AS "categoryName",
-                COALESCE(u."fullName", u.username, 'Xodim') AS "employeeName"
+                COALESCE(emp."fullName", emp.username, 'Xodim') AS "employeeName"
          FROM "Expense" e
-         LEFT JOIN "ExpenseCategory" c ON c.id = e."categoryId"
-         LEFT JOIN "User" u ON u.id = e."employeeId"
-         WHERE e.id = ${sqlStr(id)} AND e."deletedAt" IS NULL
+         LEFT JOIN "Category" c ON c.id = e."categoryId"
+         LEFT JOIN "Employee" emp ON emp.id = e."employeeId"
+         WHERE (e.id = ${sqlStr(id)} OR e."requestId" = ${sqlStr(id)})
+         ORDER BY (e."deletedAt" IS NULL) DESC, e."createdAt" DESC
          LIMIT 1`
       );
       const exp = expRows[0];
+
+      // Fallback: if not found in Expense, check if id is an ExpenseRequest
       if (!exp) {
+        const reqRows = await queryPgJson(
+          erpEnv.DATABASE_URL,
+          `SELECT * FROM "ExpenseRequest" WHERE (id = ${sqlStr(id)} OR "expenseId" = ${sqlStr(id)}) ORDER BY ("deletedAt" IS NULL) DESC LIMIT 1`
+        );
+        const reqFallback = reqRows[0];
+        if (reqFallback) {
+          if (action === "void" || action === "reject") {
+            const reason = String(body.reason || body.rejectionReason || "Direktor tomonidan bekor qilindi").trim();
+            await execPgSql(
+              erpEnv.DATABASE_URL,
+              `UPDATE "ExpenseRequest" SET status = 'REJECTED', "rejectionReason" = ${sqlStr(reason)}, "deletedAt" = ${action === "void" ? "NOW()" : '"deletedAt"'}, "updatedAt" = NOW() WHERE id = ${sqlStr(reqFallback.id)};`
+            );
+            return sendJson(res, 200, { success: true, id: reqFallback.id, status: "REJECTED" });
+          }
+          if (action === "approve" || action === "pay") {
+            await execPgSql(
+              erpEnv.DATABASE_URL,
+              `UPDATE "ExpenseRequest" SET status = 'APPROVED', "approvedAmount" = COALESCE("approvedAmount", "amountInDefault", amount), "approvedAt" = NOW(), "deletedAt" = NULL, "updatedAt" = NOW() WHERE id = ${sqlStr(reqFallback.id)};`
+            );
+            return sendJson(res, 200, { success: true, id: reqFallback.id, status: "APPROVED" });
+          }
+          if (action === "adjust") {
+            const newAmt = body.amount !== undefined ? Number(body.amount) : Number(reqFallback.amountInDefault || reqFallback.amount);
+            const newDesc = body.description !== undefined ? String(body.description).trim() : reqFallback.description;
+            await execPgSql(
+              erpEnv.DATABASE_URL,
+              `UPDATE "ExpenseRequest" SET amount = ${newAmt}, "approvedAmount" = ${newAmt}, "amountInDefault" = ${newAmt}, description = ${sqlStr(newDesc)}, "deletedAt" = NULL, "updatedAt" = NOW() WHERE id = ${sqlStr(reqFallback.id)};`
+            );
+            return sendJson(res, 200, { success: true, id: reqFallback.id, amount: newAmt, amountInDefault: newAmt });
+          }
+        }
+        if (action === "void" || action === "reject") {
+          return sendJson(res, 200, { success: true, id, status: "REJECTED", message: "Allaqachon o'chirilgan" });
+        }
         return sendJson(res, 404, { error: "Xarajat topilmadi" });
       }
 
+      const targetExpId = exp.id;
       const amtTl = Number(exp.amountInDefault || exp.amount || 0);
       const empId = exp.employeeId;
 
@@ -2684,22 +2724,29 @@ async function handleApi(req, res, url) {
            SET status = 'REJECTED'::"ExpenseStatus",
                "rejectionReason" = ${sqlStr(reason)},
                "updatedAt" = NOW()
-           WHERE id = ${sqlStr(id)};`,
+           WHERE id = ${sqlStr(targetExpId)};`,
         ];
-        if (exp.status === "PENDING" || exp.status === "APPROVED") {
+        if (!exp.deletedAt) {
+          if (exp.status === "PENDING" || exp.status === "APPROVED") {
+            sqlParts.push(
+              `UPDATE "Wallet"
+               SET "pendingAmount" = GREATEST(0, "pendingAmount" - ${amtTl}),
+                   "updatedAt" = NOW()
+               WHERE "employeeId" = ${sqlStr(empId)};`
+            );
+          } else if (exp.status === "PAID") {
+            sqlParts.push(
+              `UPDATE "Wallet"
+               SET balance = balance + ${amtTl},
+                   "totalSpent" = GREATEST(0, "totalSpent" - ${amtTl}),
+                   "updatedAt" = NOW()
+               WHERE "employeeId" = ${sqlStr(empId)};`
+            );
+          }
+        }
+        if (exp.requestId) {
           sqlParts.push(
-            `UPDATE "Wallet"
-             SET "pendingAmount" = GREATEST(0, "pendingAmount" - ${amtTl}),
-                 "updatedAt" = NOW()
-             WHERE "employeeId" = ${sqlStr(empId)};`
-          );
-        } else if (exp.status === "PAID") {
-          sqlParts.push(
-            `UPDATE "Wallet"
-             SET balance = balance + ${amtTl},
-                 "totalSpent" = GREATEST(0, "totalSpent" - ${amtTl}),
-                 "updatedAt" = NOW()
-             WHERE "employeeId" = ${sqlStr(empId)};`
+            `UPDATE "ExpenseRequest" SET status = 'REJECTED', "rejectionReason" = ${sqlStr(reason)}, "updatedAt" = NOW() WHERE id = ${sqlStr(exp.requestId)};`
           );
         }
         await execPgSql(erpEnv.DATABASE_URL, sqlParts.join("\n"));
@@ -2708,19 +2755,18 @@ async function handleApi(req, res, url) {
         for (const cid of empChatIds) {
           sendTelegramHtml(
             cid,
-            `❌ <b>Xarajatingiz rad etildi</b>\n\n` +
-            `📂 Toifa: <b>${exp.categoryName}</b>\n` +
-            `📝 Izoh: <b>${exp.description || exp.title || "-"}</b>\n` +
-            `💰 Summa: <b>₺${amtTl.toLocaleString("tr-TR")}</b>\n` +
-            `📌 Sabab: <b>${reason}</b>`
+            `??? <b>Xarajatingiz rad etildi</b>\n\n` +
+            `???? Toifa: <b>${exp.categoryName}</b>\n` +
+            `???? Izoh: <b>${exp.description || exp.title || "-"}</b>\n` +
+            `???? Summa: <b>???${amtTl.toLocaleString("tr-TR")}</b>\n` +
+            `???? Sabab: <b>${reason}</b>`
           ).catch(() => {});
         }
 
-        return sendJson(res, 200, { success: true, id, status: "REJECTED", rejectionReason: reason });
+        return sendJson(res, 200, { success: true, id: targetExpId, status: "REJECTED", rejectionReason: reason });
       }
 
       if (action === "approve" || action === "pay") {
-        // Default approve in web dashboard marks as APPROVED or PAID; let's support both cleanly
         const targetStatus = action === "pay" ? "PAID" : "APPROVED";
         const wRows = await queryPgJson(
           erpEnv.DATABASE_URL,
@@ -2734,8 +2780,9 @@ async function handleApi(req, res, url) {
             `UPDATE "Expense"
              SET status = 'APPROVED'::"ExpenseStatus",
                  "approvedAt" = COALESCE("approvedAt", NOW()),
+                 "deletedAt" = NULL,
                  "updatedAt" = NOW()
-             WHERE id = ${sqlStr(id)};`
+             WHERE id = ${sqlStr(targetExpId)};`
           );
         } else if (targetStatus === "PAID" && exp.status !== "PAID") {
           sqlParts.push(
@@ -2743,11 +2790,14 @@ async function handleApi(req, res, url) {
              SET status = 'PAID'::"ExpenseStatus",
                  "approvedAt" = COALESCE("approvedAt", NOW()),
                  "paidAt" = COALESCE("paidAt", NOW()),
+                 "deletedAt" = NULL,
                  "updatedAt" = NOW()
-             WHERE id = ${sqlStr(id)};`
+             WHERE id = ${sqlStr(targetExpId)};`
           );
           if (walletId) {
             const wasPending = exp.status === "PENDING" || exp.status === "APPROVED";
+            const balBefore = Number(wRows[0]?.balance || 0);
+            const balAfter = Number((balBefore - amtTl).toFixed(4));
             sqlParts.push(
               `UPDATE "Wallet"
                SET balance = balance - ${amtTl},
@@ -2757,10 +2807,10 @@ async function handleApi(req, res, url) {
                WHERE id = ${sqlStr(walletId)};`
             );
             const txId = "wtx_" + crypto.randomBytes(10).toString("hex");
+            const refId = "ref_" + crypto.randomBytes(10).toString("hex");
             sqlParts.push(
-              `INSERT INTO "WalletTransaction" (id, "walletId", type, amount, "balanceBefore", "balanceAfter", "expenseId", description, "createdBy", "createdAt")
-               SELECT ${sqlStr(txId)}, id, 'EXPENSE'::"TransactionType", ${amtTl}, balance + ${amtTl}, balance, ${sqlStr(id)}, ${sqlStr(exp.description || exp.title || "Xarajat")}, 'cmtlai0bg000ipir95hv9hfez', NOW()
-               FROM "Wallet" WHERE id = ${sqlStr(walletId)};`
+              `INSERT INTO "WalletTransaction" (id, "referenceId", "walletId", type, amount, "balanceBefore", "balanceAfter", currency, description, "expenseId", "createdAt", "occurredAt")
+               VALUES (${sqlStr(txId)}, ${sqlStr(refId)}, ${sqlStr(walletId)}, 'EXPENSE_DEBIT'::"TransactionType", ${amtTl}, ${balBefore}, ${balAfter}, 'TL', ${sqlStr(exp.description || exp.title || "Xarajat")}, ${sqlStr(targetExpId)}, NOW(), NOW());`
             );
           }
           sqlParts.push(
@@ -2780,26 +2830,28 @@ async function handleApi(req, res, url) {
         for (const cid of empChatIds) {
           sendTelegramHtml(
             cid,
-            `✅ <b>Xarajatingiz ${targetStatus === "PAID" ? "to'landi (tasdiqlandi)" : "tasdiqlandi"}!</b>\n\n` +
-            `📂 Toifa: <b>${exp.categoryName}</b>\n` +
-            `📝 Izoh: <b>${exp.description || exp.title || "-"}</b>\n` +
-            `💰 Summa: <b>₺${amtTl.toLocaleString("tr-TR")}</b>`
+            `??? <b>Xarajatingiz ${targetStatus === "PAID" ? "to'landi (tasdiqlandi)" : "tasdiqlandi"}!</b>\n\n` +
+            `???? Toifa: <b>${exp.categoryName}</b>\n` +
+            `???? Izoh: <b>${exp.description || exp.title || "-"}</b>\n` +
+            `???? Summa: <b>???${amtTl.toLocaleString("tr-TR")}</b>`
           ).catch(() => {});
         }
 
-        return sendJson(res, 200, { success: true, id, status: targetStatus });
+        return sendJson(res, 200, { success: true, id: targetExpId, status: targetStatus });
       }
 
       if (action === "void") {
-        const reason = String(body.reason || body.rejectionReason || "Direktor tomonidan bekor qilindi").trim();
-        if (!reason) return sendJson(res, 400, { error: "Bekor qilish sababini kiriting" });
+        if (exp.deletedAt) {
+          return sendJson(res, 200, { success: true, id: targetExpId, status: "REJECTED" });
+        }
+        const reason = String(body.reason || body.rejectionReason || "Direktor tomonidan bekor qilindi").trim() || "Direktor tomonidan bekor qilindi";
         const sqlParts = [
           `UPDATE "Expense"
            SET status = 'REJECTED'::"ExpenseStatus",
                "rejectionReason" = ${sqlStr(`[BEKOR QILINDI] ${reason}`)},
                "deletedAt" = NOW(),
                "updatedAt" = NOW()
-           WHERE id = ${sqlStr(id)};`,
+           WHERE id = ${sqlStr(targetExpId)};`,
         ];
         if (exp.status === "PENDING" || exp.status === "APPROVED") {
           sqlParts.push(
@@ -2809,6 +2861,11 @@ async function handleApi(req, res, url) {
              WHERE "employeeId" = ${sqlStr(empId)};`
           );
         } else if (exp.status === "PAID") {
+          const wRows = await queryPgJson(
+            erpEnv.DATABASE_URL,
+            `SELECT id, balance::float AS balance FROM "Wallet" WHERE "employeeId" = ${sqlStr(empId)} LIMIT 1`
+          );
+          const wallet = wRows[0];
           sqlParts.push(
             `UPDATE "Wallet"
              SET balance = balance + ${amtTl},
@@ -2816,6 +2873,16 @@ async function handleApi(req, res, url) {
                  "updatedAt" = NOW()
              WHERE "employeeId" = ${sqlStr(empId)};`
           );
+          if (wallet?.id) {
+            const txId = "wtx_void_" + crypto.randomBytes(8).toString("hex");
+            const refId = "ref_void_" + crypto.randomBytes(8).toString("hex");
+            const balBefore = Number(wallet.balance || 0);
+            const balAfter = Number((balBefore + amtTl).toFixed(4));
+            sqlParts.push(
+              `INSERT INTO "WalletTransaction" (id, "referenceId", "walletId", type, amount, "balanceBefore", "balanceAfter", currency, description, "expenseId", "createdAt", "occurredAt")
+               VALUES (${sqlStr(txId)}, ${sqlStr(refId)}, ${sqlStr(wallet.id)}, 'ADJUSTMENT'::"TransactionType", ${amtTl}, ${balBefore}, ${balAfter}, 'TL', ${sqlStr(`[BEKOR QILINDI] ${exp.description || exp.title || "Xarajat"} (${reason})`)}, ${sqlStr(targetExpId)}, NOW(), NOW());`
+            );
+          }
           sqlParts.push(
             `UPDATE "Budget"
              SET spent = GREATEST(0, spent - ${amtTl}), "updatedAt" = NOW()
@@ -2824,8 +2891,13 @@ async function handleApi(req, res, url) {
                AND year = EXTRACT(YEAR FROM NOW())::int;`
           );
         }
+        if (exp.requestId) {
+          sqlParts.push(
+            `UPDATE "ExpenseRequest" SET status = 'REJECTED', "rejectionReason" = ${sqlStr(`[BEKOR QILINDI] ${reason}`)}, "deletedAt" = NOW(), "updatedAt" = NOW() WHERE id = ${sqlStr(exp.requestId)};`
+          );
+        }
         await execPgSql(erpEnv.DATABASE_URL, sqlParts.join("\n"));
-        return sendJson(res, 200, { success: true, id, status: "REJECTED" });
+        return sendJson(res, 200, { success: true, id: targetExpId, status: "REJECTED" });
       }
 
       if (action === "adjust") {
@@ -2837,23 +2909,28 @@ async function handleApi(req, res, url) {
           `SELECT rate::float AS rate FROM "ExchangeRate" WHERE "fromCurrency" = 'USD' ORDER BY "effectiveAt" DESC, "createdAt" DESC LIMIT 1`
         );
         const currentUsdRate = Number(rateRow[0]?.rate || 49.628);
-        const cur = String(exp.currency || "TL").toUpperCase() === "USD" ? "USD" : "TL";
+        const rawCur = String(body.currency || exp.currency || "TL").toUpperCase();
+        const cur = rawCur === "USD" ? "USD" : "TL";
         const newAmtTl = cur === "USD" ? Number((newAmt * currentUsdRate).toFixed(2)) : newAmt;
         const newAmtUsd = cur === "USD" ? newAmt : Number((newAmt / currentUsdRate).toFixed(2));
         const deltaTl = Number((newAmtTl - amtTl).toFixed(2));
         const newDesc = body.description !== undefined ? String(body.description).trim() : exp.description;
         const newCatId = body.categoryId || exp.categoryId;
+        const newDate = body.expenseDate || body.date || exp.expenseDate || new Date().toISOString().slice(0, 10);
 
         const sqlParts = [
           `UPDATE "Expense"
            SET amount = ${newAmt},
+               currency = ${sqlStr(cur)},
                "amountInDefault" = ${newAmtTl},
                "amountUsd" = ${newAmtUsd},
                description = ${sqlStr(newDesc)},
                title = ${sqlStr(String(newDesc || "").slice(0, 100))},
                "categoryId" = ${sqlStr(newCatId)},
+               date = ${sqlStr(newDate)}::timestamp,
+               "deletedAt" = NULL,
                "updatedAt" = NOW()
-           WHERE id = ${sqlStr(id)};`,
+           WHERE id = ${sqlStr(targetExpId)};`,
         ];
         if (deltaTl !== 0) {
           if (exp.status === "PENDING" || exp.status === "APPROVED") {
@@ -2866,25 +2943,75 @@ async function handleApi(req, res, url) {
             );
           }
         }
+        if (exp.requestId) {
+          sqlParts.push(
+            `UPDATE "ExpenseRequest"
+             SET amount = ${newAmt}, "approvedAmount" = ${newAmtTl}, "amountInDefault" = ${newAmtTl},
+                 description = ${sqlStr(newDesc)}, "categoryId" = ${sqlStr(newCatId)}, "updatedAt" = NOW()
+             WHERE id = ${sqlStr(exp.requestId)};`
+          );
+        }
         await execPgSql(erpEnv.DATABASE_URL, sqlParts.join("\n"));
-        return sendJson(res, 200, { success: true, id, amount: newAmt, amountInDefault: newAmtTl, reason });
+        return sendJson(res, 200, { success: true, id: targetExpId, amount: newAmt, amountInDefault: newAmtTl, reason });
       }
     }
 
     const expItemMatch = pathname.match(/^\/fin-api\/erp\/expenses\/([^/]+)$/);
     if (expItemMatch && (method === "PUT" || method === "PATCH")) {
-      const expId = expItemMatch[1];
+      const expId = decodeURIComponent(expItemMatch[1]);
       const body = await readJsonBody(req);
       const rows = await queryPgJson(
         erpEnv.DATABASE_URL,
-        `SELECT id, "employeeId", "categoryId", amount::float AS amount, currency, "amountInDefault"::float AS "amountInDefault", status::text AS status, description, TO_CHAR(date, 'YYYY-MM-DD') AS "expenseDate"
-         FROM "Expense" WHERE id = ${sqlStr(expId)} AND "deletedAt" IS NULL LIMIT 1`
+        `SELECT id, "employeeId", "categoryId", "requestId", amount::float AS amount, currency,
+                "amountInDefault"::float AS "amountInDefault", status::text AS status,
+                description, "deletedAt", TO_CHAR(date, 'YYYY-MM-DD') AS "expenseDate"
+         FROM "Expense"
+         WHERE (id = ${sqlStr(expId)} OR "requestId" = ${sqlStr(expId)})
+         ORDER BY ("deletedAt" IS NULL) DESC, "createdAt" DESC
+         LIMIT 1`
       );
       const exp = rows[0];
-      if (!exp) return sendJson(res, 404, { error: "Xarajat topilmadi" });
 
+      // Fallback: if not found in Expense, check ExpenseRequest
+      if (!exp) {
+        const reqRows = await queryPgJson(
+          erpEnv.DATABASE_URL,
+          `SELECT * FROM "ExpenseRequest" WHERE (id = ${sqlStr(expId)} OR "expenseId" = ${sqlStr(expId)}) ORDER BY ("deletedAt" IS NULL) DESC LIMIT 1`
+        );
+        const reqRow = reqRows[0];
+        if (reqRow) {
+          const rateRow = await queryPgJson(
+            erpEnv.DATABASE_URL,
+            `SELECT rate::float AS rate FROM "ExchangeRate" WHERE "fromCurrency" = 'USD' ORDER BY "effectiveAt" DESC, "createdAt" DESC LIMIT 1`
+          );
+          const currentUsdRate = Number(rateRow[0]?.rate || 49.628);
+          const amt = body.amount !== undefined ? Number(body.amount) : Number(reqRow.amountInDefault || reqRow.amount);
+          const rawCur = String(body.currency || reqRow.currency || "TRY").toUpperCase();
+          const cur = rawCur === "TL" ? "TRY" : rawCur;
+          const amtTry = cur === "USD" ? Number((amt * currentUsdRate).toFixed(2)) : amt;
+          const desc = body.description !== undefined ? String(body.description).trim() : reqRow.description;
+          const categoryId = body.categoryId || reqRow.categoryId;
+          const neededDate = body.neededDate || body.expenseDate || body.date || (reqRow.neededDate ? new Date(reqRow.neededDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10));
+          await execPgSql(
+            erpEnv.DATABASE_URL,
+            `UPDATE "ExpenseRequest"
+             SET amount = ${amt}, "approvedAmount" = ${amtTry}, "amountInDefault" = ${amtTry}, currency = ${sqlStr(cur)},
+                 description = ${sqlStr(desc)}, "categoryId" = ${sqlStr(categoryId)},
+                 "neededDate" = ${sqlStr(neededDate)}::timestamp, "deletedAt" = NULL, "updatedAt" = NOW()
+             WHERE id = ${sqlStr(reqRow.id)};`
+          );
+          return sendJson(res, 200, { success: true, id: reqRow.id, description: desc, amount: amt, amountInDefault: amtTry });
+        }
+        return sendJson(res, 404, { error: "Xarajat topilmadi" });
+      }
+
+      const targetExpId = exp.id;
       if (!access.isDirector) {
-        if (exp.employeeId !== access.employeeId) {
+        const isOwner =
+          !access.employeeId ||
+          exp.employeeId === access.employeeId ||
+          String(exp.description || "").toLowerCase().includes(String(access.accountName || access.sourceLabel || "___").toLowerCase());
+        if (!isOwner) {
           return sendJson(res, 403, { error: "Faqat o'zingiz kiritgan xarajatni tahrirlay olasiz" });
         }
         if (exp.status !== "PENDING" && exp.status !== "REJECTED") {
@@ -2929,11 +3056,12 @@ async function handleApi(req, res, url) {
              "amountUsd" = ${amountUsd},
              date = ${sqlStr(expDate)}::timestamp,
              status = ${sqlStr(nextStatus)}::"ExpenseStatus",
+             "deletedAt" = NULL,
              "updatedAt" = NOW()
-         WHERE id = ${sqlStr(expId)};`
+         WHERE id = ${sqlStr(targetExpId)};`
       );
 
-      if (exp.status === "PENDING") {
+      if ((exp.status === "PENDING" || exp.status === "APPROVED") && deltaTl !== 0) {
         await execPgSql(
           erpEnv.DATABASE_URL,
           `UPDATE "Wallet" SET "pendingAmount" = GREATEST(0, "pendingAmount" + (${deltaTl})), "updatedAt" = NOW() WHERE "employeeId" = ${sqlStr(exp.employeeId)};`
@@ -2946,25 +3074,63 @@ async function handleApi(req, res, url) {
       } else if (access.isDirector && exp.status === "PAID" && deltaTl !== 0) {
         await execPgSql(
           erpEnv.DATABASE_URL,
-          `UPDATE "Wallet" SET balance = balance - (${deltaTl}), "totalSpent" = "totalSpent" + (${deltaTl}), "updatedAt" = NOW() WHERE "employeeId" = ${sqlStr(exp.employeeId)};`
+          `UPDATE "Wallet" SET balance = balance - (${deltaTl}), "totalSpent" = GREATEST(0, "totalSpent" + (${deltaTl})), "updatedAt" = NOW() WHERE "employeeId" = ${sqlStr(exp.employeeId)};`
+        );
+      }
+      if (exp.requestId) {
+        await execPgSql(
+          erpEnv.DATABASE_URL,
+          `UPDATE "ExpenseRequest"
+           SET amount = ${amt}, "approvedAmount" = ${amountInDefault}, "amountInDefault" = ${amountInDefault},
+               description = ${sqlStr(desc)}, "categoryId" = ${sqlStr(categoryId)}, "updatedAt" = NOW()
+           WHERE id = ${sqlStr(exp.requestId)};`
         );
       }
 
-      return sendJson(res, 200, { success: true, id: expId, description: desc, amount: amt, amountInDefault, amountUsd });
+      return sendJson(res, 200, { success: true, id: targetExpId, description: desc, amount: amt, amountInDefault, amountUsd });
     }
 
     if (expItemMatch && method === "DELETE") {
-      const expId = expItemMatch[1];
+      const expId = decodeURIComponent(expItemMatch[1]);
       const rows = await queryPgJson(
         erpEnv.DATABASE_URL,
-        `SELECT id, "employeeId", "categoryId", status::text AS status, "amountInDefault"::float AS "amountInDefault"
-         FROM "Expense" WHERE id = ${sqlStr(expId)} AND "deletedAt" IS NULL LIMIT 1`
+        `SELECT id, "employeeId", "categoryId", "requestId", status::text AS status,
+                "amountInDefault"::float AS "amountInDefault", description, "deletedAt"
+         FROM "Expense"
+         WHERE (id = ${sqlStr(expId)} OR "requestId" = ${sqlStr(expId)})
+         ORDER BY ("deletedAt" IS NULL) DESC, "createdAt" DESC
+         LIMIT 1`
       );
       const exp = rows[0];
-      if (!exp) return sendJson(res, 404, { error: "Xarajat topilmadi" });
 
+      // Fallback: if not found in Expense, check ExpenseRequest
+      if (!exp) {
+        const reqRows = await queryPgJson(
+          erpEnv.DATABASE_URL,
+          `SELECT * FROM "ExpenseRequest" WHERE (id = ${sqlStr(expId)} OR "expenseId" = ${sqlStr(expId)}) ORDER BY ("deletedAt" IS NULL) DESC LIMIT 1`
+        );
+        const reqRow = reqRows[0];
+        if (reqRow) {
+          await execPgSql(
+            erpEnv.DATABASE_URL,
+            `UPDATE "ExpenseRequest" SET "deletedAt" = NOW(), "updatedAt" = NOW() WHERE id = ${sqlStr(reqRow.id)};`
+          );
+          return sendJson(res, 200, { success: true, message: "Talabnoma o'chirildi" });
+        }
+        return sendJson(res, 200, { success: true, message: "Xarajat o'chirildi" });
+      }
+
+      if (exp.deletedAt) {
+        return sendJson(res, 200, { success: true, message: "Xarajat o'chirildi" });
+      }
+
+      const targetExpId = exp.id;
       if (!access.isDirector) {
-        if (exp.employeeId !== access.employeeId) {
+        const isOwner =
+          !access.employeeId ||
+          exp.employeeId === access.employeeId ||
+          String(exp.description || "").toLowerCase().includes(String(access.accountName || access.sourceLabel || "___").toLowerCase());
+        if (!isOwner) {
           return sendJson(res, 403, { error: "Faqat o'zingiz kiritgan xarajatni o'chira olasiz" });
         }
         if (exp.status !== "PENDING" && exp.status !== "REJECTED") {
@@ -2974,7 +3140,7 @@ async function handleApi(req, res, url) {
 
       const amtTl = Number(exp.amountInDefault || 0);
       const sqlParts = [
-        `UPDATE "Expense" SET "deletedAt" = NOW(), "updatedAt" = NOW() WHERE id = ${sqlStr(expId)};`,
+        `UPDATE "Expense" SET "deletedAt" = NOW(), "updatedAt" = NOW() WHERE id = ${sqlStr(targetExpId)};`,
       ];
       if (exp.status === "PENDING" || exp.status === "APPROVED") {
         sqlParts.push(
@@ -2989,6 +3155,11 @@ async function handleApi(req, res, url) {
            WHERE "categoryId" = ${sqlStr(exp.categoryId)}
              AND month = EXTRACT(MONTH FROM NOW())::int
              AND year = EXTRACT(YEAR FROM NOW())::int;`
+        );
+      }
+      if (exp.requestId) {
+        sqlParts.push(
+          `UPDATE "ExpenseRequest" SET "deletedAt" = NOW(), "updatedAt" = NOW() WHERE id = ${sqlStr(exp.requestId)};`
         );
       }
       await execPgSql(erpEnv.DATABASE_URL, sqlParts.join("\n"));
@@ -3009,7 +3180,7 @@ async function handleApi(req, res, url) {
            c."isDefault",
            (SELECT COUNT(*)::int FROM "Expense" e WHERE e."categoryId" = c.id AND e."deletedAt" IS NULL) AS "expenseCount",
            (SELECT COUNT(*)::int FROM "ExpenseRequest" r WHERE r."categoryId" = c.id AND r."deletedAt" IS NULL) AS "requestCount"
-         FROM "ExpenseCategory" c
+         FROM "Category" c
          ORDER BY c."isDefault" DESC, c.name ASC`
       );
       return sendJson(res, 200, { categories: cats });
@@ -3024,7 +3195,7 @@ async function handleApi(req, res, url) {
 
       const dup = await queryPgJson(
         erpEnv.DATABASE_URL,
-        `SELECT id FROM "ExpenseCategory" WHERE LOWER(name) = LOWER(${sqlStr(name)}) LIMIT 1`
+        `SELECT id FROM "Category" WHERE LOWER(name) = LOWER(${sqlStr(name)}) LIMIT 1`
       );
       if (dup.length > 0) {
         return sendJson(res, 400, { error: "Bunday nomli kategoriya allaqachon mavjud" });
@@ -3033,7 +3204,7 @@ async function handleApi(req, res, url) {
       const id = "cat_" + crypto.randomBytes(10).toString("hex");
       await execPgSql(
         erpEnv.DATABASE_URL,
-        `INSERT INTO "ExpenseCategory" (id, name, icon, color, "isDefault", "createdAt", "updatedAt")
+        `INSERT INTO "Category" (id, name, icon, color, "isDefault", "createdAt", "updatedAt")
          VALUES (${sqlStr(id)}, ${sqlStr(name)}, ${sqlStr(icon)}, ${sqlStr(color)}, false, NOW(), NOW());`
       );
       return sendJson(res, 201, { id, name, icon, color, isDefault: false, expenseCount: 0, requestCount: 0 });
@@ -3050,7 +3221,7 @@ async function handleApi(req, res, url) {
 
       const dup = await queryPgJson(
         erpEnv.DATABASE_URL,
-        `SELECT id FROM "ExpenseCategory" WHERE LOWER(name) = LOWER(${sqlStr(name)}) AND id <> ${sqlStr(catId)} LIMIT 1`
+        `SELECT id FROM "Category" WHERE LOWER(name) = LOWER(${sqlStr(name)}) AND id <> ${sqlStr(catId)} LIMIT 1`
       );
       if (dup.length > 0) {
         return sendJson(res, 400, { error: "Bunday nomli kategoriya allaqachon mavjud" });
@@ -3058,7 +3229,7 @@ async function handleApi(req, res, url) {
 
       await execPgSql(
         erpEnv.DATABASE_URL,
-        `UPDATE "ExpenseCategory"
+        `UPDATE "Category"
          SET name = ${sqlStr(name)},
              icon = ${sqlStr(icon)},
              color = ${sqlStr(color)},
@@ -3072,7 +3243,7 @@ async function handleApi(req, res, url) {
       const catId = catItemMatch[1];
       const allCats = await queryPgJson(
         erpEnv.DATABASE_URL,
-        `SELECT id, name FROM "ExpenseCategory" ORDER BY "isDefault" DESC, "createdAt" ASC`
+        `SELECT id, name FROM "Category" ORDER BY "isDefault" DESC, "createdAt" ASC`
       );
       if (allCats.length <= 1) {
         return sendJson(res, 400, { error: "Oxirgi kategoriyani o'chirib bo'lmaydi" });
@@ -3090,7 +3261,7 @@ async function handleApi(req, res, url) {
         `UPDATE "Expense" SET "categoryId" = ${sqlStr(fallbackCat.id)}, "updatedAt" = NOW() WHERE "categoryId" = ${sqlStr(catId)};
          UPDATE "ExpenseRequest" SET "categoryId" = ${sqlStr(fallbackCat.id)}, "updatedAt" = NOW() WHERE "categoryId" = ${sqlStr(catId)};
          DELETE FROM "Budget" WHERE "categoryId" = ${sqlStr(catId)};
-         DELETE FROM "ExpenseCategory" WHERE id = ${sqlStr(catId)};`
+         DELETE FROM "Category" WHERE id = ${sqlStr(catId)};`
       );
       return sendJson(res, 200, {
         success: true,
@@ -3105,7 +3276,7 @@ async function handleApi(req, res, url) {
     if (pathname === "/fin-api/erp/expense-requests" && method === "GET") {
       const latestRateRow = await queryPgJson(
         erpEnv.DATABASE_URL,
-        `SELECT rate::float AS rate FROM "ExchangeRate" WHERE "fromCurrency" = 'USD' ORDER BY "effectiveDate" DESC, "createdAt" DESC LIMIT 1`
+        `SELECT rate::float AS rate FROM "ExchangeRate" WHERE "fromCurrency" = 'USD' ORDER BY "effectiveAt" DESC, "createdAt" DESC LIMIT 1`
       );
       const currentUsdRate = Number(latestRateRow[0]?.rate || 49.628);
 
@@ -3200,7 +3371,7 @@ async function handleApi(req, res, url) {
 
       const latestRateRow = await queryPgJson(
         erpEnv.DATABASE_URL,
-        `SELECT rate::float AS rate FROM "ExchangeRate" WHERE "fromCurrency" = 'USD' ORDER BY "effectiveDate" DESC, "createdAt" DESC LIMIT 1`
+        `SELECT rate::float AS rate FROM "ExchangeRate" WHERE "fromCurrency" = 'USD' ORDER BY "effectiveAt" DESC, "createdAt" DESC LIMIT 1`
       );
       const currentUsdRate = Number(latestRateRow[0]?.rate || 49.628);
       const exchangeRate = cur === "USD" ? currentUsdRate : 1;
@@ -3343,7 +3514,7 @@ async function handleApi(req, res, url) {
 
       const latestRateRow = await queryPgJson(
         erpEnv.DATABASE_URL,
-        `SELECT rate::float AS rate FROM "ExchangeRate" WHERE "fromCurrency" = 'USD' ORDER BY "effectiveDate" DESC, "createdAt" DESC LIMIT 1`
+        `SELECT rate::float AS rate FROM "ExchangeRate" WHERE "fromCurrency" = 'USD' ORDER BY "effectiveAt" DESC, "createdAt" DESC LIMIT 1`
       );
       const currentUsdRate = Number(latestRateRow[0]?.rate || 49.628);
       const reqCode = `#T-${reqRow.requestNumber}`;
@@ -3577,69 +3748,197 @@ async function handleApi(req, res, url) {
 
     const reqItemMatch = pathname.match(/^\/fin-api\/erp\/expense-requests\/([^/]+)$/);
     if (reqItemMatch && (method === "PUT" || method === "PATCH")) {
-      const reqId = reqItemMatch[1];
+      const reqId = decodeURIComponent(reqItemMatch[1]);
       const body = await readJsonBody(req);
       const rows = await queryPgJson(
         erpEnv.DATABASE_URL,
-        `SELECT * FROM "ExpenseRequest" WHERE id = ${sqlStr(reqId)} AND "deletedAt" IS NULL LIMIT 1`
+        `SELECT * FROM "ExpenseRequest" WHERE (id = ${sqlStr(reqId)} OR "expenseId" = ${sqlStr(reqId)}) ORDER BY ("deletedAt" IS NULL) DESC LIMIT 1`
       );
       const reqRow = rows[0];
-      if (!reqRow) return sendJson(res, 404, { error: "Talabnoma topilmadi" });
 
-      if (!access.isDirector && reqRow.status !== "PENDING") {
-        return sendJson(res, 403, { error: "Faqat kutilayotgan (PENDING) talabnomani tahrirlash mumkin" });
+      // Fallback: if not found in ExpenseRequest, check Expense
+      if (!reqRow) {
+        const expRows = await queryPgJson(
+          erpEnv.DATABASE_URL,
+          `SELECT id, "employeeId", "categoryId", amount::float AS amount, currency, "amountInDefault"::float AS "amountInDefault", status::text AS status, description
+           FROM "Expense" WHERE (id = ${sqlStr(reqId)} OR "requestId" = ${sqlStr(reqId)}) ORDER BY ("deletedAt" IS NULL) DESC LIMIT 1`
+        );
+        const expFallback = expRows[0];
+        if (expFallback) {
+          const latestRateRow = await queryPgJson(
+            erpEnv.DATABASE_URL,
+            `SELECT rate::float AS rate FROM "ExchangeRate" WHERE "fromCurrency" = 'USD' ORDER BY "effectiveAt" DESC, "createdAt" DESC LIMIT 1`
+          );
+          const currentUsdRate = Number(latestRateRow[0]?.rate || 49.628);
+          const amt = body.amount !== undefined ? Number(body.amount) : Number(expFallback.amount);
+          const rawCur = String(body.currency || expFallback.currency || "TL").toUpperCase();
+          const cur = rawCur === "TRY" ? "TL" : rawCur;
+          const amtTl = cur === "USD" ? Number((amt * currentUsdRate).toFixed(2)) : amt;
+          const amtUsd = cur === "USD" ? amt : Number((amt / currentUsdRate).toFixed(2));
+          const deltaTl = Number((amtTl - Number(expFallback.amountInDefault || 0)).toFixed(2));
+          const desc = body.description !== undefined ? String(body.description).trim() : expFallback.description;
+          const categoryId = body.categoryId || expFallback.categoryId;
+          const expDate = body.neededDate || body.expenseDate || body.date || new Date().toISOString().slice(0, 10);
+          await execPgSql(
+            erpEnv.DATABASE_URL,
+            `UPDATE "Expense"
+             SET amount = ${amt}, currency = ${sqlStr(cur)}, "amountInDefault" = ${amtTl}, "amountUsd" = ${amtUsd},
+                 description = ${sqlStr(desc)}, title = ${sqlStr(String(desc || "").slice(0, 100))},
+                 "categoryId" = ${sqlStr(categoryId)}, date = ${sqlStr(expDate)}::timestamp,
+                 "deletedAt" = NULL, "updatedAt" = NOW()
+             WHERE id = ${sqlStr(expFallback.id)};`
+          );
+          if (deltaTl !== 0) {
+            if (expFallback.status === "PENDING" || expFallback.status === "APPROVED") {
+              await execPgSql(erpEnv.DATABASE_URL, `UPDATE "Wallet" SET "pendingAmount" = GREATEST(0, "pendingAmount" + (${deltaTl})), "updatedAt" = NOW() WHERE "employeeId" = ${sqlStr(expFallback.employeeId)};`);
+            } else if (expFallback.status === "PAID") {
+              await execPgSql(erpEnv.DATABASE_URL, `UPDATE "Wallet" SET balance = balance - (${deltaTl}), "totalSpent" = GREATEST(0, "totalSpent" + (${deltaTl})), "updatedAt" = NOW() WHERE "employeeId" = ${sqlStr(expFallback.employeeId)};`);
+            }
+          }
+          return sendJson(res, 200, { success: true, id: expFallback.id, amountTry: amtTl, amountUsd: amtUsd });
+        }
+        return sendJson(res, 404, { error: "Talabnoma topilmadi" });
+      }
+
+      const targetReqId = reqRow.id;
+      if (!access.isDirector && reqRow.status !== "PENDING" && reqRow.status !== "REJECTED") {
+        return sendJson(res, 403, { error: "Tasdiqlangan talabnomani faqat Direktor tahrirlashi mumkin" });
       }
 
       const latestRateRow = await queryPgJson(
         erpEnv.DATABASE_URL,
-        `SELECT rate::float AS rate FROM "ExchangeRate" WHERE "fromCurrency" = 'USD' ORDER BY "effectiveDate" DESC, "createdAt" DESC LIMIT 1`
+        `SELECT rate::float AS rate FROM "ExchangeRate" WHERE "fromCurrency" = 'USD' ORDER BY "effectiveAt" DESC, "createdAt" DESC LIMIT 1`
       );
       const currentUsdRate = Number(latestRateRow[0]?.rate || 49.628);
 
-      const amt = body.amount !== undefined ? Number(body.amount) : Number(reqRow.amountInDefault || reqRow.amount);
+      const amt = body.amount !== undefined ? Number(body.amount) : Number(reqRow.amount || reqRow.amountInDefault);
       if (!(amt > 0)) return sendJson(res, 400, { error: "Summa 0 dan katta bo'lishi kerak" });
+      const rawCur = String(body.currency || reqRow.currency || "TRY").toUpperCase();
+      const cur = rawCur === "TL" ? "TRY" : rawCur;
+      const exchangeRate = cur === "USD" ? currentUsdRate : 1;
+      const amountInDefault = cur === "USD" ? Number((amt * currentUsdRate).toFixed(2)) : amt;
+      const oldAmtTl = Number(reqRow.amountInDefault || reqRow.amount || 0);
+      const deltaTl = Number((amountInDefault - oldAmtTl).toFixed(2));
+
       const desc = body.description !== undefined ? String(body.description).trim() : reqRow.description;
       const categoryId = body.categoryId || reqRow.categoryId;
-      const neededDate = body.neededDate || new Date(reqRow.neededDate).toISOString().slice(0, 10);
-      const urgency = body.urgency ? String(body.urgency).toUpperCase() : reqRow.urgency;
+      let fallbackNeededDate = new Date().toISOString().slice(0, 10);
+      try {
+        if (reqRow.neededDate) fallbackNeededDate = new Date(reqRow.neededDate).toISOString().slice(0, 10);
+      } catch {}
+      const neededDate = body.neededDate || fallbackNeededDate;
+      const urgency = body.urgency ? String(body.urgency).toUpperCase() : (reqRow.urgency || "NORMAL");
+      const nextStatus = !access.isDirector && reqRow.status === "REJECTED" ? "PENDING" : reqRow.status;
 
-      await execPgSql(
-        erpEnv.DATABASE_URL,
+      const sqlParts = [
         `UPDATE "ExpenseRequest"
          SET amount = ${amt},
-             "approvedAmount" = ${amt},
-             "amountInDefault" = ${amt},
+             currency = ${sqlStr(cur)},
+             "exchangeRate" = ${exchangeRate},
+             "approvedAmount" = ${amountInDefault},
+             "amountInDefault" = ${amountInDefault},
              description = ${sqlStr(desc)},
              "categoryId" = ${sqlStr(categoryId)},
              "neededDate" = ${sqlStr(neededDate)}::timestamp,
              urgency = ${sqlStr(urgency)},
+             status = ${sqlStr(nextStatus)},
+             "deletedAt" = NULL,
              "updatedAt" = NOW()
-         WHERE id = ${sqlStr(reqId)};`
-      );
+         WHERE id = ${sqlStr(targetReqId)};`,
+      ];
+
+      if (reqRow.expenseId) {
+        const amtUsd = Number((amountInDefault / currentUsdRate).toFixed(2));
+        sqlParts.push(
+          `UPDATE "Expense"
+           SET amount = ${amt},
+               currency = ${sqlStr(cur === "TRY" ? "TL" : cur)},
+               "amountInDefault" = ${amountInDefault},
+               "amountUsd" = ${amtUsd},
+               description = ${sqlStr(desc)},
+               title = ${sqlStr(String(desc || "").slice(0, 100))},
+               "categoryId" = ${sqlStr(categoryId)},
+               "updatedAt" = NOW()
+           WHERE id = ${sqlStr(reqRow.expenseId)};`
+        );
+        if (deltaTl !== 0 && reqRow.employeeId) {
+          sqlParts.push(
+            `UPDATE "Wallet" SET balance = balance - (${deltaTl}), "totalSpent" = GREATEST(0, "totalSpent" + (${deltaTl})), "updatedAt" = NOW() WHERE "employeeId" = ${sqlStr(reqRow.employeeId)};`
+          );
+        }
+      }
+
+      await execPgSql(erpEnv.DATABASE_URL, sqlParts.join("\n"));
 
       return sendJson(res, 200, {
         success: true,
-        id: reqId,
-        amountTry: amt,
-        amountUsd: Number((amt / currentUsdRate).toFixed(2)),
+        id: targetReqId,
+        amountTry: amountInDefault,
+        amountUsd: Number((amountInDefault / currentUsdRate).toFixed(2)),
       });
     }
 
     if (reqItemMatch && method === "DELETE") {
-      const reqId = reqItemMatch[1];
+      const reqId = decodeURIComponent(reqItemMatch[1]);
       const rows = await queryPgJson(
         erpEnv.DATABASE_URL,
-        `SELECT * FROM "ExpenseRequest" WHERE id = ${sqlStr(reqId)} AND "deletedAt" IS NULL LIMIT 1`
+        `SELECT * FROM "ExpenseRequest" WHERE (id = ${sqlStr(reqId)} OR "expenseId" = ${sqlStr(reqId)}) ORDER BY ("deletedAt" IS NULL) DESC LIMIT 1`
       );
       const reqRow = rows[0];
-      if (!reqRow) return sendJson(res, 404, { error: "Talabnoma topilmadi" });
+
+      if (!reqRow) {
+        const expRows = await queryPgJson(
+          erpEnv.DATABASE_URL,
+          `SELECT id, "employeeId", "categoryId", status::text AS status, "amountInDefault"::float AS "amountInDefault", "deletedAt"
+           FROM "Expense" WHERE (id = ${sqlStr(reqId)} OR "requestId" = ${sqlStr(reqId)}) ORDER BY ("deletedAt" IS NULL) DESC LIMIT 1`
+        );
+        const expFallback = expRows[0];
+        if (expFallback && !expFallback.deletedAt) {
+          const amtTl = Number(expFallback.amountInDefault || 0);
+          const sqlParts = [
+            `UPDATE "Expense" SET "deletedAt" = NOW(), "updatedAt" = NOW() WHERE id = ${sqlStr(expFallback.id)};`,
+          ];
+          if (expFallback.status === "PENDING" || expFallback.status === "APPROVED") {
+            sqlParts.push(`UPDATE "Wallet" SET "pendingAmount" = GREATEST(0, "pendingAmount" - ${amtTl}), "updatedAt" = NOW() WHERE "employeeId" = ${sqlStr(expFallback.employeeId)};`);
+          } else if (expFallback.status === "PAID") {
+            sqlParts.push(`UPDATE "Wallet" SET balance = balance + ${amtTl}, "totalSpent" = GREATEST(0, "totalSpent" - ${amtTl}), "updatedAt" = NOW() WHERE "employeeId" = ${sqlStr(expFallback.employeeId)};`);
+          }
+          await execPgSql(erpEnv.DATABASE_URL, sqlParts.join("\n"));
+        }
+        return sendJson(res, 200, { success: true });
+      }
+
+      if (reqRow.deletedAt) {
+        return sendJson(res, 200, { success: true });
+      }
+
       if (!access.isDirector && reqRow.status !== "PENDING" && reqRow.status !== "REJECTED") {
         return sendJson(res, 403, { error: "Tasdiqlangan talabnomani faqat Direktor o'chira oladi" });
       }
-      await execPgSql(
-        erpEnv.DATABASE_URL,
-        `UPDATE "ExpenseRequest" SET "deletedAt" = NOW(), "updatedAt" = NOW() WHERE id = ${sqlStr(reqId)};`
-      );
+
+      const sqlParts = [
+        `UPDATE "ExpenseRequest" SET "deletedAt" = NOW(), "updatedAt" = NOW() WHERE id = ${sqlStr(reqRow.id)};`,
+      ];
+
+      if (reqRow.expenseId) {
+        const linkedExpRows = await queryPgJson(
+          erpEnv.DATABASE_URL,
+          `SELECT id, "employeeId", status::text AS status, "amountInDefault"::float AS "amountInDefault", "deletedAt"
+           FROM "Expense" WHERE id = ${sqlStr(reqRow.expenseId)} AND "deletedAt" IS NULL LIMIT 1`
+        );
+        const linkedExp = linkedExpRows[0];
+        if (linkedExp) {
+          const amtTl = Number(linkedExp.amountInDefault || 0);
+          sqlParts.push(`UPDATE "Expense" SET "deletedAt" = NOW(), "updatedAt" = NOW() WHERE id = ${sqlStr(linkedExp.id)};`);
+          if (linkedExp.status === "PENDING" || linkedExp.status === "APPROVED") {
+            sqlParts.push(`UPDATE "Wallet" SET "pendingAmount" = GREATEST(0, "pendingAmount" - ${amtTl}), "updatedAt" = NOW() WHERE "employeeId" = ${sqlStr(linkedExp.employeeId)};`);
+          } else if (linkedExp.status === "PAID") {
+            sqlParts.push(`UPDATE "Wallet" SET balance = balance + ${amtTl}, "totalSpent" = GREATEST(0, "totalSpent" - ${amtTl}), "updatedAt" = NOW() WHERE "employeeId" = ${sqlStr(linkedExp.employeeId)};`);
+          }
+        }
+      }
+
+      await execPgSql(erpEnv.DATABASE_URL, sqlParts.join("\n"));
       return sendJson(res, 200, { success: true });
     }
 
@@ -3787,7 +4086,7 @@ async function handleApi(req, res, url) {
 
       const latestRateRow = await queryPgJson(
         erpEnv.DATABASE_URL,
-        `SELECT rate::float AS rate FROM "ExchangeRate" WHERE "fromCurrency" = 'USD' ORDER BY "effectiveDate" DESC, "createdAt" DESC LIMIT 1`
+        `SELECT rate::float AS rate FROM "ExchangeRate" WHERE "fromCurrency" = 'USD' ORDER BY "effectiveAt" DESC, "createdAt" DESC LIMIT 1`
       );
       const currentUsdRate = Number(latestRateRow[0]?.rate || 49.628);
 

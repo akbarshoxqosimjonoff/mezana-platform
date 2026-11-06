@@ -2307,7 +2307,7 @@ function App() {
                               <div>-{fmtTL(e.amountInDefault || e.amount)}</div>
                             </td>
                             <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                              {(e.status === "PENDING" || e.status === "REJECTED") && (
+                              {(e.status === "PENDING" || e.status === "REJECTED" || access.isDirector) && (
                                 <div style={{ display: "inline-flex", gap: 6 }}>
                                   <button className="btn btn-sm" onClick={() => openEditExpense(e)}>
                                     <Edit3 size={12} /> Tahrirlash
@@ -2315,8 +2315,8 @@ function App() {
                                   <button className="btn btn-sm btn-danger" onClick={() => handleQuickExpenseAction(e.id, "delete")}>
                                     O'chirish
                                   </button>
-                                  </div>
-                                )}
+                                </div>
+                              )}
                               </td>
                             </tr>
                           );
@@ -3758,7 +3758,7 @@ function App() {
                                   </>
                                 )}
 
-                                {!access.isDirector && (e.status === "PENDING" || e.status === "REJECTED") && (
+                                {(e.status === "PENDING" || e.status === "REJECTED") && (
                                   <>
                                     <button
                                       className="btn btn-sm"
@@ -3786,22 +3786,14 @@ function App() {
                                   <>
                                     <button
                                       className="btn btn-sm"
-                                      title="Summa yoki tavsifni to'g'rilash"
-                                      onClick={() =>
-                                        setExpActionModal({
-                                          expense: e,
-                                          action: "adjust",
-                                          amount: String(e.amount || ""),
-                                          description: e.description || "",
-                                          reason: "",
-                                        })
-                                      }
+                                      title="Xarajat summasi, toifasi, sanasi yoki tavsifini tahrirlash"
+                                      onClick={() => openEditExpense(e)}
                                     >
                                       <Edit3 size={12} /> Tahrir
                                     </button>
                                     <button
                                       className="btn btn-sm btn-danger"
-                                      title="Xarajatni bekor qilish"
+                                      title="Xarajatni bekor qilish va mablag'ni hamyonga qaytarish"
                                       onClick={() =>
                                         setExpActionModal({
                                           expense: e,
@@ -3812,7 +3804,7 @@ function App() {
                                         })
                                       }
                                     >
-                                      <XCircle size={12} /> Bekor
+                                      <XCircle size={12} /> O'chirish / Bekor
                                     </button>
                                   </>
                                 )}
@@ -4303,7 +4295,7 @@ function App() {
                                       </button>
                                     )}
 
-                                    {r.status === "PENDING" && (
+                                    {(r.status === "PENDING" || r.status === "REJECTED" || access.isDirector) && (
                                       <>
                                         <button
                                           className="btn btn-sm"
