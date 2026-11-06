@@ -132,9 +132,10 @@ export function middleware(request: NextRequest) {
   });
 
   if (decision.action === "redirect" && decision.location) {
+    const baseOrigin = host ? `${proto}://${host}` : request.url;
     const targetUrl = decision.location.startsWith("http")
       ? new URL(decision.location)
-      : new URL(decision.location, request.url);
+      : new URL(decision.location, baseOrigin);
     const response = NextResponse.redirect(targetUrl, { status: decision.status || 307 });
     if (decision.cacheControl) {
       response.headers.set("Cache-Control", decision.cacheControl);
