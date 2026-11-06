@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { fmtDate, fmtDateTime, fmtMonth, DateInput } from "./dateUtils";
 import {
   Building2,
   Check,
@@ -287,7 +288,7 @@ export function DonationsRegistryPanel({
                       <td>
                         <div style={{ fontWeight: 800, color: "#fbcc42" }}>{d.donation_no}</div>
                         <div style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>
-                          {String(d.received_at).slice(0, 10)}
+                          {fmtDate(d.received_at)}
                         </div>
                       </td>
                       <td>
@@ -441,8 +442,7 @@ export function DonationsRegistryPanel({
               </div>
               <div>
                 <label className="field-label">Qabul sanasi *</label>
-                <input
-                  type="date"
+                <DateInput
                   className="input"
                   value={form.received_at}
                   onChange={(e) => setForm({ ...form, received_at: e.target.value })}
@@ -618,7 +618,7 @@ export function DonationsRegistryPanel({
               <div><strong>Telefon:</strong> {donorDetail.phone || donorDetail.phone_masked || "—"}</div>
               <div><strong>Email:</strong> {donorDetail.email || donorDetail.email_masked || "—"}</div>
               <div><strong>Manzil:</strong> {donorDetail.address || "—"}</div>
-              <div><strong>KVKK Rozilik vaqti:</strong> {donorDetail.kvkk_consent_at ? new Date(donorDetail.kvkk_consent_at).toLocaleString("tr-TR") : "—"}</div>
+              <div><strong>KVKK Rozilik vaqti:</strong> {donorDetail.kvkk_consent_at ? fmtDateTime(donorDetail.kvkk_consent_at) : "—"}</div>
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
               <button className="btn" onClick={() => setDonorDetail(null)}>
@@ -880,7 +880,7 @@ export function PropertiesAndLeasesPanel({
                       )}
                     </td>
                     <td>
-                      {String(l.start_date).slice(0, 10)} → <strong>{String(l.end_date).slice(0, 10)}</strong>
+                      {fmtDate(l.start_date)} → <strong>{fmtDate(l.end_date)}</strong>
                     </td>
                     <td style={{ fontWeight: 800 }}>
                       {Number(l.monthly_rent || 0).toLocaleString("tr-TR")} {l.currency}
@@ -1032,8 +1032,7 @@ export function PropertiesAndLeasesPanel({
               </div>
               <div>
                 <label className="field-label">Boshlanish sanasi *</label>
-                <input
-                  type="date"
+                <DateInput
                   className="input"
                   value={leaseForm.start_date}
                   onChange={(e) => setLeaseForm({ ...leaseForm, start_date: e.target.value })}
@@ -1041,8 +1040,7 @@ export function PropertiesAndLeasesPanel({
               </div>
               <div>
                 <label className="field-label">Tugash sanasi *</label>
-                <input
-                  type="date"
+                <DateInput
                   className="input"
                   value={leaseForm.end_date}
                   onChange={(e) => setLeaseForm({ ...leaseForm, end_date: e.target.value })}
@@ -1101,8 +1099,8 @@ export function PropertiesAndLeasesPanel({
                 <tbody>
                   {(selectedLease.payments || []).map((p: any) => (
                     <tr key={p.id}>
-                      <td style={{ fontWeight: 700 }}>{p.period_month}</td>
-                      <td>{String(p.expected_date).slice(0, 10)}</td>
+                      <td style={{ fontWeight: 700 }}>{fmtMonth(p.period_month)}</td>
+                      <td>{fmtDate(p.expected_date)}</td>
                       <td>{Number(p.expected_amount).toLocaleString("tr-TR")} {p.currency}</td>
                       <td>
                         <span
@@ -1250,7 +1248,7 @@ export function ArchiveDocumentsPanel({
                       <span className="badge badge-cyan">{d.category}</span>
                     </td>
                     <td>{d.counterparty || "—"}</td>
-                    <td>{d.valid_until ? String(d.valid_until).slice(0, 10) : "Muddatsiz"}</td>
+                    <td>{d.valid_until ? fmtDate(d.valid_until) : "Muddatsiz"}</td>
                     <td>
                       <span className={`badge ${d.confidentiality === "restricted" ? "badge-rose" : "badge-emerald"}`}>
                         {d.confidentiality === "restricted" ? "🔒 Maxfiy (Direktor)" : "Ochiq (Normal)"}
@@ -1337,8 +1335,7 @@ export function ArchiveDocumentsPanel({
               </div>
               <div>
                 <label className="field-label">Amal qilish muddati (Eslatma uchun)</label>
-                <input
-                  type="date"
+                <DateInput
                   className="input"
                   value={form.valid_until}
                   onChange={(e) => setForm({ ...form, valid_until: e.target.value })}
@@ -1377,7 +1374,7 @@ export function ArchiveDocumentsPanel({
               <strong>Yuklab olishlar audit jurnali ({detailDoc.access_logs?.length || 0}):</strong>
               {(detailDoc.access_logs || []).map((lg: any) => (
                 <div key={lg.id} style={{ fontSize: 12, color: "var(--text-secondary)", padding: "3px 0" }}>
-                  • {new Date(lg.accessed_at).toLocaleString("tr-TR")} — <strong>{lg.user_name}</strong> ({lg.user_role}) [v{lg.version_no}]
+                  • {fmtDateTime(lg.accessed_at)} — <strong>{lg.user_name}</strong> ({lg.user_role}) [v{lg.version_no}]
                 </div>
               ))}
             </div>
@@ -1501,7 +1498,7 @@ export function BoardDecisionsPanel({
                 decisions.map((d) => (
                   <tr key={d.id}>
                     <td style={{ fontWeight: 800, color: "#fbcc42" }}>{d.decision_no}</td>
-                    <td>{String(d.decision_date).slice(0, 10)}</td>
+                    <td>{fmtDate(d.decision_date)}</td>
                     <td>
                       <div style={{ fontWeight: 700 }}>{d.title}</div>
                       <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{d.body_text}</div>

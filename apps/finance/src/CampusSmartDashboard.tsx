@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { fmtDate, fmtDateTime, fmtMonth, DateInput } from "./dateUtils";
 import {
   Activity,
   AlertTriangle,
@@ -494,7 +495,7 @@ export function CampusSmartDashboard({ apiFetch, notify, initialSubTab = "overvi
               >
                 {(meta.availableMonths || [selectedMonth]).map((m: string) => (
                   <option key={m} value={m}>
-                    {m}
+                    {fmtMonth(m)}
                   </option>
                 ))}
               </select>
@@ -515,16 +516,15 @@ export function CampusSmartDashboard({ apiFetch, notify, initialSubTab = "overvi
                 style={{ width: 155 }}
               >
                 {meta.todayIstanbul && !(meta.availableDates || []).includes(meta.todayIstanbul) && (
-                  <option value={meta.todayIstanbul}>{meta.todayIstanbul} (Bugun)</option>
+                  <option value={meta.todayIstanbul}>{fmtDate(meta.todayIstanbul)} (Bugun)</option>
                 )}
                 {(meta.availableDates || []).map((d: string) => (
                   <option key={d} value={d}>
-                    {d} {d === meta.latestActiveDate ? "(Oxirgi faol)" : ""}
+                    {fmtDate(d)} {d === meta.latestActiveDate ? "(Oxirgi faol)" : ""}
                   </option>
                 ))}
               </select>
-              <input
-                type="date"
+              <DateInput
                 className="input"
                 value={selectedDate}
                 onChange={(e) => {
@@ -534,7 +534,7 @@ export function CampusSmartDashboard({ apiFetch, notify, initialSubTab = "overvi
                   setSelectedMonth(d.slice(0, 7));
                   loadAnalytics(d, d.slice(0, 7));
                 }}
-                style={{ width: 140 }}
+                style={{ width: 145 }}
               />
             </div>
 
@@ -903,7 +903,7 @@ export function CampusSmartDashboard({ apiFetch, notify, initialSubTab = "overvi
                       return (
                         <tr key={`${sc.deviceType}_${sc.id}`}>
                           <td style={{ fontWeight: 700, whiteSpace: "nowrap" }}>
-                            {sc.date} <span style={{ color: "#10b981" }}>{sc.time}</span>
+                            {fmtDate(sc.date)} <span style={{ color: "#10b981" }}>{sc.time}</span>
                           </td>
                           <td>
                             <span className={`badge ${isCanteen ? "badge-cyan" : "badge-emerald"}`}>
@@ -948,7 +948,7 @@ export function CampusSmartDashboard({ apiFetch, notify, initialSubTab = "overvi
           {/* COMPARATIVE OVERVIEW TABLE FOR ALL 3 ZONES */}
           <div className="glass-card" style={{ padding: 18 }}>
             <h3 style={{ fontSize: 15.5, fontWeight: 800, marginTop: 0, marginBottom: 10, color: "var(--text-primary)" }}>
-              📌 Uchala Nazorat Nuqtasi Bo'yicha Yagona Xulosa ({selectedDate})
+              📌 Uchala Nazorat Nuqtasi Bo'yicha Yagona Xulosa ({fmtDate(selectedDate)})
             </h3>
             <div className="table-wrap">
               <table className="fin-table">
@@ -1135,7 +1135,7 @@ export function CampusSmartDashboard({ apiFetch, notify, initialSubTab = "overvi
               {/* 1. Kunlik Porsiya */}
               <div style={{ padding: 14, borderRadius: 12, background: "rgba(16,185,129,0.06)", border: "1px solid var(--border-subtle)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                  <span style={{ fontWeight: 800, fontSize: 13.5, color: "#10b981" }}>📅 KUNLIK ({selectedDate})</span>
+                  <span style={{ fontWeight: 800, fontSize: 13.5, color: "#10b981" }}>📅 KUNLIK ({fmtDate(selectedDate)})</span>
                   {renderCs2Badge(daily.portions?.cs2Diff || 0, "porsiya")}
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12.5 }}>
@@ -1164,7 +1164,7 @@ export function CampusSmartDashboard({ apiFetch, notify, initialSubTab = "overvi
               <div style={{ padding: 14, borderRadius: 12, background: "rgba(14,165,233,0.06)", border: "1px solid var(--border-subtle)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                   <span style={{ fontWeight: 800, fontSize: 13.5, color: "#0284c7" }}>
-                    📆 HAFTALIK ({weekly.startDate?.slice(5)} - {weekly.endDate?.slice(5)})
+                    📆 HAFTALIK ({fmtDate(weekly.startDate)} - {fmtDate(weekly.endDate)})
                   </span>
                   {renderCs2Badge(
                     calcBasis === "active" ? weekly.cs2DiffActiveDays || 0 : weekly.cs2Diff7Days || 0,
@@ -1201,7 +1201,7 @@ export function CampusSmartDashboard({ apiFetch, notify, initialSubTab = "overvi
               <div style={{ padding: 14, borderRadius: 12, background: "rgba(139,92,246,0.06)", border: "1px solid var(--border-subtle)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                   <span style={{ fontWeight: 800, fontSize: 13.5, color: "#7c3aed" }}>
-                    🗓️ OYLIK UMUMIY ({selectedMonth})
+                    🗓️ OYLIK UMUMIY ({fmtMonth(selectedMonth)})
                   </span>
                   {renderCs2Badge(
                     calcBasis === "active" ? mTotals.cs2DiffActiveDays || 0 : mTotals.cs2DiffFullMonth || 0,
@@ -1240,7 +1240,7 @@ export function CampusSmartDashboard({ apiFetch, notify, initialSubTab = "overvi
               <div style={{ padding: 14, borderRadius: 12, background: "rgba(245,158,11,0.06)", border: "1px solid var(--border-subtle)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                   <span style={{ fontWeight: 800, fontSize: 13.5, color: "#d97706" }}>
-                    👤 1 TALABA BOSHIGA ({selectedMonth})
+                    👤 1 TALABA BOSHIGA ({fmtMonth(selectedMonth)})
                   </span>
                   {renderCs2Badge(
                     calcBasis === "active" ? mPerSt.cs2DiffActiveDays || 0 : mPerSt.cs2DiffFullMonth || 0,
@@ -1285,7 +1285,7 @@ export function CampusSmartDashboard({ apiFetch, notify, initialSubTab = "overvi
                 <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginTop: 2 }}>
                   Bosqich:{" "}
                   <b style={{ color: "#10b981" }}>
-                    1. Oy haftalari ({selectedMonth}) → 2. Hafta kunlari ({currentWeekObj?.label || ""}) → 3. Kunlik mahallar va soatlar ({selectedDate})
+                    1. Oy haftalari ({fmtMonth(selectedMonth)}) → 2. Hafta kunlari ({currentWeekObj?.label || ""}) → 3. Kunlik mahallar va soatlar ({fmtDate(selectedDate)})
                   </b>
                 </div>
               </div>
@@ -1296,7 +1296,7 @@ export function CampusSmartDashboard({ apiFetch, notify, initialSubTab = "overvi
                   className={`btn btn-sm ${drillLevel === "month_weeks" ? "btn-primary" : ""}`}
                   onClick={() => setDrillLevel("month_weeks")}
                 >
-                  1-bosqich: Oy haftalari ({selectedMonth})
+                  1-bosqich: Oy haftalari ({fmtMonth(selectedMonth)})
                 </button>
                 <button
                   className={`btn btn-sm ${drillLevel === "week_days" ? "btn-primary" : ""}`}
@@ -1308,7 +1308,7 @@ export function CampusSmartDashboard({ apiFetch, notify, initialSubTab = "overvi
                   className={`btn btn-sm ${drillLevel === "day_meals" ? "btn-primary" : ""}`}
                   onClick={() => setDrillLevel("day_meals")}
                 >
-                  3-bosqich: Kunlik 3 mahal va Soatlar ({selectedDate})
+                  3-bosqich: Kunlik 3 mahal va Soatlar ({fmtDate(selectedDate)})
                 </button>
               </div>
             </div>
@@ -1420,7 +1420,7 @@ export function CampusSmartDashboard({ apiFetch, notify, initialSubTab = "overvi
                         }}
                       >
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                          <span style={{ fontWeight: 800, fontSize: 13.5 }}>{d.date.slice(5)}</span>
+                          <span style={{ fontWeight: 800, fontSize: 13.5 }}>{fmtDate(d.date)}</span>
                           {renderCs2Badge(d.portions.cs2Diff, "")}
                         </div>
 
@@ -1458,7 +1458,7 @@ export function CampusSmartDashboard({ apiFetch, notify, initialSubTab = "overvi
               <div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                   <span style={{ fontSize: 13, fontWeight: 700 }}>
-                    📅 {selectedDate} — Soatlar va Guruhlar kesimidagi porsiya diagrammasi:
+                    📅 {fmtDate(selectedDate)} — Soatlar va Guruhlar kesimidagi porsiya diagrammasi:
                   </span>
                   <button className="btn btn-sm" onClick={() => setDrillLevel("week_days")}>
                     <ArrowLeft size={13} /> Hafta kunlariga qaytish
@@ -1469,7 +1469,7 @@ export function CampusSmartDashboard({ apiFetch, notify, initialSubTab = "overvi
                   {/* Hourly Flow Chart */}
                   <div style={{ padding: 14, borderRadius: 12, background: "rgba(148,163,184,0.06)", border: "1px solid var(--border-subtle)" }}>
                     <h4 style={{ margin: "0 0 10px 0", fontSize: 14 }}>
-                      🕒 Soatlar kesimida turniketdan o'tgan porsiyalar ({selectedDate})
+                      🕒 Soatlar kesimida turniketdan o'tgan porsiyalar ({fmtDate(selectedDate)})
                     </h4>
                     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                       {(canteen.hourlyBreakdown || []).map((h: any) => {
@@ -1494,7 +1494,7 @@ export function CampusSmartDashboard({ apiFetch, notify, initialSubTab = "overvi
                   {/* Group Portion Bars */}
                   <div style={{ padding: 14, borderRadius: 12, background: "rgba(148,163,184,0.06)", border: "1px solid var(--border-subtle)" }}>
                     <h4 style={{ margin: "0 0 10px 0", fontSize: 14 }}>
-                      🏫 Guruhlar kesimida porsiya foizi va CS2 (+/-) farqi ({selectedDate})
+                      🏫 Guruhlar kesimida porsiya foizi va CS2 (+/-) farqi ({fmtDate(selectedDate)})
                     </h4>
                     <div style={{ display: "flex", flexDirection: "column", gap: 9, maxHeight: 280, overflowY: "auto" }}>
                       {(canteen.byGroup || []).map((g: any) => (
@@ -1542,7 +1542,7 @@ export function CampusSmartDashboard({ apiFetch, notify, initialSubTab = "overvi
                 <tbody>
                   {(canteen.recentLiveScans || []).map((sc: any) => (
                     <tr key={sc.id}>
-                      <td style={{ fontWeight: 700 }}>{sc.date} <span style={{ color: "#10b981" }}>{sc.time}</span></td>
+                      <td style={{ fontWeight: 700 }}>{fmtDate(sc.date)} <span style={{ color: "#10b981" }}>{sc.time}</span></td>
                       <td>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <StudentAvatar student={{ id: sc.studentId, fullname: sc.studentName, photo: sc.photo, group: sc.group, room: sc.room }} size={28} />
@@ -1585,7 +1585,7 @@ export function CampusSmartDashboard({ apiFetch, notify, initialSubTab = "overvi
                   <tbody>
                     {(canteen.alerts || []).map((al: any) => (
                       <tr key={al.id}>
-                        <td style={{ whiteSpace: "nowrap", fontSize: 12 }}>{al.istanbulTime}</td>
+                        <td style={{ whiteSpace: "nowrap", fontSize: 12 }}>{fmtDateTime(al.istanbulTime)}</td>
                         <td style={{ fontWeight: 700 }}>{al.studentName}</td>
                         <td><span className="badge badge-slate">{al.cardId}</span></td>
                         <td style={{ color: "#e11d48", fontSize: 12, fontWeight: 600 }}>{al.reason}</td>
@@ -1904,7 +1904,7 @@ export function CampusSmartDashboard({ apiFetch, notify, initialSubTab = "overvi
                   <tbody>
                     {(mosque.alerts || []).map((al: any) => (
                       <tr key={al.id}>
-                        <td style={{ whiteSpace: "nowrap", fontSize: 12 }}>{al.istanbulTime}</td>
+                        <td style={{ whiteSpace: "nowrap", fontSize: 12 }}>{fmtDateTime(al.istanbulTime)}</td>
                         <td style={{ fontWeight: 700 }}>{al.studentName}</td>
                         <td><span className="badge badge-slate">{al.cardId}</span></td>
                         <td style={{ color: "#e11d48", fontSize: 12, fontWeight: 600 }}>{al.reason}</td>
@@ -2133,7 +2133,7 @@ export function CampusSmartDashboard({ apiFetch, notify, initialSubTab = "overvi
                           {item.totalLateCount} marta
                         </span>
                       </td>
-                      <td style={{ fontSize: 12.5 }}>{item.lastLateAt}</td>
+                      <td style={{ fontSize: 12.5 }}>{fmtDateTime(item.lastLateAt)}</td>
                       <td>
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                           {(item.incidents || []).map((inc: any) => (
@@ -2145,12 +2145,12 @@ export function CampusSmartDashboard({ apiFetch, notify, initialSubTab = "overvi
                                   setLightboxPhoto({
                                     urls: inc.photos,
                                     index: 0,
-                                    title: `${item.studentName} — ${inc.istanbulTime} (4 ta rasm)`,
+                                    title: `${item.studentName} — ${fmtDateTime(inc.istanbulTime)} (4 ta rasm)`,
                                   });
                                 }
                               }}
                             >
-                              <Eye size={13} /> #{inc.id} ({inc.istanbulTime.slice(5, 16)})
+                              <Eye size={13} /> #{inc.id} ({fmtDateTime(inc.istanbulTime)})
                             </button>
                           ))}
                         </div>
@@ -2228,7 +2228,7 @@ export function CampusSmartDashboard({ apiFetch, notify, initialSubTab = "overvi
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 12 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                         <span style={{ fontWeight: 800, fontSize: 15 }}>Holat #{inc.id}</span>
-                        <span className="badge badge-slate">🕒 {inc.istanbulTime}</span>
+                        <span className="badge badge-slate">🕒 {fmtDateTime(inc.istanbulTime)}</span>
                         {inc.status === "PENDING" ? (
                           <span className="badge badge-amber">⏳ Kutilmoqda (Ism-familiya kiritilishi kerak)</span>
                         ) : isIncExcused ? (
@@ -2265,7 +2265,7 @@ export function CampusSmartDashboard({ apiFetch, notify, initialSubTab = "overvi
                               setLightboxPhoto({
                                 urls: photos,
                                 index: pIdx,
-                                title: `Holat #${inc.id} — ${inc.istanbulTime} (${pIdx + 1}/4 kadr)`,
+                                title: `Holat #${inc.id} — ${fmtDateTime(inc.istanbulTime)} (${pIdx + 1}/4 kadr)`,
                               })
                             }
                             style={{

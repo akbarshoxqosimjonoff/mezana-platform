@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { createRoot } from "react-dom/client";
+import { fmtDate, fmtDateTime, DateInput } from "./dateUtils";
 import {
   Activity,
   AlertTriangle,
@@ -1678,8 +1679,8 @@ export function App() {
                       <div>
                         <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>Olingan sana / Kafolat</div>
                         <div style={{ fontWeight: 600, marginTop: 2 }}>
-                          {activeAsset.acquired_at_str || "—"}
-                          {activeAsset.warranty_until_str ? ` (Kafolat: ${activeAsset.warranty_until_str})` : ""}
+                          {fmtDate(activeAsset.acquired_at_str)}
+                          {activeAsset.warranty_until_str ? ` (Kafolat: ${fmtDate(activeAsset.warranty_until_str)})` : ""}
                         </div>
                       </div>
                       {activeAsset.expense_ref && (
@@ -1936,7 +1937,7 @@ export function App() {
                                 )}
                               </div>
                               <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
-                                {new Date(ev.created_at).toLocaleString("uz-UZ")}
+                                {fmtDateTime(ev.created_at)}
                               </span>
                             </div>
                             <div style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>
@@ -2135,8 +2136,7 @@ export function App() {
                     </div>
                     <div className="form-field">
                       <label className="form-label">Olingan sana</label>
-                      <input
-                        type="date"
+                      <DateInput
                         className="input"
                         value={editForm.acquired_at}
                         onChange={(e) => setEditForm({ ...editForm, acquired_at: e.target.value })}
@@ -2427,8 +2427,7 @@ export function App() {
 
                   <div className="form-field">
                     <label className="form-label">Olingan sana</label>
-                    <input
-                      type="date"
+                    <DateInput
                       className="input"
                       value={newForm.acquired_at}
                       onChange={(e) => setNewForm({ ...newForm, acquired_at: e.target.value })}

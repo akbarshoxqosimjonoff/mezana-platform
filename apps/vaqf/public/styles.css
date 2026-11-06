@@ -1418,3 +1418,12 @@ html.light .vaqf-switch-btn {
     padding: 6px 8px;
   }
 }
+
+/* Standardized DD.MM.YYYY DateInput wrapper */
+.form-field .date-input-wrap,
+.field-group .date-input-wrap,
+.resp-grid-2 .date-input-wrap,
+.resp-grid-3 .date-input-wrap,
+.form-grid .date-input-wrap {
+  width: 100%;
+}

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { fmtDate, fmtDateTime, fmtMonth, DateInput } from "./dateUtils";
 import {
   Activity,
   AlertTriangle,
@@ -275,7 +276,7 @@ export function NotificationsBellPopover({
                     dangerouslySetInnerHTML={{ __html: String(it.body || "").replace(/\n/g, "<br/>") }}
                   />
                   <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 4 }}>
-                    {new Date(it.created_at).toLocaleString("tr-TR")}
+                    {fmtDateTime(it.created_at)}
                   </div>
                 </div>
               ))}
@@ -401,8 +402,8 @@ export function DirectorDashboardSection({
                 {lastInv.match_pct}% topildi <span style={{ fontSize: 13 }}>({lastInv.code})</span>
               </div>
               <div className="kpi-sub">
-                <span>Sana: <strong>{lastInv.approved_date}</strong></span>
-                <span className="badge badge-cyan">Keyingisi: {lastInv.next_recommended_date}</span>
+                <span>Sana: <strong>{fmtDate(lastInv.approved_date)}</strong></span>
+                <span className="badge badge-cyan">Keyingisi: {fmtDate(lastInv.next_recommended_date)}</span>
               </div>
             </>
           ) : (
@@ -809,7 +810,7 @@ export function DirectorDashboardSection({
           </div>
           {(data?.trends?.acquisitions || []).map((m: any) => (
             <div key={m.month} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border-subtle)", fontSize: 12.5 }}>
-              <span>{m.month} ({m.count} ta)</span>
+              <span>{fmtMonth(m.month)} ({m.count} ta)</span>
               <strong>{fmtTRY(m.value_try)}</strong>
             </div>
           ))}
@@ -824,7 +825,7 @@ export function DirectorDashboardSection({
           ) : (
             (data?.trends?.writeoffs || []).map((m: any) => (
               <div key={m.month} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border-subtle)", fontSize: 12.5 }}>
-                <span>{m.month} ({m.count} ta)</span>
+                <span>{fmtMonth(m.month)} ({m.count} ta)</span>
                 <strong>{fmtTRY(m.value_try)}</strong>
               </div>
             ))
@@ -840,7 +841,7 @@ export function DirectorDashboardSection({
           ) : (
             (data?.trends?.repairs || []).map((m: any) => (
               <div key={m.month} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border-subtle)", fontSize: 12.5 }}>
-                <span>{m.month} ({m.count} ta)</span>
+                <span>{fmtMonth(m.month)} ({m.count} ta)</span>
                 <strong>{fmtTRY(m.value_try)}</strong>
               </div>
             ))
@@ -1044,7 +1045,7 @@ export function PendingFinanceExpensesSection({
                   return (
                     <tr key={p.id}>
                       <td>
-                        <div style={{ fontWeight: 600 }}>{p.expense_date_str || "—"}</div>
+                        <div style={{ fontWeight: 600 }}>{fmtDate(p.expense_date_str)}</div>
                         {p.status === "pending" && (
                           <span className={`badge ${over7d ? "badge-rose" : "badge-amber"}`} style={{ fontSize: 10 }}>
                             {p.days_waiting || 0} kun kutmoqda {over7d ? "⚠️" : ""}
@@ -1268,8 +1269,7 @@ export function PendingFinanceExpensesSection({
             <div className="resp-grid-2" style={{ marginBottom: 14 }}>
               <div>
                 <label className="field-label">Kafolat muddati (ixtiyoriy, avtomatik eslatma yaratadi)</label>
-                <input
-                  type="date"
+                <DateInput
                   className="input"
                   value={regModal.warranty_until}
                   onChange={(e) => setRegModal({ ...regModal, warranty_until: e.target.value })}
@@ -1277,8 +1277,7 @@ export function PendingFinanceExpensesSection({
               </div>
               <div>
                 <label className="field-label">Olingan sana</label>
-                <input
-                  type="date"
+                <DateInput
                   className="input"
                   value={regModal.acquired_at}
                   onChange={(e) => setRegModal({ ...regModal, acquired_at: e.target.value })}
@@ -1582,7 +1581,7 @@ export function SchedulesAndRemindersSection({
                       >
                         <td>
                           <div style={{ fontWeight: 800, color: isOverdue ? "#f43f5e" : isSoon ? "#f59e0b" : "inherit" }}>
-                            {s.next_due_str}
+                            {fmtDate(s.next_due_str)}
                           </div>
                           {s.status === "completed" ? (
                             <span className="badge badge-emerald">Yakunlangan</span>
@@ -1617,7 +1616,7 @@ export function SchedulesAndRemindersSection({
                         <td>
                           {s.last_done_at ? (
                             <div style={{ fontSize: 12 }}>
-                              <div>{new Date(s.last_done_at).toLocaleDateString("tr-TR")}</div>
+                              <div>{fmtDate(s.last_done_at)}</div>
                               <div style={{ color: "var(--text-muted)", fontSize: 11 }}>{s.last_done_by_name}</div>
                             </div>
                           ) : (
@@ -1654,7 +1653,7 @@ export function SchedulesAndRemindersSection({
             {Object.entries(byMonth).map(([month, list]) => (
               <div key={month} className="glass-card" style={{ background: "var(--bg-subtle)" }}>
                 <div style={{ fontWeight: 800, fontSize: 15, color: "#fbcc42", marginBottom: 10 }}>
-                  📅 {month} ({list.length} ta)
+                  📅 {fmtMonth(month)} ({list.length} ta)
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {list.map((s: any) => {
@@ -1675,7 +1674,7 @@ export function SchedulesAndRemindersSection({
                         <div>
                           <div style={{ fontWeight: 700, fontSize: 13 }}>{s.title}</div>
                           <div style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>
-                            {s.next_due_str} • {s.asset_name || s.location_name || "Muassasa"}
+                            {fmtDate(s.next_due_str)} • {s.asset_name || s.location_name || "Muassasa"}
                           </div>
                         </div>
                         {s.status === "active" && (
@@ -1748,8 +1747,7 @@ export function SchedulesAndRemindersSection({
               </div>
               <div>
                 <label className="field-label">Keyingi muddat sanasi *</label>
-                <input
-                  type="date"
+                <DateInput
                   className="input"
                   value={newModal.next_due}
                   onChange={(e) => setNewModal({ ...newModal, next_due: e.target.value })}
@@ -2367,7 +2365,7 @@ export function SystemHealthAndMultiImportSection({
               <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>Oxirgi zaxira nusxa (Backup)</div>
               <div style={{ fontWeight: 800, fontSize: 14, marginTop: 4, color: health.backup?.ok ? "#10b981" : "#f59e0b" }}>
                 {health.backup?.last_backup_at
-                  ? `${new Date(health.backup.last_backup_at).toLocaleString("uz-UZ")} (${health.backup.age_hours} soat oldin)`
+                  ? `${fmtDateTime(health.backup.last_backup_at)} (${health.backup.age_hours} soat oldin)`
                   : "Hali olinmagan"}
               </div>
               <div style={{ fontSize: 11.5, color: "var(--text-secondary)", marginTop: 4 }}>

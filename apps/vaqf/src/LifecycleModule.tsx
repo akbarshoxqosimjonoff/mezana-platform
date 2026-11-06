@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { fmtDate, fmtDateTime, DateInput } from "./dateUtils";
 import {
   AlertTriangle,
   ArrowRightLeft,
@@ -582,8 +583,7 @@ export function NewDocumentModal({
               </div>
               <div className="form-field">
                 <label className="form-label">Qaytarish muddati (vaqtinchalik zimmat bo'lsa)</label>
-                <input
-                  type="date"
+                <DateInput
                   className="input"
                   value={expectedReturnAt}
                   onChange={(e) => setExpectedReturnAt(e.target.value)}
@@ -1069,7 +1069,7 @@ export function DocumentsAndApprovalsSection({
                         )}
                       </td>
                       <td style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                        {new Date(d.created_at).toLocaleDateString("uz-UZ")}
+                        {fmtDate(d.created_at)}
                       </td>
                       <td style={{ textAlign: "right" }}>
                         <div style={{ display: "inline-flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -1171,7 +1171,7 @@ export function DocumentsAndApprovalsSection({
               </div>
               <div>
                 <span style={{ color: "var(--text-muted)" }}>Sana:</span>{" "}
-                <strong>{new Date(selectedDoc.created_at).toLocaleString("uz-UZ")}</strong>
+                <strong>{fmtDateTime(selectedDoc.created_at)}</strong>
               </div>
               {selectedDoc.to_person_name && (
                 <div>
@@ -1236,7 +1236,7 @@ export function DocumentsAndApprovalsSection({
                 </div>
                 {selectedDoc.confirmations.map((c: any) => (
                   <div key={c.id} style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>
-                    Tasdiqladi: <strong>{c.person_name}</strong> • Vaqt: {new Date(c.confirmed_at).toLocaleString("uz-UZ")} • IP: {c.ip || "—"}
+                    Tasdiqladi: <strong>{c.person_name}</strong> • Vaqt: {fmtDateTime(c.confirmed_at)} • IP: {c.ip || "—"}
                   </div>
                 ))}
               </div>
@@ -1474,7 +1474,7 @@ export function MyAssetsSection({
                   </div>
                   {doc.expected_return_at && (
                     <div style={{ fontSize: 12, color: "#f59e0b", marginTop: 4 }}>
-                      Qaytarish muddati: {String(doc.expected_return_at).slice(0, 10)}
+                      Qaytarish muddati: {fmtDate(doc.expected_return_at)}
                     </div>
                   )}
                 </div>
@@ -1549,7 +1549,7 @@ export function MyAssetsSection({
                   </div>
                   {a.assign_doc_no && (
                     <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
-                      📄 Hujjat: <strong>{a.assign_doc_no}</strong> ({new Date(a.assigned_at).toLocaleDateString("uz-UZ")})
+                      📄 Hujjat: <strong>{a.assign_doc_no}</strong> ({fmtDate(a.assigned_at)})
                     </div>
                   )}
                 </div>
@@ -1785,7 +1785,7 @@ export function FaultsAndOffboardingSection({
                       </td>
                       <td>{pa.location_name || "—"}</td>
                       <td>{pa.assign_doc_no || "—"}</td>
-                      <td>{new Date(pa.assigned_at).toLocaleDateString("uz-UZ")}</td>
+                      <td>{fmtDate(pa.assigned_at)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1851,7 +1851,7 @@ export function FaultsAndOffboardingSection({
                         {f.status === "new" ? "Yangi" : f.status === "in_repair" ? "Ta'mirda" : f.status}
                       </span>
                     </td>
-                    <td style={{ fontSize: 12 }}>{new Date(f.created_at).toLocaleDateString("uz-UZ")}</td>
+                    <td style={{ fontSize: 12 }}>{fmtDate(f.created_at)}</td>
                     <td style={{ textAlign: "right" }}>
                       {f.status === "new" ? (
                         <button
@@ -2090,7 +2090,7 @@ export function LifecycleReportsSection({
                     <td style={{ fontFamily: "monospace", color: "#fbcc42", fontWeight: 700 }}>{w.inventory_no}</td>
                     <td>{w.name}</td>
                     <td>{w.location_name || "—"}</td>
-                    <td>{w.warranty_until_str}</td>
+                    <td>{fmtDate(w.warranty_until_str)}</td>
                     <td>
                       <span className="badge badge-amber">{w.days_remaining} kun qoldi</span>
                     </td>
@@ -2357,7 +2357,7 @@ export function RolesAndSettingsSection({
                     </span>
                   </td>
                   <td>{r.institution_name || "Butun Vaqf bo'yicha"}</td>
-                  <td style={{ fontSize: 12 }}>{new Date(r.updated_at || r.created_at).toLocaleString("uz-UZ")}</td>
+                  <td style={{ fontSize: 12 }}>{fmtDateTime(r.updated_at || r.created_at)}</td>
                   <td style={{ textAlign: "right" }}>
                     <button className="btn btn-sm btn-danger" onClick={() => handleRevokeRole(r.id, r.user_name)}>
                       <Trash2 size={13} /> Olib tashlash
@@ -2392,7 +2392,7 @@ export function RolesAndSettingsSection({
             <tbody>
               {events.slice(0, 30).map((ev) => (
                 <tr key={ev.id}>
-                  <td style={{ fontSize: 12 }}>{new Date(ev.created_at).toLocaleString("uz-UZ")}</td>
+                  <td style={{ fontSize: 12 }}>{fmtDateTime(ev.created_at)}</td>
                   <td>
                     <strong>{ev.target_user_name || ev.target_user_ref}</strong>
                   </td>

@@ -87,13 +87,10 @@ const DECISION_META: Record<string, { label: string; desc: string }> = {
   ignore: { label: "E'tiborsiz qoldirish", desc: "Buyum kartochkasini o'zgartirmaslik" },
 };
 
+import { fmtDateTime as fmtDateTimeUtil, fmtDate } from "./dateUtils";
+
 function fmtDateTime(val?: string | null) {
-  if (!val) return "—";
-  try {
-    return new Date(val).toISOString().replace("T", " ").slice(0, 16);
-  } catch {
-    return String(val);
-  }
+  return fmtDateTimeUtil(val);
 }
 
 // ============================================================================
@@ -1562,7 +1559,7 @@ export function DirectorInventoryCountsSection({
     notes: string;
   }>({
     institution_id: defaultInstId,
-    title: `Yillik inventarizatsiya — ${new Date().toISOString().slice(0, 10)}`,
+    title: `Yillik inventarizatsiya — ${fmtDate(new Date())}`,
     scopeType: "all",
     location_ids: [],
     category_ids: [],

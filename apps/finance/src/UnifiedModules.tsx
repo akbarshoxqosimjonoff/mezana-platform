@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { CampusSmartDashboard } from "./CampusSmartDashboard";
+import { fmtDate, fmtDateTime, DateInput } from "./dateUtils";
 import {
   Users,
   UserCheck,
@@ -1013,7 +1014,7 @@ export function UnifiedModules({
                         </div>
                         {s.iqomaExpiryDate && (
                           <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 3, fontWeight: 600 }}>
-                            Muddati: {String(s.iqomaExpiryDate).slice(0, 10)}
+                            Muddati: {fmtDate(s.iqomaExpiryDate)}
                           </div>
                         )}
                       </td>
@@ -1255,7 +1256,7 @@ export function UnifiedModules({
                   <div><b>Turkiya telefoni:</b> {studentDetailModal.turkPhone || "—"}</div>
                   <div><b>O'zbekiston telefoni:</b> {studentDetailModal.uzbPhone || "—"}</div>
                   <div><b>Telegram:</b> {studentDetailModal.tgUsername ? `@${studentDetailModal.tgUsername}` : "—"}</div>
-                  <div><b>Tug'ilgan sana:</b> {studentDetailModal.birthDate ? String(studentDetailModal.birthDate).slice(0, 10) : "—"}</div>
+                  <div><b>Tug'ilgan sana:</b> {fmtDate(studentDetailModal.birthDate)}</div>
                   <div><b>Yashash manzili:</b> {studentDetailModal.address || "—"}</div>
                 </div>
                 <div className="glass-card" style={{ padding: 12 }}>
@@ -1263,7 +1264,7 @@ export function UnifiedModules({
                   <div><b>Otasi:</b> {studentDetailModal.fatherFullname || "—"} ({studentDetailModal.fatherPhone || "—"})</div>
                   <div><b>Onasi:</b> {studentDetailModal.motherFullname || "—"} ({studentDetailModal.motherPhone || "—"})</div>
                   <div><b>Pasport seriyasi:</b> {studentDetailModal.passportNumber || "—"}</div>
-                  <div><b>Iqoma guvohnomasi:</b> {studentDetailModal.hasIqoma ? `${studentDetailModal.iqomaNumber || "Mavjud"} (${studentDetailModal.iqomaExpiryDate ? String(studentDetailModal.iqomaExpiryDate).slice(0, 10) : ""})` : "Yo'q"}</div>
+                  <div><b>Iqoma guvohnomasi:</b> {studentDetailModal.hasIqoma ? `${studentDetailModal.iqomaNumber || "Mavjud"} (${studentDetailModal.iqomaExpiryDate ? fmtDate(studentDetailModal.iqomaExpiryDate, "") : ""})` : "Yo'q"}</div>
                   <div><b>Yotoqxona xonasi:</b> {studentDetailModal.roomNumber || "—"}</div>
                   <div><b>O'quv guruhi:</b> {studentDetailModal.group?.name || "Guruhsiz"}</div>
                 </div>
@@ -1479,7 +1480,7 @@ export function UnifiedModules({
                       <div>
                         <div>{cm.text}</div>
                         <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                          {cm.authorName || "Ma'mur"} • {String(cm.createdAt || "").slice(0, 16).replace("T", " ")}
+                          {cm.authorName || "Ma'mur"} • {fmtDateTime(cm.createdAt)}
                         </div>
                       </div>
                     </div>
@@ -1576,7 +1577,7 @@ export function UnifiedModules({
                     </div>
                     <div style={{ flex: 1 }}>
                       <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Tug'ilgan sana</label>
-                      <input type="date" className="input" value={studentModal.birthDate || "2005-01-01"} onChange={(e) => setStudentModal({ ...studentModal, birthDate: e.target.value })} />
+                      <DateInput className="input" value={studentModal.birthDate || "2005-01-01"} onChange={(e) => setStudentModal({ ...studentModal, birthDate: e.target.value })} />
                     </div>
                   </div>
                 </div>
@@ -1652,7 +1653,7 @@ export function UnifiedModules({
                     </div>
                     <div style={{ flex: 1 }}>
                       <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>To'lov muddati</label>
-                      <input type="date" className="input" value={studentModal.paidUntilDate || ""} onChange={(e) => setStudentModal({ ...studentModal, paidUntilDate: e.target.value })} />
+                      <DateInput className="input" value={studentModal.paidUntilDate || ""} onChange={(e) => setStudentModal({ ...studentModal, paidUntilDate: e.target.value })} />
                     </div>
                   </div>
                 </div>
@@ -1663,7 +1664,7 @@ export function UnifiedModules({
                   </div>
                   <div>
                     <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Iqoma muddati</label>
-                    <input type="date" className="input" value={studentModal.iqomaExpiryDate} onChange={(e) => setStudentModal({ ...studentModal, iqomaExpiryDate: e.target.value, hasIqoma: Boolean(e.target.value || studentModal.iqomaNumber) })} />
+                    <DateInput className="input" value={studentModal.iqomaExpiryDate} onChange={(e) => setStudentModal({ ...studentModal, iqomaExpiryDate: e.target.value, hasIqoma: Boolean(e.target.value || studentModal.iqomaNumber) })} />
                   </div>
                 </div>
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
@@ -2051,7 +2052,7 @@ export function UnifiedModules({
                   return (
                     <tr key={ls.id}>
                       <td>
-                        <div style={{ fontWeight: 700 }}>{String(ls.lessonDate).slice(0, 10)}</div>
+                        <div style={{ fontWeight: 700 }}>{fmtDate(ls.lessonDate)}</div>
                         <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>{ls.lessonOrder}-para</div>
                       </td>
                       <td>
@@ -2127,7 +2128,7 @@ export function UnifiedModules({
                 <div className="grid-2">
                   <div>
                     <label style={{ fontSize: 12 }}>Sana *</label>
-                    <input type="date" className="input" required value={sessionModal.lessonDate} onChange={(e) => setSessionModal({ ...sessionModal, lessonDate: e.target.value })} />
+                    <DateInput className="input" required value={sessionModal.lessonDate} onChange={(e) => setSessionModal({ ...sessionModal, lessonDate: e.target.value })} />
                   </div>
                   <div>
                     <label style={{ fontSize: 12 }}>Dars tartibi (Para)</label>
@@ -2340,7 +2341,7 @@ export function UnifiedModules({
                     )
                     .map((d: any) => (
                       <tr key={d.id}>
-                        <td>{String(d.dutyDate).slice(0, 10)}</td>
+                        <td>{fmtDate(d.dutyDate)}</td>
                         <td style={{ fontWeight: 700 }}>{d.student?.fullname}</td>
                         <td>{d.student?.group?.name || d.class}</td>
                         <td>{d.reason}</td>
@@ -2403,8 +2404,8 @@ export function UnifiedModules({
                     .map((pc: any) => (
                       <tr key={pc.id}>
                         <td style={{ fontWeight: 700 }}>{pc.group?.name || `Guruh #${pc.groupId}`}</td>
-                        <td>{String(pc.weekStart).slice(0, 10)}</td>
-                        <td>{String(pc.weekEnd).slice(0, 10)}</td>
+                        <td>{fmtDate(pc.weekStart)}</td>
+                        <td>{fmtDate(pc.weekEnd)}</td>
                         <td>
                           <b>{pc.submittedCount ?? 0}</b> / {pc.totalRecords ?? 0} ta
                         </td>
@@ -2535,11 +2536,11 @@ export function UnifiedModules({
                 <div className="grid-2">
                   <div>
                     <label style={{ fontSize: 12 }}>Hafta boshlanishi *</label>
-                    <input type="date" className="input" required value={phoneCreateModal.weekStart} onChange={(e) => setPhoneCreateModal({ ...phoneCreateModal, weekStart: e.target.value })} />
+                    <DateInput className="input" required value={phoneCreateModal.weekStart} onChange={(e) => setPhoneCreateModal({ ...phoneCreateModal, weekStart: e.target.value })} />
                   </div>
                   <div>
                     <label style={{ fontSize: 12 }}>Hafta tugashi *</label>
-                    <input type="date" className="input" required value={phoneCreateModal.weekEnd} onChange={(e) => setPhoneCreateModal({ ...phoneCreateModal, weekEnd: e.target.value })} />
+                    <DateInput className="input" required value={phoneCreateModal.weekEnd} onChange={(e) => setPhoneCreateModal({ ...phoneCreateModal, weekEnd: e.target.value })} />
                   </div>
                 </div>
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
@@ -2614,7 +2615,7 @@ export function UnifiedModules({
                 <div className="grid-2">
                   <div>
                     <label style={{ fontSize: 12 }}>Sana *</label>
-                    <input type="date" className="input" required value={dutyModal.dutyDate} onChange={(e) => setDutyModal({ ...dutyModal, dutyDate: e.target.value })} />
+                    <DateInput className="input" required value={dutyModal.dutyDate} onChange={(e) => setDutyModal({ ...dutyModal, dutyDate: e.target.value })} />
                   </div>
                   <div>
                     <label style={{ fontSize: 12 }}>Nazoratchi turi</label>
@@ -3174,7 +3175,7 @@ export function UnifiedModules({
                       </td>
                       <td>
                         {e.deletedAt ? (
-                          <span className="badge badge-rose">Arxiv ({String(e.deletedAt).slice(0, 10)})</span>
+                          <span className="badge badge-rose">Arxiv ({fmtDate(e.deletedAt)})</span>
                         ) : (
                           <span className="badge badge-emerald">Faol</span>
                         )}
@@ -3263,7 +3264,7 @@ export function UnifiedModules({
                             {t.priority === "URGENT" ? "Juda muhim" : t.priority === "HIGH" ? "Yuqori" : t.priority === "MEDIUM" ? "O'rtacha" : "Oddiy"}
                           </span>
                         </td>
-                        <td>{String(t.deadline).slice(0, 10)}</td>
+                        <td>{fmtDate(t.deadline)}</td>
                         <td>
                           <span className={`badge ${t.status === "COMPLETED" ? "badge-emerald" : t.status === "IN_PROGRESS" ? "badge-cyan" : "badge-amber"}`}>
                             {t.status === "COMPLETED" ? "Bajarilgan" : t.status === "IN_PROGRESS" ? "Jarayonda" : "Kutilmoqda"}
@@ -3727,7 +3728,7 @@ export function UnifiedModules({
                   </div>
                   <div>
                     <label style={{ fontSize: 12 }}>Muddat *</label>
-                    <input type="date" className="input" required value={taskModal.deadline} onChange={(e) => setTaskModal({ ...taskModal, deadline: e.target.value })} />
+                    <DateInput className="input" required value={taskModal.deadline} onChange={(e) => setTaskModal({ ...taskModal, deadline: e.target.value })} />
                   </div>
                 </div>
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
@@ -3899,7 +3900,7 @@ export function UnifiedModules({
                       <tr key={o.id}>
                         <td style={{ fontWeight: 700 }}>{o.name}</td>
                         <td>{o.address || "—"}</td>
-                        <td>{o.createdAt ? String(o.createdAt).slice(0, 10) : "—"}</td>
+                        <td>{fmtDate(o.createdAt)}</td>
                       </tr>
                     ))}
                 </tbody>
@@ -3922,7 +3923,7 @@ export function UnifiedModules({
                 <tbody>
                   {filteredTx.map((tx: any) => (
                     <tr key={tx.id}>
-                      <td>{tx.createdAt ? String(tx.createdAt).slice(0, 16).replace("T", " ") : "—"}</td>
+                      <td>{fmtDateTime(tx.createdAt)}</td>
                       <td style={{ fontWeight: 600 }}>{tx.employeeName || "Hamyon"}</td>
                       <td>
                         <span className={`badge ${tx.type === "ASSIGNMENT" ? "badge-emerald" : tx.type === "ADJUSTMENT" ? "badge-cyan" : "badge-amber"}`}>
@@ -3962,7 +3963,7 @@ export function UnifiedModules({
                         : "Rad etilgan";
                     return (
                       <tr key={ex.id} style={{ opacity: ex.deletedAt ? 0.75 : 1 }}>
-                        <td>{ex.expenseDate ? String(ex.expenseDate).slice(0, 10) : "—"}</td>
+                        <td>{fmtDate(ex.expenseDate)}</td>
                         <td>
                           <div style={{ fontWeight: 600 }}>{ex.employeeName || "—"}</div>
                           <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>{ex.categoryName || "—"}</div>
@@ -4042,7 +4043,8 @@ export function UnifiedModules({
           id: `erp-${l.id}`,
           source: "Moliya bo'limi",
           rawSource: "ERP",
-          time: l.createdAt ? String(l.createdAt).slice(0, 16).replace("T", " ") : "—",
+          rawTime: l.createdAt ? String(l.createdAt) : "",
+          time: fmtDateTime(l.createdAt),
           action: l.action,
           detail: `${l.entityType || "Amal"} (${l.actorEmail || "Xodim"})`,
         }))
@@ -4052,7 +4054,8 @@ export function UnifiedModules({
           id: `crm-${l.id}`,
           source: "O'quv markazi",
           rawSource: "CRM",
-          time: l.timestamp ? String(l.timestamp).slice(0, 16).replace("T", " ") : "—",
+          rawTime: l.timestamp ? String(l.timestamp) : "",
+          time: fmtDateTime(l.timestamp),
           action: l.eventType || "Tizim amali",
           detail: `@${l.username || "foydalanuvchi"} • ${l.ipAddress || ""}`,
         }))
@@ -4064,7 +4067,7 @@ export function UnifiedModules({
         x.action?.toLowerCase().includes(auditSearch.toLowerCase()) ||
         x.detail?.toLowerCase().includes(auditSearch.toLowerCase())
     )
-    .sort((a, b) => String(b.time || "").localeCompare(String(a.time || "")));
+    .sort((a, b) => String(b.rawTime || "").localeCompare(String(a.rawTime || "")));
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
@@ -4186,7 +4189,7 @@ export function UnifiedModules({
                 {(sys.syncLogs || []).map((sl: any) => (
                   <tr key={sl.id}>
                     <td>#{sl.id}</td>
-                    <td>{String(sl.timestamp || sl.createdAt || "").slice(0, 16).replace("T", " ")}</td>
+                    <td>{fmtDateTime(sl.timestamp || sl.createdAt)}</td>
                     <td style={{ fontWeight: 600 }}>{sl.studentName || (sl.studentId ? `Talaba #${sl.studentId}` : "Umumiy jadval")}</td>
                     <td>
                       <span className="badge badge-cyan">
@@ -4359,7 +4362,7 @@ export function UnifiedModules({
               <tbody>
                 {(sys.erpNotifications || []).map((n: any) => (
                   <tr key={n.id}>
-                    <td>{n.createdAt ? String(n.createdAt).slice(0, 16).replace("T", " ") : "—"}</td>
+                    <td>{fmtDateTime(n.createdAt)}</td>
                     <td style={{ fontWeight: 700 }}>{n.title}</td>
                     <td>{n.message}</td>
                     <td>

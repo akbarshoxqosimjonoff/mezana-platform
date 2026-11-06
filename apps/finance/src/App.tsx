@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import { UnifiedModules, UnifiedTabId } from "./UnifiedModules";
 import { AiAssistantModal } from "./AiAssistantModal";
+import { fmtDate, fmtDateTime, DateInput } from "./dateUtils";
 import {
   Activity,
   AlertTriangle,
@@ -2022,20 +2023,18 @@ function App() {
 
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <Calendar size={15} color="var(--text-secondary)" />
-              <input
-                type="date"
+              <DateInput
                 className="input"
                 value={dateRange.from}
                 onChange={(e) => setDateRange({ ...dateRange, from: e.target.value })}
-                style={{ padding: "6px 10px", fontSize: 12.5 }}
+                style={{ padding: "6px 10px", fontSize: 12.5, width: 142 }}
               />
               <span style={{ color: "var(--text-muted)" }}>—</span>
-              <input
-                type="date"
+              <DateInput
                 className="input"
                 value={dateRange.to}
                 onChange={(e) => setDateRange({ ...dateRange, to: e.target.value })}
-                style={{ padding: "6px 10px", fontSize: 12.5 }}
+                style={{ padding: "6px 10px", fontSize: 12.5, width: 142 }}
               />
             </div>
           </div>
@@ -2284,10 +2283,10 @@ function App() {
                           <tr key={e.id}>
                             <td style={{ whiteSpace: "nowrap" }}>
                               <div style={{ fontWeight: 700, fontSize: 12.5, color: "var(--text-primary)" }}>
-                                📅 Xarajat: {expD}
+                                📅 Xarajat: {fmtDate(expD)}
                               </div>
                               <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 2 }}>
-                                🕒 Kiritildi: {crtTxt}
+                                🕒 Kiritildi: {fmtDateTime(crtTxt)}
                               </div>
                               {isBackdated && (
                                 <span className="badge badge-amber" style={{ fontSize: 9.5, padding: "1px 5px", marginTop: 2 }}>
@@ -2514,7 +2513,7 @@ function App() {
                       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
                         <div className="kpi-value" style={{ color: "#10b981", fontSize: 22 }}>{canteenSum.latestStudentPct ?? 0}%</div>
                         <span style={{ fontSize: 11, color: "var(--text-secondary)", fontWeight: 600 }}>
-                          {canteenSum.latestStudentsAttended ?? 0}/{campusSummary.totalActiveStudents ?? 129} talaba ({canteenSum.latestDate || ""})
+                          {canteenSum.latestStudentsAttended ?? 0}/{campusSummary.totalActiveStudents ?? 129} talaba ({fmtDate(canteenSum.latestDate || "", "")})
                         </span>
                       </div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
@@ -2793,7 +2792,7 @@ function App() {
                                 </div>
                               </div>
                             </td>
-                            <td>{String(p.paidAt || "").slice(0, 10)}</td>
+                            <td>{fmtDate(p.paidAt)}</td>
                             <td>
                               <span className={`badge ${METHOD_MAP[p.method]?.badge || "badge-slate"}`}>
                                 {METHOD_MAP[p.method]?.label || p.method}
@@ -2920,14 +2919,12 @@ function App() {
                     <option key={g.id} value={g.id}>{g.name}</option>
                   ))}
                 </select>
-                <input
-                  type="date"
+                <DateInput
                   className="input"
                   value={payFilter.from}
                   onChange={(e) => setPayFilter({ ...payFilter, from: e.target.value })}
                 />
-                <input
-                  type="date"
+                <DateInput
                   className="input"
                   value={payFilter.to}
                   onChange={(e) => setPayFilter({ ...payFilter, to: e.target.value })}
@@ -2976,7 +2973,7 @@ function App() {
                             </div>
                           </td>
                           <td>{p.student?.group?.name || "—"}</td>
-                          <td>{String(p.paidAt || "").slice(0, 10)}</td>
+                          <td>{fmtDate(p.paidAt)}</td>
                           <td>
                             <span className={`badge ${METHOD_MAP[p.method]?.badge || "badge-slate"}`}>
                               {METHOD_MAP[p.method]?.label || p.method}
@@ -3157,7 +3154,7 @@ function App() {
                           </td>
                           <td style={{ color: "#fbbf24", fontWeight: 800 }}>{fmtUSD(st.remainingAmount)}</td>
                           <td>
-                            <div>{due || "Belgilanmagan"}</div>
+                            <div>{due ? fmtDate(due) : "Belgilanmagan"}</div>
                             {st.plannedPayment > 0 && (
                               <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
                                 Kutilmoqda: {fmtUSD(st.plannedPayment)}
@@ -3549,15 +3546,13 @@ function App() {
                     ))}
                   </select>
 
-                  <input
-                    type="date"
+                  <DateInput
                     className="input"
                     value={expFilter.from}
                     onChange={(e) => setExpFilter({ ...expFilter, from: e.target.value })}
                     title="Tanlangan sana turi bo'yicha boshlanish sanasi"
                   />
-                  <input
-                    type="date"
+                  <DateInput
                     className="input"
                     value={expFilter.to}
                     onChange={(e) => setExpFilter({ ...expFilter, to: e.target.value })}
@@ -3640,29 +3635,29 @@ function App() {
                             <td style={{ whiteSpace: "nowrap" }}>
                               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                                 <span style={{ fontWeight: 800, fontSize: 13, color: "var(--text-primary)" }}>
-                                  📅 Xarajat: {expD}
+                                  📅 Xarajat: {fmtDate(expD)}
                                 </span>
                                 {isBackdated && (
                                   <span
                                     className="badge badge-amber"
                                     style={{ fontSize: 9.5, padding: "1px 6px" }}
-                                    title={`Asl xarajat ${expD} da qilingan, tizimga ${crtD} da kiritilgan`}
+                                    title={`Asl xarajat ${fmtDate(expD)} da qilingan, tizimga ${fmtDate(crtD)} da kiritilgan`}
                                   >
                                     Oldingi kun uchun
                                   </span>
                                 )}
                               </div>
                               <div style={{ fontSize: 11.5, color: "var(--text-secondary)", marginTop: 2 }}>
-                                🕒 Kiritildi: <strong>{crtTxt}</strong>
+                                🕒 Kiritildi: <strong>{fmtDateTime(crtTxt)}</strong>
                               </div>
                               {appTxt && (
                                 <div style={{ fontSize: 11, color: "#06b6d4", marginTop: 1 }}>
-                                  ✅ Tasdiq: {appTxt}
+                                  ✅ Tasdiq: {fmtDateTime(appTxt)}
                                 </div>
                               )}
                               {paidTxt && (
                                 <div style={{ fontSize: 11, color: "#10b981", marginTop: 1 }}>
-                                  💸 To'landi: {paidTxt}
+                                  💸 To'landi: {fmtDateTime(paidTxt)}
                                 </div>
                               )}
                             </td>
@@ -4083,15 +4078,13 @@ function App() {
                         ))}
                       </select>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <input
-                          type="date"
+                        <DateInput
                           className="input"
                           value={reqFilter.from}
                           onChange={(e) => setReqFilter({ ...reqFilter, from: e.target.value })}
                         />
                         <span style={{ color: "var(--text-muted)" }}>—</span>
-                        <input
-                          type="date"
+                        <DateInput
                           className="input"
                           value={reqFilter.to}
                           onChange={(e) => setReqFilter({ ...reqFilter, to: e.target.value })}
@@ -4165,24 +4158,24 @@ function App() {
                                 </td>
                                 <td style={{ whiteSpace: "nowrap" }}>
                                   <div style={{ fontWeight: 800, fontSize: 13, color: "var(--text-primary)" }}>
-                                    📅 Kerakli: {r.neededDate}
+                                    📅 Kerakli: {fmtDate(r.neededDate)}
                                   </div>
                                   <div style={{ fontSize: 11.5, color: "var(--text-secondary)", marginTop: 2 }}>
-                                    🕒 So'raldi: <strong>{r.createdAtText}</strong>
+                                    🕒 So'raldi: <strong>{fmtDateTime(r.createdAtText)}</strong>
                                   </div>
                                   {r.approvedAtText && (
                                     <div style={{ fontSize: 11, color: "#06b6d4", marginTop: 1 }}>
-                                      ✅ Tasdiq: {r.approvedAtText} ({r.approvedByName || "Rahbar"})
+                                      ✅ Tasdiq: {fmtDateTime(r.approvedAtText)} ({r.approvedByName || "Rahbar"})
                                     </div>
                                   )}
                                   {r.rejectedAtText && (
                                     <div style={{ fontSize: 11, color: "#f43f5e", marginTop: 1 }}>
-                                      ❌ Rad etildi: {r.rejectedAtText}
+                                      ❌ Rad etildi: {fmtDateTime(r.rejectedAtText)}
                                     </div>
                                   )}
                                   {r.completedAtText && (
                                     <div style={{ fontSize: 11, color: "#10b981", marginTop: 1 }}>
-                                      💸 Xarid: {r.completedAtText}
+                                      💸 Xarid: {fmtDateTime(r.completedAtText)}
                                     </div>
                                   )}
                                 </td>
@@ -4517,7 +4510,7 @@ function App() {
                     <tbody>
                       {(incomeData.items || []).map((inc: any) => (
                         <tr key={inc.id}>
-                          <td>{String(inc.incomeDate || inc.createdAt || "").slice(0, 10)}</td>
+                          <td>{fmtDate(inc.incomeDate || inc.createdAt)}</td>
                           <td>{inc.source || inc.description || "Daromad"}</td>
                           <td style={{ color: "#34d399", fontWeight: 700 }}>+{fmtTL(inc.amountInDefault || inc.amount)}</td>
                         </tr>
@@ -4648,7 +4641,7 @@ function App() {
                 <div>
                   <h2 style={{ fontSize: 18, fontWeight: 800 }}>Umumiy pul oqimi hisoboti</h2>
                   <p style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>
-                    Davr: {dateRange.from} — {dateRange.to} • Barcha talaba to'lovlari, qo'shimcha daromadlar va to'langan xarajatlar
+                    Davr: {fmtDate(dateRange.from)} — {fmtDate(dateRange.to)} • Barcha talaba to'lovlari, qo'shimcha daromadlar va to'langan xarajatlar
                   </p>
                 </div>
                 <div style={{ display: "flex", gap: 10 }}>
@@ -4707,7 +4700,7 @@ function App() {
                     {(reportData.rows || []).map((r: any) => (
                       <tr key={r.id}>
                         <td>{r.id}</td>
-                        <td>{r.date}</td>
+                        <td>{fmtDate(r.date)}</td>
                         <td>
                           <span className={`badge ${r.system === "CRM" ? "badge-emerald" : "badge-cyan"}`}>
                             {r.system === "CRM" ? "O'quv markazi" : "Moliya"}
@@ -4829,8 +4822,7 @@ function App() {
 
                   <div className="form-field">
                     <label className="form-label">Haqiqiy to'lov sanasi</label>
-                    <input
-                      type="date"
+                    <DateInput
                       className="input"
                       value={paymentModal.paidAt}
                       onChange={(e) => setPaymentModal({ ...paymentModal, paidAt: e.target.value })}
@@ -4842,8 +4834,7 @@ function App() {
 
               <div className="form-field">
                 <label className="form-label">Keyingi to'lov muddati</label>
-                <input
-                  type="date"
+                <DateInput
                   className="input"
                   value={paymentModal.nextDueDate}
                   onChange={(e) => setPaymentModal({ ...paymentModal, nextDueDate: e.target.value })}
@@ -4942,7 +4933,7 @@ function App() {
                     return (
                       <tr key={p.id} style={{ opacity: isVoid ? 0.55 : 1 }}>
                         <td>#{p.id}</td>
-                        <td>{String(p.paidAt || "").slice(0, 10)}</td>
+                        <td>{fmtDate(p.paidAt)}</td>
                         <td>{METHOD_MAP[p.method]?.label || p.method}</td>
                         <td style={{ fontWeight: 700, textDecoration: isVoid ? "line-through" : "none" }}>{fmtUSD(p.amount)}</td>
                         <td>{p.receivedByName || (p.source === "LEGACY" ? "Avvalgi qayd" : p.source)}</td>
@@ -5062,14 +5053,13 @@ function App() {
                           style={{ padding: "2px 8px", fontSize: 11 }}
                           onClick={() => setNewExpenseModal({ ...newExpenseModal, expenseDate: d })}
                         >
-                          {btn.label} ({d.slice(5)})
+                          {btn.label} ({fmtDate(d).slice(0, 5)})
                         </button>
                       );
                     })}
                   </div>
                 </div>
-                <input
-                  type="date"
+                <DateInput
                   className="input"
                   value={newExpenseModal.expenseDate}
                   onChange={(e) => setNewExpenseModal({ ...newExpenseModal, expenseDate: e.target.value })}
@@ -5268,8 +5258,7 @@ function App() {
 
               <div className="form-field">
                 <label className="form-label">📅 Qachonga kerak (Kerakli sana)</label>
-                <input
-                  type="date"
+                <DateInput
                   className="input"
                   value={expenseRequestModal.neededDate}
                   onChange={(e) => setExpenseRequestModal({ ...expenseRequestModal, neededDate: e.target.value })}
@@ -5496,14 +5485,13 @@ function App() {
                           style={{ padding: "2px 8px", fontSize: 11 }}
                           onClick={() => setAssignWalletModal({ ...assignWalletModal, date: d })}
                         >
-                          {btn.label} ({d.slice(5)})
+                          {btn.label} ({fmtDate(d).slice(0, 5)})
                         </button>
                       );
                     })}
                   </div>
                 </div>
-                <input
-                  type="date"
+                <DateInput
                   className="input"
                   value={assignWalletModal.date}
                   onChange={(e) => setAssignWalletModal({ ...assignWalletModal, date: e.target.value })}
@@ -5563,19 +5551,19 @@ function App() {
                       <tr key={tx.id}>
                         <td style={{ whiteSpace: "nowrap" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                            <span style={{ fontWeight: 800, fontSize: 13 }}>📅 {occD}</span>
+                            <span style={{ fontWeight: 800, fontSize: 13 }}>📅 {fmtDate(occD)}</span>
                             {isBackdated && (
                               <span
                                 className="badge badge-amber"
                                 style={{ fontSize: 9.5, padding: "1px 6px" }}
-                                title={`Asl amaliyot ${occD} sanasida bo'lgan, tizimga ${crtD} da kiritilgan`}
+                                title={`Asl amaliyot ${fmtDate(occD)} sanasida bo'lgan, tizimga ${fmtDate(crtD)} da kiritilgan`}
                               >
                                 Orqa sana bilan
                               </span>
                             )}
                           </div>
                           <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 2 }}>
-                            🕒 Kiritildi: {crtTxt}
+                            🕒 Kiritildi: {fmtDateTime(crtTxt)}
                           </div>
                         </td>
                         <td>
@@ -5646,7 +5634,7 @@ function App() {
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
                   <span style={{ color: "var(--text-secondary)" }}>To'lov sanasi:</span>
-                  <strong>{String(receiptPrintModal.paidAt || "").slice(0, 10)}</strong>
+                  <strong>{fmtDate(receiptPrintModal.paidAt)}</strong>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
                   <span style={{ color: "var(--text-secondary)" }}>To'lov usuli:</span>
