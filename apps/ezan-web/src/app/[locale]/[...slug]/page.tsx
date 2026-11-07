@@ -56,7 +56,7 @@ export default async function LocalizedSubPage({
   const projectsSlug = ROUTE_SLUGS.projects[locale];
   const aboutSlug = ROUTE_SLUGS.about[locale];
 
-  // Return sahifasi (Rahmat / Teşekkürler) — holatni o'zi o'zgartirmaydi, faqat bazadagi holatni ko'rsatadi
+  // Return sahifasi (Rahmat / Te?ekk?rler) ? holatni o'zi o'zgartirmaydi, faqat bazadagi holatni ko'rsatadi
   if (routeKey === "thanks") {
     const publicNo = query.donation || "";
     const donRes = publicNo
@@ -70,18 +70,19 @@ export default async function LocalizedSubPage({
         announcement={data.settings.announcement}
         activeSocials={data.settings.activeSocials}
         bankAccounts={data.settings.bankAccounts}
+        contact={data.settings.contact}
       >
         <div className="max-w-3xl mx-auto px-4 py-12">
-          <Breadcrumb locale={locale} items={[{ label: "Teşekkürler / Rahmat" }]} />
+          <Breadcrumb locale={locale} items={[{ label: "Te?ekk?rler / Rahmat" }]} />
           <Card className="text-center space-y-4">
-            <Badge tone="success">Bağış Kaydı / Xayriya Qaydi</Badge>
+            <Badge tone="success">Ba??? Kayd? / Xayriya Qaydi</Badge>
             <h1 className="text-2xl sm:text-3xl font-heading font-extrabold text-brand">
-              Hayrınız Kabul Olsun — Teşekkür Ederiz!
+              Hayr?n?z Kabul Olsun ? Te?ekk?r Ederiz!
             </h1>
             {donation ? (
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-start text-sm space-y-1.5">
                 <div>
-                  <strong>Kayıt No (public_no):</strong>{" "}
+                  <strong>Kay?t No (public_no):</strong>{" "}
                   <span data-testid="receipt-public-no" className="font-mono font-bold text-brand">
                     {donation.public_no}
                   </span>
@@ -97,11 +98,11 @@ export default async function LocalizedSubPage({
                   {donation.currency}
                 </div>
                 <div>
-                  <strong>Amaç:</strong> {donation.purpose_title}
+                  <strong>Ama?:</strong> {donation.purpose_title}
                 </div>
               </div>
             ) : (
-              <p className="text-sm text-slate-600">Kayıt No: {publicNo || "—"}</p>
+              <p className="text-sm text-slate-600">Kay?t No: {publicNo || "?"}</p>
             )}
           </Card>
         </div>
@@ -117,16 +118,100 @@ export default async function LocalizedSubPage({
         announcement={data.settings.announcement}
         activeSocials={data.settings.activeSocials}
         bankAccounts={data.settings.bankAccounts}
+        contact={data.settings.contact}
       >
-        <div className="max-w-4xl mx-auto px-4 py-10">
-          <Breadcrumb locale={locale} items={[{ label: dict.navDonate }]} />
-          <h1 className="text-3xl font-heading font-extrabold text-brand mb-6">{dict.navDonate}</h1>
-          <DonationFlowWidget
-            locale={locale}
-            campaigns={data.campaigns}
-            initialCampaignSlug={query.campaign}
-            initialAmount={query.amount ? Number(query.amount) : undefined}
-          />
+        <div className="max-w-5xl mx-auto px-4 py-10 space-y-10">
+          <div>
+            <Breadcrumb locale={locale} items={[{ label: dict.navDonate }]} />
+            <h1 className="text-3xl font-heading font-extrabold text-brand mb-6">{dict.navDonate}</h1>
+            <DonationFlowWidget
+              locale={locale}
+              campaigns={data.campaigns}
+              initialCampaignSlug={query.campaign}
+              initialAmount={query.amount ? Number(query.amount) : undefined}
+            />
+          </div>
+
+          {/* Banka Hesap ve IBAN Bilgilerimiz */}
+          {data.settings.bankAccounts.length > 0 && (
+            <Card className="border-t-4 border-brand space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-xl sm:text-2xl font-heading font-extrabold text-brand">
+                  {dict.bankAccountsTitle} (EFT / Havale)
+                </h2>
+                <Badge tone="brand">Resmi Vak?f Hesab?</Badge>
+              </div>
+              <div className="grid grid-cols-1 gap-4">
+                {data.settings.bankAccounts.map((b: any, idx: number) => (
+                  <div
+                    key={idx}
+                    className="p-4 sm:p-5 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5 text-sm"
+                  >
+                    {b.accountHolder && (
+                      <div>
+                        <span className="font-bold text-slate-600">
+                          {locale === "uz"
+                            ? "Hisob egasi:"
+                            : locale === "en"
+                              ? "Account Holder:"
+                              : locale === "ar"
+                                ? "??? ??????:"
+                                : "Hesap Ad?:"}
+                        </span>{" "}
+                        <span className="font-extrabold text-brand">{b.accountHolder}</span>
+                      </div>
+                    )}
+                    <div>
+                      <span className="font-bold text-slate-600">
+                        {locale === "uz"
+                          ? "Bank:"
+                          : locale === "en"
+                            ? "Bank:"
+                            : locale === "ar"
+                              ? "?????:"
+                              : "Banka:"}
+                      </span>{" "}
+                      <span className="font-semibold text-slate-900">
+                        {b.bankName} ({b.currency})
+                      </span>
+                      {b.branch ? <span className="text-slate-600"> ? {b.branch}</span> : null}
+                    </div>
+                    <div className="pt-1">
+                      <span className="font-bold text-slate-600">IBAN:</span>{" "}
+                      <span className="font-mono font-extrabold text-base text-brand bg-white px-2.5 py-1 rounded border border-slate-300 select-all">
+                        {b.iban}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+
+          {/* Vakf?m?za Nas?l Destek Olabilirsiniz? (Eski saytdan 9 ta qo'llab-quvvatlash yo'li) */}
+          {data.supportWays && data.supportWays.length > 0 && (
+            <div className="space-y-4">
+              <h2 className="text-2xl font-heading font-extrabold text-brand">
+                {locale === "uz"
+                  ? "Vaqfimizni Qanday Qo?llab-Quvvatlashingiz Mumkin?"
+                  : locale === "en"
+                    ? "How Can You Support Our Foundation?"
+                    : locale === "ar"
+                      ? "??? ????? ??? ??????"
+                      : "Vakf?m?za Nas?l Destek Olabilirsiniz?"}
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {data.supportWays.map((way) => (
+                  <Card key={way.key} className="space-y-2 border-t-4 border-accent">
+                    <h3 className="text-base font-heading font-bold text-brand">{way.title}</h3>
+                    <p className="text-xs sm:text-sm text-slate-700 leading-relaxed">
+                      {way.description}
+                    </p>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </SiteShell>
     );
@@ -140,6 +225,7 @@ export default async function LocalizedSubPage({
         announcement={data.settings.announcement}
         activeSocials={data.settings.activeSocials}
         bankAccounts={data.settings.bankAccounts}
+        contact={data.settings.contact}
       >
         <div className="max-w-6xl mx-auto px-4 py-10">
           <Breadcrumb locale={locale} items={[{ label: dict.activeCampaigns }]} />
@@ -151,7 +237,7 @@ export default async function LocalizedSubPage({
               <Card key={camp.slug} className="flex flex-col justify-between">
                 <div>
                   <Badge tone={camp.restricted ? "warning" : "brand"}>
-                    {camp.restricted ? "Şartlı / Maqsadli" : "Genel / Umumiy"}
+                    {camp.restricted ? "?artl? / Maqsadli" : "Genel / Umumiy"}
                   </Badge>
                   <h2 className="text-xl font-heading font-bold text-brand mt-3 mb-2">
                     {camp.title}
@@ -189,6 +275,7 @@ export default async function LocalizedSubPage({
         announcement={data.settings.announcement}
         activeSocials={data.settings.activeSocials}
         bankAccounts={data.settings.bankAccounts}
+        contact={data.settings.contact}
       >
         <div className="max-w-4xl mx-auto px-4 py-10">
           <Breadcrumb locale={locale} items={[{ label: dict.navZakat }]} />
@@ -209,6 +296,7 @@ export default async function LocalizedSubPage({
         announcement={data.settings.announcement}
         activeSocials={data.settings.activeSocials}
         bankAccounts={data.settings.bankAccounts}
+        contact={data.settings.contact}
       >
         <div className="max-w-5xl mx-auto px-4 py-10 space-y-8">
           <Breadcrumb locale={locale} items={[{ label: dict.navTransparency }]} />
@@ -222,17 +310,17 @@ export default async function LocalizedSubPage({
                 : locale === "en"
                   ? "Donation Utilization Principles & Internal Audit"
                   : locale === "ar"
-                    ? "مبادئ استخدام التبرعات والرقابة الداخلية"
-                    : "Bağışların Kullanım İlkeleri ve İç Denetim"}
+                    ? "????? ??????? ???????? ???????? ????????"
+                    : "Ba???lar?n Kullan?m ?lkeleri ve ?? Denetim"}
             </h2>
             <p className="text-sm text-slate-700 leading-relaxed">
               {locale === "uz"
-                ? "Ezan Vakfı onlayn xayriya tizimi orqali amalga oshirilgan barcha maqsadli (shartli) va umumiy xayriyalar o'z maqsadiga muvofiq sarflanadi va ichki vaqf boshqaruv tizimimizda (Mezana Vaqf) hisobga olinadi."
+                ? "Ezan Vakf? onlayn xayriya tizimi orqali amalga oshirilgan barcha maqsadli (shartli) va umumiy xayriyalar o'z maqsadiga muvofiq sarflanadi va ichki vaqf boshqaruv tizimimizda (Mezana Vaqf) hisobga olinadi."
                 : locale === "en"
                   ? "All restricted and general donations made through the Ezan Foundation online donation system are utilized strictly for their designated purposes and recorded in our internal foundation accounting system."
                   : locale === "ar"
-                    ? "جميع التبرعات المشروطة والعامة التي تتم عبر نظام التبرع الإلكتروني لوقف الأذان تُصرف في مصارفها المحددة وتُوثق في نظام إدارة الوقف الداخلي."
-                    : "Ezan Vakfı online bağış sistemi üzerinden yapılan tüm şartlı ve genel bağışlar, amacına uygun olarak ilgili eğitim ve hayır faaliyetlerinde kullanılır ve iç vakıf yönetim sistemimizde kayıt altına alınır."}
+                    ? "???? ???????? ???????? ??????? ???? ??? ??? ???? ?????? ?????????? ???? ?????? ????? ?? ??????? ??????? ?????? ?? ???? ????? ????? ???????."
+                    : "Ezan Vakf? online ba??? sistemi ?zerinden yap?lan t?m ?artl? ve genel ba???lar, amac?na uygun olarak ilgili e?itim ve hay?r faaliyetlerinde kullan?l?r ve i? vak?f y?netim sistemimizde kay?t alt?na al?n?r."}
             </p>
           </Card>
           <Accordion items={data.faqs} />
@@ -256,6 +344,7 @@ export default async function LocalizedSubPage({
         announcement={data.settings.announcement}
         activeSocials={data.settings.activeSocials}
         bankAccounts={data.settings.bankAccounts}
+        contact={data.settings.contact}
       >
         <div className="max-w-4xl mx-auto px-4 py-10 space-y-6">
           <Breadcrumb locale={locale} items={[{ label: dict.navQurban }]} />
@@ -276,11 +365,12 @@ export default async function LocalizedSubPage({
         announcement={data.settings.announcement}
         activeSocials={data.settings.activeSocials}
         bankAccounts={data.settings.bankAccounts}
+        contact={data.settings.contact}
       >
         <div className="max-w-5xl mx-auto px-4 py-10 space-y-6">
-          <Breadcrumb locale={locale} items={[{ label: "Hesabım / Kabinet" }]} />
+          <Breadcrumb locale={locale} items={[{ label: "Hesab?m / Kabinet" }]} />
           <h1 className="text-2xl sm:text-3xl font-heading font-extrabold text-brand">
-            Hesabım / Xayriyachi Kabineti
+            Hesab?m / Xayriyachi Kabineti
           </h1>
           <DonorCabinetWidget locale={locale} />
         </div>
@@ -288,7 +378,7 @@ export default async function LocalizedSubPage({
     );
   }
 
-  // Media sahifasi
+  // Media va Yangiliklar sahifasi
   if (routeKey === "media") {
     return (
       <SiteShell
@@ -296,31 +386,75 @@ export default async function LocalizedSubPage({
         announcement={data.settings.announcement}
         activeSocials={data.settings.activeSocials}
         bankAccounts={data.settings.bankAccounts}
+        contact={data.settings.contact}
       >
-        <div className="max-w-6xl mx-auto px-4 py-10 space-y-8">
+        <div className="max-w-6xl mx-auto px-4 py-10 space-y-10">
           <Breadcrumb locale={locale} items={[{ label: dict.navMedia }]} />
-          <h1 className="text-3xl font-heading font-extrabold text-brand">{dict.videoSection}</h1>
-          {data.videos.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {data.videos.map((v) => (
-                <Card key={v.id} className="space-y-3">
-                  <YouTubeLite youtubeId={v.youtubeId} title={v.title} />
-                  <h2 className="text-base font-bold text-brand">{v.title}</h2>
-                </Card>
-              ))}
+          <div className="space-y-6">
+            <h1 className="text-3xl font-heading font-extrabold text-brand">{dict.videoSection}</h1>
+            {data.videos.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {data.videos.map((v) => (
+                  <Card key={v.id} className="space-y-3">
+                    <YouTubeLite youtubeId={v.youtubeId} title={v.title} />
+                    <h2 className="text-base font-bold text-brand">{v.title}</h2>
+                    {v.description && (
+                      <p className="text-xs sm:text-sm text-slate-700 leading-relaxed">
+                        {v.description}
+                      </p>
+                    )}
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <Card>
+                <p className="text-sm text-slate-600">
+                  {locale === "uz"
+                    ? "Videolar tez orada joylanadi."
+                    : locale === "en"
+                      ? "Videos will be published soon."
+                      : locale === "ar"
+                        ? "???? ??? ?????????? ??????."
+                        : "Video i?eriklerimiz yak?nda eklenecektir."}
+                </p>
+              </Card>
+            )}
+          </div>
+
+          {data.news.length > 0 && (
+            <div className="space-y-6 pt-4 border-t border-slate-200">
+              <h2 className="text-2xl sm:text-3xl font-heading font-extrabold text-brand">
+                {dict.latestNews}
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {data.news.map((n) => (
+                  <Card
+                    key={n.slug}
+                    className="flex flex-col justify-between overflow-hidden space-y-3"
+                  >
+                    <div id={n.slug}>
+                      {n.imageUrl && (
+                        <div className="-mx-6 -mt-6 mb-4 overflow-hidden border-b border-slate-200">
+                          <img
+                            src={n.imageUrl}
+                            alt={n.title}
+                            loading="lazy"
+                            className="w-full h-52 object-cover"
+                          />
+                        </div>
+                      )}
+                      <div className="text-xs font-semibold text-slate-500 mb-1">
+                        {n.publishedAt}
+                      </div>
+                      <h3 className="text-lg font-heading font-bold text-brand mb-2">{n.title}</h3>
+                      <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-line">
+                        {n.body || n.excerpt}
+                      </p>
+                    </div>
+                  </Card>
+                ))}
+              </div>
             </div>
-          ) : (
-            <Card>
-              <p className="text-sm text-slate-600">
-                {locale === "uz"
-                  ? "Videolar tez orada joylanadi."
-                  : locale === "en"
-                    ? "Videos will be published soon."
-                    : locale === "ar"
-                      ? "سيتم نشر الفيديوهات قريباً."
-                      : "Video içeriklerimiz yakında eklenecektir."}
-              </p>
-            </Card>
           )}
         </div>
       </SiteShell>
@@ -335,7 +469,7 @@ export default async function LocalizedSubPage({
         : locale === "en"
           ? "Planned Target"
           : locale === "ar"
-            ? "هدف مستقبلي"
+            ? "??? ???????"
             : "Planlanan Hedef";
     const ongoingStateBadge =
       locale === "uz"
@@ -343,7 +477,7 @@ export default async function LocalizedSubPage({
         : locale === "en"
           ? "Ongoing Activity"
           : locale === "ar"
-            ? "نشاط مستمر"
+            ? "???? ?????"
             : "Devam Eden Faaliyet";
 
     if (secondSlug) {
@@ -352,12 +486,15 @@ export default async function LocalizedSubPage({
         notFound();
       }
 
+      const academicMembers = (data.team || []).filter((m) => m.groupType === "academic");
+
       return (
         <SiteShell
           locale={locale}
           announcement={data.settings.announcement}
           activeSocials={data.settings.activeSocials}
           bankAccounts={data.settings.bankAccounts}
+          contact={data.settings.contact}
         >
           <div className="max-w-5xl mx-auto px-4 py-10 space-y-8">
             <Breadcrumb
@@ -439,7 +576,7 @@ export default async function LocalizedSubPage({
                         rel="noopener noreferrer"
                         className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-accent hover:text-brand text-xs font-bold text-brand transition-colors"
                       >
-                        {lnk.label} ↗
+                        {lnk.label} ?
                       </a>
                     ))}
                   </div>
@@ -463,6 +600,81 @@ export default async function LocalizedSubPage({
                 </div>
               )}
             </Card>
+
+            {/* Mezana Akademisi sahifasida Akademik Heyet (Ustozlar) */}
+            {project.slug === "mezana-akademisi" && academicMembers.length > 0 && (
+              <div className="space-y-4">
+                <h2 className="text-2xl font-heading font-extrabold text-brand">
+                  {locale === "uz"
+                    ? "Mezana Akademiyasi Ilmiy Hay'ati va Ustozlari"
+                    : locale === "en"
+                      ? "Mezana Academy Academic Faculty"
+                      : locale === "ar"
+                        ? "???? ??????? ?? ???????? ?????"
+                        : "Mezana Akademisi Akademik Kadromuz ve Hocalar?m?z"}
+                </h2>
+                <div className="rounded-2xl overflow-hidden border border-slate-200">
+                  <img
+                    src="/media/old-site/teachers/teachers.jpg"
+                    alt="Mezana Akademisi Hocalar?"
+                    loading="lazy"
+                    className="w-full max-h-[420px] object-cover"
+                  />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {academicMembers.map((member) => (
+                    <Card
+                      key={member.id}
+                      className="flex flex-col sm:flex-row gap-4 items-start border-t-4 border-accent"
+                    >
+                      {member.photoUrl && (
+                        <img
+                          src={member.photoUrl}
+                          alt={member.fullName}
+                          loading="lazy"
+                          className="w-24 h-28 object-cover rounded-xl border border-slate-200 shrink-0"
+                        />
+                      )}
+                      <div className="space-y-1.5">
+                        <h3 className="text-lg font-heading font-extrabold text-brand">
+                          {member.fullName}
+                        </h3>
+                        <div className="text-xs font-bold text-amber-800 uppercase tracking-wider">
+                          {member.roleTitle}
+                        </div>
+                        {member.bio && (
+                          <p className="text-xs sm:text-sm text-slate-700 leading-relaxed">
+                            {member.bio}
+                          </p>
+                        )}
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Azon Global sahifasida tanishtiruv videosi */}
+            {project.slug === "azon-global-medya" && data.videos.length > 0 && (
+              <div className="space-y-4">
+                <h2 className="text-2xl font-heading font-extrabold text-brand">
+                  {dict.videoSection}
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {data.videos.map((v) => (
+                    <Card key={v.id} className="space-y-3">
+                      <YouTubeLite youtubeId={v.youtubeId} title={v.title} />
+                      <h3 className="text-base font-bold text-brand">{v.title}</h3>
+                      {v.description && (
+                        <p className="text-xs sm:text-sm text-slate-700 leading-relaxed">
+                          {v.description}
+                        </p>
+                      )}
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </SiteShell>
       );
@@ -475,6 +687,7 @@ export default async function LocalizedSubPage({
         announcement={data.settings.announcement}
         activeSocials={data.settings.activeSocials}
         bankAccounts={data.settings.bankAccounts}
+        contact={data.settings.contact}
       >
         <div className="max-w-7xl mx-auto px-4 py-10 space-y-6">
           <Breadcrumb locale={locale} items={[{ label: dict.ourProjects }]} />
@@ -522,7 +735,7 @@ export default async function LocalizedSubPage({
                           key={idx}
                           className="text-[11px] font-bold px-2 py-0.5 rounded bg-slate-100 text-brand"
                         >
-                          {st.value} • {st.label}
+                          {st.value} ? {st.label}
                         </span>
                       ))}
                     </div>
@@ -534,12 +747,12 @@ export default async function LocalizedSubPage({
                     className="text-xs font-bold text-brand hover:underline"
                   >
                     {locale === "uz"
-                      ? "Batafsil →"
+                      ? "Batafsil ?"
                       : locale === "en"
-                        ? "Read More →"
+                        ? "Read More ?"
                         : locale === "ar"
-                          ? "التفاصيل ←"
-                          : "Detaylı İncele →"}
+                          ? "???????? ?"
+                          : "Detayl? ?ncele ?"}
                   </Link>
                   <Link
                     href={`/${locale}/${donateSlug}`}
@@ -556,7 +769,7 @@ export default async function LocalizedSubPage({
     );
   }
 
-  // BIZ KIMIZ / HAKKIMIZDA / VAKIF NEDİR / YÖNETİM SAHIFALARI
+  // BIZ KIMIZ / HAKKIMIZDA / VAKIF NED?R / Y?NET?M SAHIFALARI
   if (
     routeKey === "about" ||
     firstSlug === "yonetim" ||
@@ -574,12 +787,18 @@ export default async function LocalizedSubPage({
       data.pages?.find((pg) => pg.slug === targetPageSlug) ||
       data.pages?.find((pg) => pg.slug === "hakkimizda");
 
+    const boardMembers = (data.team || []).filter(
+      (m) => m.groupType === "board" || m.groupType === "executive"
+    );
+    const academicMembers = (data.team || []).filter((m) => m.groupType === "academic");
+
     return (
       <SiteShell
         locale={locale}
         announcement={data.settings.announcement}
         activeSocials={data.settings.activeSocials}
         bankAccounts={data.settings.bankAccounts}
+        contact={data.settings.contact}
       >
         <div className="max-w-5xl mx-auto px-4 py-10 space-y-8">
           <Breadcrumb locale={locale} items={[{ label: pageDoc?.title || dict.navAbout }]} />
@@ -608,8 +827,8 @@ export default async function LocalizedSubPage({
                 : locale === "en"
                   ? "What is a Waqf?"
                   : locale === "ar"
-                    ? "ما هو الوقف؟"
-                    : "Vakıf Nedir?"}
+                    ? "?? ?? ??????"
+                    : "Vak?f Nedir?"}
             </Link>
             <Link
               href={`/${locale}/yonetim`}
@@ -624,13 +843,13 @@ export default async function LocalizedSubPage({
                 : locale === "en"
                   ? "Board of Trustees & Executive Board"
                   : locale === "ar"
-                    ? "مجلس الأمناء والهيئة التنفيذية"
-                    : "Mütevelli ve İcra Heyeti"}
+                    ? "???? ??????? ??????? ?????????"
+                    : "M?tevelli ve ?cra Heyeti"}
             </Link>
           </div>
 
           <Card className="space-y-6">
-            <Badge tone="brand">{dict.siteName} • 2023</Badge>
+            <Badge tone="brand">{dict.siteName} ? 2023</Badge>
             <h1 className="text-2xl sm:text-4xl font-heading font-extrabold text-brand">
               {pageDoc?.title || dict.navAbout}
             </h1>
@@ -641,7 +860,7 @@ export default async function LocalizedSubPage({
             )}
           </Card>
 
-          {data.team && data.team.length > 0 && (
+          {boardMembers.length > 0 && (
             <div className="space-y-4">
               <h2 className="text-2xl font-heading font-extrabold text-brand">
                 {locale === "uz"
@@ -649,25 +868,84 @@ export default async function LocalizedSubPage({
                   : locale === "en"
                     ? "Foundation Leadership"
                     : locale === "ar"
-                      ? "إدارة الوقف"
-                      : "Vakıf Yönetimi"}
+                      ? "????? ?????"
+                      : "Vak?f Y?netimi"}
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {data.team.map((member) => (
-                  <Card key={member.id} className="space-y-3 border-t-4 border-accent">
-                    <div>
-                      <h3 className="text-lg font-heading font-extrabold text-brand">
-                        {member.fullName}
-                      </h3>
-                      <div className="text-xs font-bold text-amber-800 uppercase tracking-wider mt-0.5">
-                        {member.roleTitle}
-                      </div>
-                    </div>
-                    {member.bio && (
-                      <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-line">
-                        {member.bio}
-                      </p>
+                {boardMembers.map((member) => (
+                  <Card
+                    key={member.id}
+                    className="flex flex-col sm:flex-row gap-4 items-start border-t-4 border-accent"
+                  >
+                    {member.photoUrl && (
+                      <img
+                        src={member.photoUrl}
+                        alt={member.fullName}
+                        loading="lazy"
+                        className="w-24 h-28 object-cover rounded-xl border border-slate-200 shrink-0"
+                      />
                     )}
+                    <div className="space-y-2">
+                      <div>
+                        <h3 className="text-lg font-heading font-extrabold text-brand">
+                          {member.fullName}
+                        </h3>
+                        <div className="text-xs font-bold text-amber-800 uppercase tracking-wider mt-0.5">
+                          {member.roleTitle}
+                        </div>
+                      </div>
+                      {member.bio && (
+                        <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-line">
+                          {member.bio}
+                        </p>
+                      )}
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {academicMembers.length > 0 && (
+            <div className="space-y-4 pt-2">
+              <h2 className="text-2xl font-heading font-extrabold text-brand">
+                {locale === "uz"
+                  ? "Mezana Akademiyasi Ilmiy Hay'ati va Ustozlari"
+                  : locale === "en"
+                    ? "Mezana Academy Academic Faculty"
+                    : locale === "ar"
+                      ? "???? ??????? ?? ???????? ?????"
+                      : "Mezana Akademisi Akademik Kadromuz ve Hocalar?m?z"}
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {academicMembers.map((member) => (
+                  <Card
+                    key={member.id}
+                    className="flex flex-col sm:flex-row gap-4 items-start border-t-4 border-brand"
+                  >
+                    {member.photoUrl && (
+                      <img
+                        src={member.photoUrl}
+                        alt={member.fullName}
+                        loading="lazy"
+                        className="w-24 h-28 object-cover rounded-xl border border-slate-200 shrink-0"
+                      />
+                    )}
+                    <div className="space-y-1.5">
+                      <div>
+                        <h3 className="text-lg font-heading font-extrabold text-brand">
+                          {member.fullName}
+                        </h3>
+                        <div className="text-xs font-bold text-emerald-800 uppercase tracking-wider mt-0.5">
+                          {member.roleTitle}
+                        </div>
+                      </div>
+                      {member.bio && (
+                        <p className="text-xs sm:text-sm text-slate-700 leading-relaxed whitespace-pre-line">
+                          {member.bio}
+                        </p>
+                      )}
+                    </div>
                   </Card>
                 ))}
               </div>
@@ -685,6 +963,7 @@ export default async function LocalizedSubPage({
       announcement={data.settings.announcement}
       activeSocials={data.settings.activeSocials}
       bankAccounts={data.settings.bankAccounts}
+      contact={data.settings.contact}
     >
       <div className="max-w-5xl mx-auto px-4 py-10 space-y-6">
         <Breadcrumb
@@ -703,22 +982,22 @@ export default async function LocalizedSubPage({
                 : locale === "en"
                   ? "You may send us your questions and inquiries using the contact form below."
                   : locale === "ar"
-                    ? "يمكنكم إرسال استفساراتكم ورسائلكم عبر النموذج أدناه."
-                    : "Soru, görüş ve taleplerinizi aşağıdaki iletişim formu üzerinden vakfımıza iletebilirsiniz."
+                    ? "?????? ????? ??????????? ???????? ??? ??????? ?????."
+                    : "Soru, g?r?? ve taleplerinizi a?a??daki ileti?im formu ?zerinden vakf?m?za iletebilirsiniz."
               : locale === "uz"
-                ? "Ezan Vakfı rasmiy huquqiy ma'lumotnomasi va shaxsiy ma'lumotlarni himoya qilish siyosati."
+                ? "Ezan Vakf? rasmiy huquqiy ma'lumotnomasi va shaxsiy ma'lumotlarni himoya qilish siyosati."
                 : locale === "en"
                   ? "Ezan Foundation official legal notice and data protection policy."
                   : locale === "ar"
-                    ? "الإشعار القانوني الرسمي وسياسة حماية البيانات لوقف الأذان."
-                    : "Ezan Vakfı kurumsal aydınlatma metni, kişisel verilerin korunması (KVKK) ve bağış ilkeleri."}
+                    ? "??????? ???????? ?????? ?????? ????? ???????? ???? ??????."
+                    : "Ezan Vakf? kurumsal ayd?nlatma metni, ki?isel verilerin korunmas? (KVKK) ve ba??? ilkeleri."}
           </p>
 
           {routeKey === "contact" &&
             (data.settings.contact.address ||
               data.settings.contact.phone ||
               data.settings.contact.email) && (
-              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-sm space-y-1">
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-sm space-y-1.5">
                 {data.settings.contact.address && (
                   <div>
                     <strong>Adres:</strong> {data.settings.contact.address}
@@ -726,7 +1005,7 @@ export default async function LocalizedSubPage({
                 )}
                 {data.settings.contact.phone && (
                   <div>
-                    <strong>Telefon:</strong> {data.settings.contact.phone}
+                    <strong>Telefon / WhatsApp:</strong> {data.settings.contact.phone}
                   </div>
                 )}
                 {data.settings.contact.email && (
@@ -734,8 +1013,31 @@ export default async function LocalizedSubPage({
                     <strong>E-posta:</strong> {data.settings.contact.email}
                   </div>
                 )}
+                {data.settings.bankAccounts.length > 0 && (
+                  <div className="pt-2 border-t border-slate-200">
+                    <strong>Resmi IBAN ({data.settings.bankAccounts[0].bankName}):</strong>{" "}
+                    <span className="font-mono font-bold text-brand">
+                      {data.settings.bankAccounts[0].iban}
+                    </span>{" "}
+                    ({data.settings.bankAccounts[0].accountHolder})
+                  </div>
+                )}
               </div>
             )}
+
+          {routeKey === "contact" && data.settings.contact.mapEmbedUrl && (
+            <div className="rounded-xl overflow-hidden border border-slate-200">
+              <iframe
+                src={data.settings.contact.mapEmbedUrl}
+                title="Ezan Vakf? Harita Konumu"
+                width="100%"
+                height="320"
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+                className="w-full h-72 border-0"
+              />
+            </div>
+          )}
 
           {routeKey === "contact" && (
             <form
@@ -797,7 +1099,7 @@ export default async function LocalizedSubPage({
                 type="submit"
                 className="px-5 py-2.5 rounded-xl bg-accent text-brand font-bold text-sm hover:bg-accent-hover"
               >
-                Gönder
+                G?nder
               </button>
             </form>
           )}
@@ -806,3 +1108,4 @@ export default async function LocalizedSubPage({
     </SiteShell>
   );
 }
+

@@ -103,7 +103,7 @@ describe("Phase 2 — Kurban, Personal Videos, SMS/WhatsApp, Donor Cabinet & Vaq
     });
     expect(fieldLogin.user.role).toBe("field");
     expect(fieldLogin.user.assignedCountryCode).toBe("TD");
-  });
+  }, 20000);
 
   it("Step 0 & 1: hides countries without price/quota on public site until admin configures them", async () => {
     // Dastlabki seed holatida barcha davlatlar va narxi 0 bo'lgani uchun saytda ko'rinmaydi

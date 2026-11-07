@@ -98,17 +98,23 @@ describe("Fix-5 Verification — Catalog Verbatim Diff, [TASLIK] Filter, Vekalet
     }
 
     const siteDataTr = await getPublicSiteData("tr");
-    expect(siteDataTr.settings.contact.address).toBe("");
-    expect(siteDataTr.settings.contact.phone).toBe("");
-    expect(siteDataTr.settings.contact.email).toBe("");
-    expect(siteDataTr.settings.bankAccounts).toEqual([]);
+    expect(siteDataTr.settings.contact.address).toContain("Deposite İş Merkezi");
+    expect(siteDataTr.settings.contact.phone).toBe("+90 505 034 55 50");
+    expect(siteDataTr.settings.contact.email).toBe("info@ezanvakfi.org");
+    expect(siteDataTr.settings.bankAccounts.length).toBe(1);
+    expect(siteDataTr.settings.bankAccounts[0]!.iban).toBe("TR82 0001 0009 6597 8337 0050 01");
     expect(siteDataTr.settings.announcement).toBe("");
 
-    // Rahbariyat: Üstad Mübeşşir AHMED va Ramazan ÇAMLICA
-    expect(siteDataTr.team.map((t) => t.fullName)).toEqual([
+    // Rahbariyat va Akademiya Ustozlari: 10 nafar (boshida Üstad Mübeşşir AHMED va Ramazan ÇAMLICA)
+    expect(siteDataTr.team.length).toBe(10);
+    expect(siteDataTr.team.slice(0, 2).map((t) => t.fullName)).toEqual([
       "Üstad Mübeşşir AHMED",
       "Ramazan ÇAMLICA"
     ]);
+    expect(siteDataTr.news.length).toBe(9);
+    expect(siteDataTr.videos.length).toBe(1);
+    expect(siteDataTr.videos[0]!.youtubeId).toBe("xKxrkht7CpY");
+    expect(siteDataTr.supportWays.length).toBe(9);
 
     // mutevelli-heyet-baskani.jpg: alt matnida shaxs ismi yo'q va needs_review = true
     const mediaRes = await dbQuery<{ alt_text: any; needs_review: any }>(

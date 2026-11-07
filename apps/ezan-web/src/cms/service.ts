@@ -2,6 +2,7 @@ import { z } from "zod";
 import { dbQuery, ensureSchema } from "../db/schema";
 import { Locale } from "../i18n/country-locale";
 import { isAdminIpAllowed, verifyCloudflareAccessJwt } from "../lib/security";
+import { OLD_SITE_SUPPORT_WAYS } from "./old-site-content";
 
 export type CmsRole = "admin" | "editor" | "translator" | "finance" | "field";
 
@@ -316,9 +317,11 @@ export async function getPublicSiteData(locale: Locale) {
         id: n.id,
         slug: n.slug,
         category: n.category,
+        imageUrl: sanitizePublicField(n.image_url),
         publishedAt: new Date(n.published_at).toISOString().slice(0, 10),
         title: pickLocalized(n.title, locale),
         excerpt: pickLocalized(n.excerpt, locale),
+        body: pickLocalized(n.body, locale),
         needsReview: Boolean(n.needs_review?.[locale])
       })),
     videos: videosRes.rows
@@ -329,8 +332,14 @@ export async function getPublicSiteData(locale: Locale) {
         category: v.category,
         projectSlug: v.project_slug,
         title: pickLocalized(v.title, locale),
+        description: pickLocalized(v.description, locale),
         needsReview: Boolean(v.needs_review?.[locale])
       })),
+    supportWays: OLD_SITE_SUPPORT_WAYS.map((w) => ({
+      key: w.key,
+      title: pickLocalized(w.title, locale),
+      description: pickLocalized(w.description, locale)
+    })),
     faqs: faqsRes.rows
       .filter((f) => !containsTaslikOrFakeData(f.question) && !containsTaslikOrFakeData(f.answer) && Boolean(pickLocalized(f.question, locale)))
       .map((f) => ({

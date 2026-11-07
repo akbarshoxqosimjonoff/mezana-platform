@@ -2,6 +2,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { ensureSchema, dbQuery } from "../db/schema";
 import type { Locale } from "../i18n/country-locale";
+import {
+  OLD_SITE_SETTINGS,
+  OLD_SITE_TEAM,
+  OLD_SITE_NEWS,
+  OLD_SITE_VIDEOS,
+  OLD_SITE_FAQS
+} from "./old-site-content";
 
 export interface CatalogQuoteItem {
   id: string;
@@ -1236,33 +1243,35 @@ The door to brotherhood opens with love and endures through loyalty. Our Foundat
     );
   }
 
-  // Rahbariyat (cms_team): Üstad Mübeşşir AHMED va Ramazan ÇAMLICA
-  await dbQuery(`DELETE FROM cms_team`);
+  // Rahbariyat va Akademiya Ustozlari (cms_team): 10 nafar (atomik CTE bilan parallel testlarda ham dublikat bo'lmaydi)
+  const teamJsonRows = OLD_SITE_TEAM.map((member) => ({
+    group_type: member.group === "advisory" ? "academic" : member.group,
+    sort_order: member.order,
+    full_name: member.name,
+    photo_url: member.photoUrl,
+    role_title: member.role,
+    bio: member.bio
+  }));
   await dbQuery(
-    `INSERT INTO cms_team (group_type, sort_order, full_name, photo_url, role_title, bio, needs_review)
-     VALUES
-       ('board', 1, 'Üstad Mübeşşir AHMED', '/media/katalog/hakkimizda/mutevelli-heyet-baskani-800.webp',
-        '{"tr":"Mütevelli Heyet Başkanı","uz":"Vasiylik kengashi raisi","en":"Chairman of the Board of Trustees","ar":"رئيس مجلس الأمناء"}'::jsonb,
-        $1::jsonb,
-        '{"tr":false,"uz":true,"en":true,"ar":true}'::jsonb),
-       ('executive', 2, 'Ramazan ÇAMLICA', NULL,
-        '{"tr":"İcra Heyet Başkanı","uz":"Ijroiya kengashi raisi","en":"Chairman of the Executive Board","ar":"رئيس الهيئة التنفيذية"}'::jsonb,
-        $2::jsonb,
-        '{"tr":false,"uz":true,"en":true,"ar":true}'::jsonb)`,
-    [
-      JSON.stringify({
-        tr: "Ezan Vakfı Mütevelli Heyet Başkanı.",
-        uz: "Ezan Vakfı Vasiylik kengashi raisi.",
-        en: "Chairman of the Board of Trustees of Ezan Foundation.",
-        ar: "رئيس مجلس أمناء وقف أذان."
-      }),
-      JSON.stringify({
-        tr: "Ezan Vakfı İcra Heyet Başkanı.",
-        uz: "Ezan Vakfı Ijroiya kengashi raisi.",
-        en: "Chairman of the Executive Board of Ezan Foundation.",
-        ar: "رئيس الهيئة التنفيذية لوقف أذان."
-      })
-    ]
+    `WITH cleared AS (DELETE FROM cms_team)
+     INSERT INTO cms_team (group_type, sort_order, full_name, photo_url, role_title, bio, needs_review)
+     SELECT
+       r.group_type,
+       r.sort_order,
+       r.full_name,
+       r.photo_url,
+       r.role_title,
+       r.bio,
+       '{"tr":false,"uz":false,"en":false,"ar":false}'::jsonb
+     FROM jsonb_to_recordset($1::jsonb) AS r(
+       group_type text,
+       sort_order int,
+       full_name text,
+       photo_url text,
+       role_title jsonb,
+       bio jsonb
+     )`,
+    [JSON.stringify(teamJsonRows)]
   );
 
   // 11 ta katalog loyihasini cms_projects jadvaliga yozish
@@ -1334,7 +1343,7 @@ The door to brotherhood opens with love and endures through loyalty. Our Foundat
     upsertedProjects++;
   }
 
-  // Hadislar va Bosh sahifa katalog raqamlarini cms_site_settings jadvaliga saqlash
+  // Hadislar, Bosh sahifa katalog raqamlari va eski ezanvakfi.org saytidan tasdiqlangan rasmiy aloqa/IBAN/ijtimoiy tarmoqlarni cms_site_settings jadvaliga saqlash
   const cleanSiteSettings = {
     foundationName: {
       tr: "Ezan Vakfı",
@@ -1343,21 +1352,21 @@ The door to brotherhood opens with love and endures through loyalty. Our Foundat
       ar: "وقف الأذان (Ezan Vakfı)"
     },
     contact: {
-      address: "",
-      phone: "",
-      email: "",
-      whatsapp: "",
-      mapEmbedUrl: ""
+      address: OLD_SITE_SETTINGS.contact.address,
+      phone: OLD_SITE_SETTINGS.contact.phone,
+      email: OLD_SITE_SETTINGS.contact.email,
+      whatsapp: OLD_SITE_SETTINGS.contact.phone,
+      mapEmbedUrl: OLD_SITE_SETTINGS.contact.mapEmbedUrl
     },
-    bankAccounts: [],
+    bankAccounts: OLD_SITE_SETTINGS.bankAccounts,
     socialLinks: {
-      youtube: "",
-      instagram: "",
-      telegram: "",
-      x: "",
-      facebook: "",
+      youtube: OLD_SITE_SETTINGS.socialLinks.youtube,
+      instagram: OLD_SITE_SETTINGS.socialLinks.instagram,
+      telegram: OLD_SITE_SETTINGS.socialLinks.telegram,
+      x: OLD_SITE_SETTINGS.socialLinks.x,
+      facebook: OLD_SITE_SETTINGS.socialLinks.facebook,
       tiktok: "",
-      whatsappChannel: ""
+      whatsappChannel: OLD_SITE_SETTINGS.socialLinks.whatsapp
     },
     stats: [],
     announcementBanner: {
@@ -1430,19 +1439,96 @@ The door to brotherhood opens with love and endures through loyalty. Our Foundat
     );
   }
 
-  // Barcha seed yangiliklarini 'draft' holatiga o'tkazish (sodir bo'lmagan voqealar saytda chiqmasin)
-  await dbQuery(`UPDATE cms_news SET status = 'draft', updated_at = NOW()`);
+  // Sodir bo'lmagan 2027 seed yangiliklarini 'draft' holatiga o'tkazish va eski ezanvakfi.org saytidan tasdiqlangan 9 ta haqiqiy yangilikni 'published' holatda saqlash
+  const publishedNewsSlugs = OLD_SITE_NEWS.map((n) => n.slug);
+  await dbQuery(
+    `UPDATE cms_news SET status = 'draft', updated_at = NOW() WHERE slug <> ALL($1::text[])`,
+    [publishedNewsSlugs]
+  );
 
-  // Soxta / [TASLIK] videolarni 'draft' holatiga o'tkazish
-  await dbQuery(`UPDATE cms_videos SET status = 'draft'`);
+  for (const n of OLD_SITE_NEWS) {
+    await dbQuery(
+      `INSERT INTO cms_news (slug, status, published_at, category, image_url, title, excerpt, body, needs_review, updated_at)
+       VALUES ($1, 'published', $2, 'general', $3, $4::jsonb, $5::jsonb, $6::jsonb, '{"tr":false,"uz":false,"en":false,"ar":false}'::jsonb, NOW())
+       ON CONFLICT (slug) DO UPDATE SET
+         status = 'published',
+         published_at = EXCLUDED.published_at,
+         image_url = EXCLUDED.image_url,
+         title = EXCLUDED.title,
+         excerpt = EXCLUDED.excerpt,
+         body = EXCLUDED.body,
+         updated_at = NOW()`,
+      [
+        n.slug,
+        n.publishedAt,
+        n.imageUrl,
+        JSON.stringify(n.title),
+        JSON.stringify(n.excerpt),
+        JSON.stringify(n.body)
+      ]
+    );
+  }
 
-  // FAQ savol-javoblaridan [TASLIK] belgisini tozalash
-  await dbQuery(`
-    UPDATE cms_faqs
-    SET
-      question = regexp_replace(question::text, '\\s*\\[TASLIK\\]', '', 'g')::jsonb,
-      answer = regexp_replace(answer::text, '\\s*\\[TASLIK\\]', '', 'g')::jsonb
-  `);
+  // Soxta / [TASLIK] videolarni 'draft' holatiga o'tkazish va haqiqiy tanishtiruv videosini atomik CTE bilan 'published' qilish
+  const videoJsonRows = OLD_SITE_VIDEOS.map((v) => ({
+    youtube_id: v.youtubeId,
+    project_slug: v.projectSlug,
+    published_at: v.publishedAt,
+    title: v.title,
+    description: v.description
+  }));
+  await dbQuery(
+    `WITH drafted AS (
+       UPDATE cms_videos SET status = 'draft' WHERE youtube_id <> ALL(SELECT (x->>'youtube_id') FROM jsonb_array_elements($1::jsonb) AS x)
+     ),
+     deleted AS (
+       DELETE FROM cms_videos WHERE youtube_id = ANY(SELECT (x->>'youtube_id') FROM jsonb_array_elements($1::jsonb) AS x)
+     )
+     INSERT INTO cms_videos (youtube_id, category, project_slug, status, published_at, title, description, needs_review, created_at)
+     SELECT
+       r.youtube_id,
+       'general',
+       r.project_slug,
+       'published',
+       r.published_at::timestamptz,
+       r.title,
+       r.description,
+       '{"tr":false,"uz":false,"en":false,"ar":false}'::jsonb,
+       NOW()
+     FROM jsonb_to_recordset($1::jsonb) AS r(
+       youtube_id text,
+       project_slug text,
+       published_at text,
+       title jsonb,
+       description jsonb
+     )`,
+    [JSON.stringify(videoJsonRows)]
+  );
+
+  // Eski ezanvakfi.org saytidan tasdiqlangan 5 ta to'liq FAQ savol-javoblarini atomik CTE bilan yozish
+  const faqJsonRows = OLD_SITE_FAQS.map((f) => ({
+    category: f.category,
+    sort_order: f.order,
+    question: f.question,
+    answer: f.answer
+  }));
+  await dbQuery(
+    `WITH cleared AS (DELETE FROM cms_faqs)
+     INSERT INTO cms_faqs (category, sort_order, question, answer, needs_review)
+     SELECT
+       r.category,
+       r.sort_order,
+       r.question,
+       r.answer,
+       '{"tr":false,"uz":false,"en":false,"ar":false}'::jsonb
+     FROM jsonb_to_recordset($1::jsonb) AS r(
+       category text,
+       sort_order int,
+       question jsonb,
+       answer jsonb
+     )`,
+    [JSON.stringify(faqJsonRows)]
+  );
 
   // Rais portreti (mutevelli-heyet-baskani.jpg) tasdiqlanmagani uchun needs_review = true va alt matnda ism yo'q
   await dbQuery(

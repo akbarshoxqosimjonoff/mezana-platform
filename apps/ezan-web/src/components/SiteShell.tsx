@@ -11,6 +11,7 @@ export function SiteShell({
   announcement,
   activeSocials = [],
   bankAccounts = [],
+  contact,
   children
 }: {
   locale: Locale;
@@ -23,6 +24,11 @@ export function SiteShell({
     currency: string;
     iban: string;
   }>;
+  contact?: {
+    address?: string;
+    phone?: string;
+    email?: string;
+  };
   children: React.ReactNode;
 }) {
   const dict = UI_DICTIONARY[locale];
@@ -159,7 +165,14 @@ export function SiteShell({
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-12 grid grid-cols-1 md:grid-cols-3 gap-8">
           <div>
             <h2 className="font-heading font-bold text-lg text-white mb-2">{dict.siteName}</h2>
-            <p className="text-sm text-slate-300 leading-relaxed mb-4">{dict.tagline}</p>
+            <p className="text-sm text-slate-300 leading-relaxed mb-3">{dict.tagline}</p>
+            {contact && (contact.address || contact.phone || contact.email) && (
+              <div className="space-y-1 text-xs text-slate-300 mb-3">
+                {contact.address && <div>📍 {contact.address}</div>}
+                {contact.phone && <div>📞 {contact.phone}</div>}
+                {contact.email && <div>✉️ {contact.email}</div>}
+              </div>
+            )}
             {SITE_CONFIG.newsletterEnabled && (
               <form action="/api/contact" method="POST" className="mt-3 flex gap-2" data-testid="newsletter-form">
                 <input type="hidden" name="kind" value="newsletter" />
@@ -210,11 +223,15 @@ export function SiteShell({
               </h2>
               <div className="space-y-2.5 text-xs text-slate-200">
                 {bankAccounts.map((b, i) => (
-                  <div key={i} className="p-2.5 rounded-lg bg-white/5 border border-white/10">
+                  <div key={i} className="p-2.5 rounded-lg bg-white/5 border border-white/10 space-y-0.5">
+                    {b.accountHolder && (
+                      <div className="font-bold text-accent text-xs">{b.accountHolder}</div>
+                    )}
                     <div className="font-semibold text-white">
                       {b.bankName} ({b.currency})
                     </div>
-                    <div className="font-mono text-slate-300 mt-0.5">{b.iban}</div>
+                    {b.branch && <div className="text-[11px] text-slate-300">{b.branch}</div>}
+                    <div className="font-mono font-bold text-white mt-1 select-all">{b.iban}</div>
                   </div>
                 ))}
               </div>
