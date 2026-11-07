@@ -17,7 +17,7 @@ const nextConfig = {
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "img-src 'self' data: blob: https://i.ytimg.com https://img.youtube.com",
       "font-src 'self' data: https://fonts.gstatic.com",
-      "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://challenges.cloudflare.com https://sandbox-api.iyzipay.com https://api.iyzipay.com",
+      "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://www.google.com https://challenges.cloudflare.com https://sandbox-api.iyzipay.com https://api.iyzipay.com",
       "connect-src 'self' https://challenges.cloudflare.com https://plausible.io https://www.google-analytics.com https://sandbox-api.iyzipay.com https://api.iyzipay.com",
       "frame-ancestors 'none'",
       "base-uri 'self'",
