@@ -28,8 +28,8 @@ export default async function LocalizedHomePage({
       : locale === "en"
         ? "Our Foundation in Numbers"
         : locale === "ar"
-          ? "????? ????????"
-          : "Rakamlarla Vakf?m?z";
+          ? "وقفنا بالأرقام"
+          : "Rakamlarla Vakfımız";
 
   const catalogDataBadge =
     locale === "uz"
@@ -37,7 +37,7 @@ export default async function LocalizedHomePage({
       : locale === "en"
         ? "Catalog Data"
         : locale === "ar"
-          ? "?????? ????????"
+          ? "بيانات الكتالوج"
           : "Katalog verisi";
 
   const futureTargetsTitle =
@@ -46,8 +46,8 @@ export default async function LocalizedHomePage({
       : locale === "en"
         ? "Our Future Plans and Targets"
         : locale === "ar"
-          ? "????? ???????? ??????????"
-          : "Gelecek Planlar?m?z ve Hedeflerimiz";
+          ? "خططنا وأهدافنا المستقبلية"
+          : "Gelecek Planlarımız ve Hedeflerimiz";
 
   const plannedTargetBadge =
     locale === "uz"
@@ -55,7 +55,7 @@ export default async function LocalizedHomePage({
       : locale === "en"
         ? "Planned Target"
         : locale === "ar"
-          ? "??? ???????"
+          ? "هدف مستقبلي"
           : "Hedef / Planlanan";
 
   const ongoingStateBadge =
@@ -64,7 +64,7 @@ export default async function LocalizedHomePage({
       : locale === "en"
         ? "Ongoing Activity"
         : locale === "ar"
-          ? "???? ?????"
+          ? "نشاط مستمر"
           : "Devam Eden Faaliyet";
 
   const currentStats: Array<{ value: string; label: string; badge?: string }> =
@@ -86,7 +86,7 @@ export default async function LocalizedHomePage({
         <div className="max-w-7xl mx-auto px-4 sm:px-6 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
           <div className="lg:col-span-7 space-y-5">
             <div className="flex flex-wrap items-center gap-3">
-              <Badge tone="accent">{dict.siteName} ? 2023</Badge>
+              <Badge tone="accent">{dict.siteName} • 2023</Badge>
               <img
                 src="/media/katalog/brand/besmele-hat-800.webp"
                 alt=""
@@ -110,12 +110,12 @@ export default async function LocalizedHomePage({
                   src="/media/katalog/egitim/sinav-salonu-genis-1280.webp"
                   alt={
                     locale === "uz"
-                      ? "Ezan Vakf? va Mezana Akademiyasi imtihon va ta'lim zali"
+                      ? "Ezan Vakfı va Mezana Akademiyasi imtihon va ta'lim zali"
                       : locale === "en"
                         ? "Ezan Foundation and Mezana Academy examination and lecture hall"
                         : locale === "ar"
-                          ? "???? ?????????? ???????? ?? ??? ?????? ????????? ??????"
-                          : "Ezan Vakf? ve Mezana Akademisi s?nav ve e?itim salonu"
+                          ? "قاعة الامتحانات والتعليم في وقف الأذان وأكاديمية ميزانا"
+                          : "Ezan Vakfı ve Mezana Akademisi sınav ve eğitim salonu"
                   }
                   width={1280}
                   height={853}
@@ -172,7 +172,7 @@ export default async function LocalizedHomePage({
         </section>
       )}
 
-      {/* 3B. GELECEK PLANLARIMIZ VE HEDEFLER?M?Z (Katalog 5 va 30-31-betlar: alohida blok) */}
+      {/* 3B. GELECEK PLANLARIMIZ VE HEDEFLERİMİZ (Katalog 5 va 30-31-betlar: alohida blok) */}
       {futureTargets.length > 0 && (
         <section className="max-w-7xl mx-auto px-4 sm:px-6 py-8" data-testid="catalog-future-targets">
           <div className="rounded-2xl bg-amber-50/70 border border-amber-200 p-6 sm:p-8">
@@ -203,15 +203,15 @@ export default async function LocalizedHomePage({
         </section>
       )}
 
-      {/* HADIS IQTIBOSI (Sadaka-i Cariye ? M?slim, Vasiyyet 14) */}
+      {/* HADIS IQTIBOSI (Sadaka-i Cariye — Müslim, Vasiyyet 14) */}
       {primaryQuote && primaryQuote.text && (
         <section className="max-w-5xl mx-auto px-4 sm:px-6 py-6">
           <blockquote className="rounded-2xl bg-brand text-white p-6 sm:p-8 border-s-8 border-accent shadow-sm">
             <p className="text-base sm:text-lg font-medium italic leading-relaxed text-slate-100">
-              ?{primaryQuote.text}?
+              “{primaryQuote.text}”
             </p>
             <footer className="mt-3 text-xs sm:text-sm font-bold text-accent">
-              ? {primaryQuote.source}
+              — {primaryQuote.source}
             </footer>
           </blockquote>
         </section>
@@ -227,7 +227,7 @@ export default async function LocalizedHomePage({
             href={`/${locale}/${campaignsSlug}`}
             className="text-sm font-bold text-brand hover:underline"
           >
-            {dict.activeCampaigns} <span className="rtl:rotate-180 inline-block">?</span>
+            {dict.activeCampaigns} <span className="rtl:rotate-180 inline-block">→</span>
           </Link>
         </div>
 
@@ -237,7 +237,7 @@ export default async function LocalizedHomePage({
               <div>
                 <div className="flex items-center justify-between gap-2 mb-3">
                   <Badge tone={camp.restricted ? "warning" : "brand"}>
-                    {camp.restricted ? "?artl? / Maqsadli" : "Genel / Umumiy"}
+                    {camp.restricted ? "Şartlı / Maqsadli" : "Genel / Umumiy"}
                   </Badge>
                 </div>
                 <h3 className="text-lg font-heading font-bold text-brand mb-2">{camp.title}</h3>
@@ -276,7 +276,7 @@ export default async function LocalizedHomePage({
               href={`/${locale}/${projectsSlug}`}
               className="text-sm font-bold text-brand hover:underline"
             >
-              {dict.navActivities} <span className="rtl:rotate-180 inline-block">?</span>
+              {dict.navActivities} <span className="rtl:rotate-180 inline-block">→</span>
             </Link>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -317,12 +317,12 @@ export default async function LocalizedHomePage({
                     className="text-xs font-bold text-brand hover:underline"
                   >
                     {locale === "uz"
-                      ? "Batafsil ?"
+                      ? "Batafsil →"
                       : locale === "en"
-                        ? "Read More ?"
+                        ? "Read More →"
                         : locale === "ar"
-                          ? "???????? ?"
-                          : "Detayl? ?ncele ?"}
+                          ? "التفاصيل ←"
+                          : "Detaylı İncele →"}
                   </Link>
                   <Link
                     href={`/${locale}/${donateSlug}`}
@@ -369,7 +369,7 @@ export default async function LocalizedHomePage({
                 href={`/${locale}/${ROUTE_SLUGS.media[locale]}`}
                 className="text-xs sm:text-sm font-bold text-brand hover:underline"
               >
-                {dict.navMedia} <span className="rtl:rotate-180 inline-block">?</span>
+                {dict.navMedia} <span className="rtl:rotate-180 inline-block">→</span>
               </Link>
             </div>
             <div className="space-y-4">
@@ -411,7 +411,7 @@ export default async function LocalizedHomePage({
               href={`/${locale}/${transparencySlug}`}
               className="inline-flex items-center text-sm font-bold text-brand hover:underline"
             >
-              {dict.navTransparency} <span className="ms-1 rtl:rotate-180 inline-block">?</span>
+              {dict.navTransparency} <span className="ms-1 rtl:rotate-180 inline-block">→</span>
             </Link>
           </div>
         </div>
@@ -419,4 +419,3 @@ export default async function LocalizedHomePage({
     </SiteShell>
   );
 }
-

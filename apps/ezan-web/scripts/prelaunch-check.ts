@@ -9,7 +9,8 @@ import { ROUTE_SLUGS } from "../src/i18n/messages";
 const FORBIDDEN_PATTERNS = [
   { label: "[TASLIK]", regex: /\[TASLIK\]/i },
   { label: "TR00 0000", regex: /TR00\s*0000/i },
-  { label: "lorem", regex: /\blorem\b/i }
+  { label: "lorem", regex: /\blorem\b/i },
+  { label: "Encoding corruption (??? or U+FFFD)", regex: /\?\?\?|\uFFFD/ }
 ];
 
 const SEED_NEWS_SLUGS = [
@@ -118,6 +119,13 @@ async function main() {
   let checkedPagesCount = 0;
 
   if (httpUp) {
+    const favRes = await fetch(`${baseUrl}/favicon.ico`);
+    if (!favRes.ok) {
+      errors.push(`/favicon.ico returned HTTP ${favRes.status}`);
+    } else {
+      console.log("[OK] Favicon: /favicon.ico is present and returns HTTP 200.");
+    }
+
     for (const locale of SUPPORTED_LOCALES) {
       const routes = buildPublicRoutesForLocale(locale);
       for (const routePath of routes) {
@@ -136,6 +144,16 @@ async function main() {
             errors.push(`Page ${routePath} contains forbidden pattern "${pat.label}"`);
           }
         }
+        // Strip script/style/tags and verify no word has an embedded '?' (e.g. Vakf?m?za)
+        const visibleText = html
+          .replace(/<script[\s\S]*?<\/script>/gi, " ")
+          .replace(/<style[\s\S]*?<\/style>/gi, " ")
+          .replace(/<[^>]+>/g, " ");
+        const corruptedWordMatch = visibleText.match(/[A-Za-zÇĞİÖŞÜçğıöşü]{2,}\?[A-Za-zÇĞİÖŞÜçğıöşü]+/);
+        if (corruptedWordMatch) {
+          errors.push(`Page ${routePath} contains corrupted '?' inside word: "${corruptedWordMatch[0]}"`);
+        }
+
         for (const seedSlug of SEED_NEWS_SLUGS) {
           if (html.includes(seedSlug)) {
             errors.push(`Page ${routePath} contains seed news slug "${seedSlug}"`);
