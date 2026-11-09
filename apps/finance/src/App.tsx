@@ -845,6 +845,7 @@ function App() {
       setPaymentModal(null);
       refreshCurrentTab();
       loadStudentsList();
+      window.dispatchEvent(new CustomEvent("mezana:reload-domain"));
     } catch (err: any) {
       notify(err.message, "err");
     }
@@ -858,10 +859,12 @@ function App() {
         method: "POST",
         body: JSON.stringify({ reason: voidPayModal.reason }),
       });
-      notify(res.message || "To'lov bekor qilindi!");
+      notify(res.message || "To'lov izoh bilan bekor qilindi (o'chirildi)!");
       setVoidPayModal(null);
       setStudentHistoryModal(null);
       refreshCurrentTab();
+      loadStudentsList();
+      window.dispatchEvent(new CustomEvent("mezana:reload-domain"));
     } catch (err: any) {
       notify(err.message, "err");
     }
@@ -2123,6 +2126,7 @@ function App() {
               activeTab={activeTab}
               notify={notify}
               openPaymentModal={(st) => openPaymentModal(st)}
+              openStudentHistory={(st) => setStudentHistoryModal(st)}
               campusSubTab={campusSubTab}
               access={access}
             />
@@ -2307,13 +2311,24 @@ function App() {
                               <div>-{fmtTL(e.amountInDefault || e.amount)}</div>
                             </td>
                             <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                              {(e.status === "PENDING" || e.status === "REJECTED" || access.isDirector) && (
+                              {!e.deletedAt && (
                                 <div style={{ display: "inline-flex", gap: 6 }}>
                                   <button className="btn btn-sm" onClick={() => openEditExpense(e)}>
                                     <Edit3 size={12} /> Tahrirlash
                                   </button>
-                                  <button className="btn btn-sm btn-danger" onClick={() => handleQuickExpenseAction(e.id, "delete")}>
-                                    O'chirish
+                                  <button
+                                    className="btn btn-sm btn-danger"
+                                    onClick={() =>
+                                      setExpActionModal({
+                                        expense: e,
+                                        action: "void",
+                                        amount: String(e.amount || ""),
+                                        description: e.description || "",
+                                        reason: "",
+                                      })
+                                    }
+                                  >
+                                    <XCircle size={12} /> O'chirish
                                   </button>
                                 </div>
                               )}
@@ -3007,14 +3022,13 @@ function App() {
                                 >
                                   🖨️ Kvitansiya
                                 </button>
-                                {access.isDirector && (
-                                  <button
-                                    className="btn btn-sm btn-danger"
-                                    onClick={() => setVoidPayModal({ payment: p, reason: "" })}
-                                  >
-                                    Bekor qilish
-                                  </button>
-                                )}
+                                <button
+                                  className="btn btn-sm btn-danger"
+                                  onClick={() => setVoidPayModal({ payment: p, reason: "" })}
+                                  title="To'lovni sabab (izoh) ko'rsatgan holda o'chirish / bekor qilish"
+                                >
+                                  ??? O'chirish
+                                </button>
                               </div>
                             )}
                           </td>
@@ -3758,42 +3772,24 @@ function App() {
                                   </>
                                 )}
 
-                                {(e.status === "PENDING" || e.status === "REJECTED") && (
-                                  <>
-                                    <button
-                                      className="btn btn-sm"
-                                      onClick={() => openEditExpense(e)}
-                                      title="Xarajat summasi, toifasi yoki tavsifini tahrirlash"
-                                    >
-                                      <Edit3 size={12} /> Tahrirlash
-                                    </button>
-                                    <button
-                                      className="btn btn-sm btn-danger"
-                                      onClick={() => handleQuickExpenseAction(e.id, "delete")}
-                                    >
-                                      O'chirish
-                                    </button>
-                                  </>
-                                )}
-
                                 {access.isDirector && e.status === "APPROVED" && (
                                   <button className="btn btn-sm btn-primary" onClick={() => handleQuickExpenseAction(e.id, "pay")}>
                                     To'lash
                                   </button>
                                 )}
 
-                                {access.isDirector && (e.status === "APPROVED" || e.status === "PAID") && (
+                                {!e.deletedAt && (
                                   <>
                                     <button
                                       className="btn btn-sm"
                                       title="Xarajat summasi, toifasi, sanasi yoki tavsifini tahrirlash"
                                       onClick={() => openEditExpense(e)}
                                     >
-                                      <Edit3 size={12} /> Tahrir
+                                      <Edit3 size={12} /> Tahrirlash
                                     </button>
                                     <button
                                       className="btn btn-sm btn-danger"
-                                      title="Xarajatni bekor qilish va mablag'ni hamyonga qaytarish"
+                                      title="Xarajatni izoh bilan o'chirish (bekor qilish) va mablag'ni hamyonga qaytarish"
                                       onClick={() =>
                                         setExpActionModal({
                                           expense: e,
@@ -3804,7 +3800,7 @@ function App() {
                                         })
                                       }
                                     >
-                                      <XCircle size={12} /> O'chirish / Bekor
+                                      <XCircle size={12} /> O'chirish
                                     </button>
                                   </>
                                 )}
@@ -4867,7 +4863,7 @@ function App() {
       {voidPayModal && (
         <div className="modal-backdrop" onClick={() => setVoidPayModal(null)}>
           <div className="modal-box animate-in" onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ fontSize: 17, fontWeight: 800, marginBottom: 8 }}>To'lovni bekor qilish</h3>
+            <h3 style={{ fontSize: 17, fontWeight: 800, marginBottom: 8 }}>??? To'lovni o'chirish (bekor qilish)</h3>
             <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 14 }}>
               Talaba: <strong>{voidPayModal.payment.student?.fullname}</strong> • Summa: <strong>{fmtUSD(voidPayModal.payment.amount)}</strong>.
               Qayd daftardan o'chib ketmaydi, sababi bilan bekor qilingan holatga o'tadi va talaba qarzi qayta hisoblanadi.
@@ -4875,7 +4871,7 @@ function App() {
             <form onSubmit={submitVoidPayment} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <input
                 className="input"
-                placeholder="Bekor qilish sababini kiriting (majburiy)..."
+                placeholder="To'lovni o'chirish / bekor qilish sababini (izohni) kiriting (majburiy)..."
                 value={voidPayModal.reason}
                 onChange={(e) => setVoidPayModal({ ...voidPayModal, reason: e.target.value })}
                 required
@@ -4939,14 +4935,13 @@ function App() {
                               >
                                 🖨️ Kvitansiya
                               </button>
-                              {access.isDirector && (
-                                <button
-                                  className="btn btn-sm btn-danger"
-                                  onClick={() => setVoidPayModal({ payment: { ...p, student: studentHistoryModal }, reason: "" })}
-                                >
-                                  Bekor qilish
-                                </button>
-                              )}
+                              <button
+                                className="btn btn-sm btn-danger"
+                                onClick={() => setVoidPayModal({ payment: { ...p, student: studentHistoryModal }, reason: "" })}
+                                title="To'lovni sabab (izoh) bilan o'chirish / bekor qilish"
+                              >
+                                ??? O'chirish
+                              </button>
                             </div>
                           )}
                         </td>
@@ -5118,13 +5113,18 @@ function App() {
           <div className="modal-box animate-in" onClick={(e) => e.stopPropagation()}>
             <h3 style={{ fontSize: 17, fontWeight: 800, marginBottom: 8 }}>
               {expActionModal.action === "adjust"
-                ? "Rahbar: Xarajatni to'g'rilash"
+                ? "Xarajatni to'g'rilash"
                 : expActionModal.action === "void"
-                ? "Rahbar: Xarajatni bekor qilish"
+                ? "??? Xarajatni o'chirish (bekor qilish)"
                 : "Xarajatni rad etish"}
             </h3>
             <p style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 14 }}>
               Xarajat: <strong>{expActionModal.expense.description}</strong> ({fmtTL(expActionModal.expense.amountInDefault || expActionModal.expense.amount)})
+              {expActionModal.action === "void" && (
+                <span style={{ display: "block", marginTop: 4, color: "#10b981", fontWeight: 600 }}>
+                  ?? Xarajat o'chirilganda uning summasi avtomatik ravishda hamyon balansiga qaytariladi.
+                </span>
+              )}
             </p>
             <form onSubmit={submitExpActionModal} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {expActionModal.action === "adjust" && (
@@ -5163,7 +5163,7 @@ function App() {
               </div>
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
                 <button type="button" className="btn" onClick={() => setExpActionModal(null)}>Yopish</button>
-                <button type="submit" className="btn btn-primary">Tasdiqlash</button>
+                <button type="submit" className={`btn ${expActionModal.action === "void" ? "btn-danger" : "btn-primary"}`}>{expActionModal.action === "void" ? "??? Tasdiqlash va o'chirish" : "Tasdiqlash"}</button>
               </div>
             </form>
           </div>

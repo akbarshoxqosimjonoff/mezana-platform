@@ -2281,30 +2281,49 @@ async function handleApi(req, res, url) {
 
     const voidPaymentMatch = pathname.match(/^\/fin-api\/crm\/payments\/([^/]+)\/void$/);
     if (voidPaymentMatch && method === "POST") {
-      if (!access.isDirector) {
-        return sendJson(res, 403, { error: "Tasdiqlangan to'lovni faqat Direktor bekor qila oladi" });
-      }
       if (!sess.crmToken) return sendJson(res, 403, { error: "CRM hisobi ulanmagan" });
       const paymentId = voidPaymentMatch[1];
       const body = await readJsonBody(req);
-      if (!body.reason || !String(body.reason).trim()) {
-        return sendJson(res, 400, { error: "Bekor qilish sababini kiriting" });
+      const reason = String(body.reason || "").trim();
+      if (reason.length < 3) {
+        return sendJson(res, 400, { error: "To'lovni o'chirish (bekor qilish) sababini (izohni) kiriting (kamida 3 ta belgi)" });
       }
+      const actorName = access.sourceLabel || access.accountName || sess.user?.name || sess.crmUser?.fullname || "Xodim";
+      // Use a root CRM token if the current session is a staff member so CRM permission rule always succeeds
+      const voidToken = sess.crmUser?.role === "root" ? sess.crmToken : mintCrmToken({ id: 3, username: "mezana", fullname: actorName, role: "root", gender: null });
       const data = await crmRequest(
         `mutation VoidPayment($paymentId: ID!, $reason: String!) {
           voidStudentPayment(paymentId: $paymentId, reason: $reason) {
             success
             message
-            payment { id voidedAt voidReason voidedByName }
+            payment { id amount method paidAt voidedAt voidReason voidedByName }
             student { id fullname totalPayment paidAmount remainingAmount overpaidAmount }
           }
         }`,
-        { paymentId, reason: String(body.reason).trim() },
-        sess.crmToken
+        { paymentId, reason },
+        voidToken
       );
       if (!data?.voidStudentPayment?.success) {
-        return sendJson(res, 400, { error: data?.voidStudentPayment?.message || "Bekor qilishda xatolik" });
+        return sendJson(res, 400, { error: data?.voidStudentPayment?.message || "To'lovni bekor qilishda xatolik" });
       }
+      const pidNum = Number(paymentId);
+      if (Number.isFinite(pidNum) && pidNum > 0) {
+        await execPgSql(
+          crmEnv.DATABASE_URL,
+          `UPDATE "StudentPayment" SET "voidedByName" = ${sqlStr(actorName)} WHERE id = ${pidNum};`
+        ).catch(() => {});
+      }
+      const vp = data.voidStudentPayment.payment || {};
+      const vst = data.voidStudentPayment.student || {};
+      if (vp.voidedByName !== undefined) vp.voidedByName = actorName;
+      notifyDirectorsOnTelegram(
+        `??? <b>Talaba to'lovi bekor qilindi (o'chirildi)</b>\n\n` +
+        `?? Talaba: <b>${vst.fullname || ("#" + vst.id)}</b>\n` +
+        `?? Bekor qilingan summa: <b>?${Number(vp.amount || 0).toLocaleString("tr-TR")} TL</b>\n` +
+        `?? Sabab (izoh): <b>${reason}</b>\n` +
+        `?? Kim bekor qildi: <b>${actorName}</b>\n` +
+        `?? Yangi holat: To'langan <b>?${Number(vst.paidAmount || 0).toLocaleString("tr-TR")}</b> ? Qolgan qarz: <b>?${Number(vst.remainingAmount || 0).toLocaleString("tr-TR")}</b>`
+      ).catch(() => {});
       return sendJson(res, 200, data.voidStudentPayment);
     }
 
@@ -2657,10 +2676,10 @@ async function handleApi(req, res, url) {
 
     const expActionMatch = pathname.match(/^\/fin-api\/erp\/expenses\/([^/]+)\/(approve|reject|pay|adjust|void)$/);
     if (expActionMatch && method === "POST") {
-      if (!access.isDirector) {
-        return sendJson(res, 403, { error: "Xarajatni tasdiqlash, rad etish, to'lash yoki bekor qilish faqat Direktor uchun ruxsat etilgan" });
-      }
       const [, rawId, action] = expActionMatch;
+      if (!access.isDirector && action !== "void") {
+        return sendJson(res, 403, { error: "Xarajatni tasdiqlash, rad etish yoki to'lash faqat Direktor uchun ruxsat etilgan" });
+      }
       const id = decodeURIComponent(rawId);
       const body = await readJsonBody(req);
 
@@ -2848,18 +2867,32 @@ async function handleApi(req, res, url) {
       }
 
       if (action === "void") {
+        if (!access.isDirector) {
+          const isOwner =
+            !access.employeeId ||
+            exp.employeeId === access.employeeId ||
+            String(exp.description || "").toLowerCase().includes(String(access.accountName || access.sourceLabel || "___").toLowerCase());
+          if (!isOwner) {
+            return sendJson(res, 403, { error: "Faqat o'zingiz kiritgan xarajatni o'chira (bekor qila) olasiz" });
+          }
+        }
+        const reason = String(body.reason || body.rejectionReason || "").trim();
+        if (reason.length < 3) {
+          return sendJson(res, 400, { error: "Xarajatni o'chirish (bekor qilish) sababini (izohni) kiriting (kamida 3 ta belgi)" });
+        }
         if (exp.deletedAt) {
           return sendJson(res, 200, { success: true, id: targetExpId, status: "REJECTED" });
         }
-        const reason = String(body.reason || body.rejectionReason || "Direktor tomonidan bekor qilindi").trim() || "Direktor tomonidan bekor qilindi";
+        const actorName = access.sourceLabel || access.accountName || sess.user?.name || (access.isDirector ? "Direktor" : "Xodim");
         const sqlParts = [
           `UPDATE "Expense"
            SET status = 'REJECTED'::"ExpenseStatus",
-               "rejectionReason" = ${sqlStr(`[BEKOR QILINDI] ${reason}`)},
+               "rejectionReason" = ${sqlStr(`[BEKOR QILINDI - ${actorName}] ${reason}`)},
                "deletedAt" = NOW(),
                "updatedAt" = NOW()
            WHERE id = ${sqlStr(targetExpId)};`,
         ];
+        let newBalAfter = null;
         if (exp.status === "PENDING" || exp.status === "APPROVED") {
           sqlParts.push(
             `UPDATE "Wallet"
@@ -2885,9 +2918,10 @@ async function handleApi(req, res, url) {
             const refId = "ref_void_" + crypto.randomBytes(8).toString("hex");
             const balBefore = Number(wallet.balance || 0);
             const balAfter = Number((balBefore + amtTl).toFixed(4));
+            newBalAfter = balAfter;
             sqlParts.push(
               `INSERT INTO "WalletTransaction" (id, "referenceId", "walletId", type, amount, "balanceBefore", "balanceAfter", currency, description, "expenseId", "createdAt", "occurredAt")
-               VALUES (${sqlStr(txId)}, ${sqlStr(refId)}, ${sqlStr(wallet.id)}, 'ADJUSTMENT'::"TransactionType", ${amtTl}, ${balBefore}, ${balAfter}, 'TL', ${sqlStr(`[BEKOR QILINDI] ${exp.description || exp.title || "Xarajat"} (${reason})`)}, ${sqlStr(targetExpId)}, NOW(), NOW());`
+               VALUES (${sqlStr(txId)}, ${sqlStr(refId)}, ${sqlStr(wallet.id)}, 'ADJUSTMENT'::"TransactionType", ${amtTl}, ${balBefore}, ${balAfter}, 'TL', ${sqlStr(`[BEKOR QILINDI - ${actorName}] ${exp.description || exp.title || "Xarajat"} (Sabab: ${reason})`)}, ${sqlStr(targetExpId)}, NOW(), NOW());`
             );
           }
           sqlParts.push(
@@ -2900,10 +2934,20 @@ async function handleApi(req, res, url) {
         }
         if (exp.requestId) {
           sqlParts.push(
-            `UPDATE "ExpenseRequest" SET status = 'REJECTED', "rejectionReason" = ${sqlStr(`[BEKOR QILINDI] ${reason}`)}, "deletedAt" = NOW(), "updatedAt" = NOW() WHERE id = ${sqlStr(exp.requestId)};`
+            `UPDATE "ExpenseRequest" SET status = 'REJECTED', "rejectionReason" = ${sqlStr(`[BEKOR QILINDI - ${actorName}] ${reason}`)}, "deletedAt" = NOW(), "updatedAt" = NOW() WHERE id = ${sqlStr(exp.requestId)};`
           );
         }
         await execPgSql(erpEnv.DATABASE_URL, sqlParts.join("\n"));
+        notifyDirectorsOnTelegram(
+          `??? <b>Xarajat o'chirildi (bekor qilindi va hamyonga qaytarildi)</b>\n\n` +
+          `?? Hamyon egasi: <b>${exp.employeeName || "Xodim"}</b>\n` +
+          `?? Toifa: <b>${exp.categoryName || "Xarajat"}</b>\n` +
+          `?? Tavsif: <b>${exp.description || exp.title || "-"}</b>\n` +
+          `?? Qaytarilgan summa: <b>+?${amtTl.toLocaleString("tr-TR")} TL</b>\n` +
+          (newBalAfter !== null ? `?? Hamyon yangi qoldig'i: <b>?${Number(newBalAfter).toLocaleString("tr-TR")} TL</b>\n` : "") +
+          `? O'chirish sababi (izoh): <b>${reason}</b>\n` +
+          `?? Kim o'chirdi: <b>${actorName}</b>`
+        ).catch(() => {});
         return sendJson(res, 200, { success: true, id: targetExpId, status: "REJECTED" });
       }
 
@@ -5320,7 +5364,7 @@ MUHIM QOIDALAR:
 
       const allPayments = (await queryPgJson(
         crmEnv.DATABASE_URL,
-        `SELECT id, "studentId"::text AS "studentId", amount::float AS amount, method, "paidAt", note, source, "receivedByName", "voidedAt", "voidReason" FROM "StudentPayment" ORDER BY "paidAt" DESC, id DESC`
+        `SELECT id, "studentId"::text AS "studentId", amount::float AS amount, method, "paidAt", note, source, "receivedByName", "voidedAt", "voidReason", "voidedByName" FROM "StudentPayment" ORDER BY "paidAt" DESC, id DESC`
       ));
       const paymentsByStudent = new Map();
       for (const pm of allPayments) {

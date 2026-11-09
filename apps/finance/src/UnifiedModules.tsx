@@ -153,12 +153,14 @@ export function UnifiedModules({
   activeTab,
   notify,
   openPaymentModal,
+  openStudentHistory,
   campusSubTab = "overview",
   access,
 }: {
   activeTab: UnifiedTabId;
   notify: (msg: string, type?: "ok" | "err") => void;
   openPaymentModal: (student?: any) => void;
+  openStudentHistory?: (student: any) => void;
   campusSubTab?: "overview" | "canteen" | "mosque" | "gate";
   access?: any;
 }) {
@@ -311,6 +313,12 @@ export function UnifiedModules({
 
   useEffect(() => {
     loadDomain();
+  }, [loadDomain]);
+
+  useEffect(() => {
+    const onReload = () => loadDomain();
+    window.addEventListener("mezana:reload-domain", onReload);
+    return () => window.removeEventListener("mezana:reload-domain", onReload);
   }, [loadDomain]);
 
   // --- CRUD Handlers ---
@@ -1095,6 +1103,15 @@ export function UnifiedModules({
                           <button className="btn btn-sm btn-primary" onClick={() => openPaymentModal(s)}>
                             + To'lov
                           </button>
+                          {openStudentHistory && (
+                            <button
+                              className="btn btn-sm"
+                              title="Talaba to'lovlari tarixi va to'lovni izoh bilan o'chirish"
+                              onClick={() => openStudentHistory(s)}
+                            >
+                              ?? Tarix ({(s.payments || []).length})
+                            </button>
+                          )}
                           <button
                             className="btn btn-sm"
                             title={s.isArchived || !s.isActive ? "Arxivdan chiqarish (Faollashtirish)" : "Arxivga olish"}
@@ -1560,6 +1577,19 @@ export function UnifiedModules({
                     >
                       Shartnomani yangilash
                     </button>
+                    {openStudentHistory && (
+                      <button
+                        type="button"
+                        className="btn"
+                        onClick={() => {
+                          const st = studentDetailModal;
+                          setStudentDetailModal(null);
+                          openStudentHistory(st);
+                        }}
+                      >
+                        ?? To'lovlar tarixi / O'chirish ({(studentDetailModal.payments || []).length})
+                      </button>
+                    )}
                     <button
                       className="btn btn-primary"
                       onClick={() => {
