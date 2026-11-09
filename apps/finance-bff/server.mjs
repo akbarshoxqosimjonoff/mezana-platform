@@ -6418,11 +6418,11 @@ MUHIM QOIDALAR:
     if (pathname === "/fin-api/crm/student-cards" && method === "POST") {
       const body = await readJsonBody(req);
       const studentId = Number(body.studentId);
-      const cardId = String(body.cardId || "").trim();
-      const rawNum = body.cardNumber || (/^\d+$/.test(cardId) ? cardId : "");
-      const cardNumber = rawNum ? Number(String(rawNum).replace(/\D/g, "")) || null : null;
+      const rawInput = String(body.rfidCardNumber || body.cardNumber || body.cardId || "").replace(/\D/g, "").slice(0, 10);
+      const cardNumber = rawInput ? Number(rawInput) || null : null;
+      const cardId = cardNumber ? String(cardNumber).padStart(10, "0") : String(body.cardId || "").trim();
       if (!Number.isFinite(studentId) || studentId <= 0 || !cardId) {
-        return sendJson(res, 400, { error: "Talaba va karta raqamini kiriting" });
+        return sendJson(res, 400, { error: "Talaba va 10 xonali RFID karta raqamini kiriting" });
       }
       const stRows = (await queryPgJson(crmEnv.DATABASE_URL, `SELECT id, fullname FROM "Student" WHERE id = ${studentId} LIMIT 1`));
       const studentName = stRows[0]?.fullname || "Talaba";
@@ -6430,7 +6430,7 @@ MUHIM QOIDALAR:
       // Free up cardId if it was previously assigned to a different student
       await execPgSql(
         crmEnv.DATABASE_URL,
-        `DELETE FROM "StudentCard" WHERE "cardId" = ${sqlStr(cardId)} AND "studentId" <> ${studentId};`
+        `DELETE FROM "StudentCard" WHERE ("cardId" = ${sqlStr(cardId)} OR (${cardNumber ?? "NULL"} IS NOT NULL AND "cardNumber" = ${cardNumber ?? "NULL"})) AND "studentId" <> ${studentId};`
       );
 
       const existing = (await queryPgJson(crmEnv.DATABASE_URL, `SELECT id FROM "StudentCard" WHERE "studentId" = ${studentId} LIMIT 1`));
@@ -6592,7 +6592,36 @@ MUHIM QOIDALAR:
                "updatedAt" = NOW()
            WHERE id = ${id};`
         );
-        return sendJson(res, 200, { success: true, message: "Talaba ma'lumotlari muvaffaqiyatli yangilandi!" });
+        let zkMsg = "";
+        if (body.rfidCardNumber !== undefined) {
+          const rawRfid = String(body.rfidCardNumber || "").replace(/\D/g, "").slice(0, 10);
+          const numCard = rawRfid ? Number(rawRfid) : 0;
+          if (numCard > 0) {
+            const card10 = String(numCard).padStart(10, "0");
+            await execPgSql(
+              crmEnv.DATABASE_URL,
+              `DELETE FROM "StudentCard" WHERE ("cardId" = ${sqlStr(card10)} OR "cardNumber" = ${numCard}) AND "studentId" <> ${id};`
+            );
+            const exCard = await queryPgJson(crmEnv.DATABASE_URL, `SELECT id FROM "StudentCard" WHERE "studentId" = ${id} LIMIT 1`);
+            if (exCard.length > 0) {
+              await execPgSql(
+                crmEnv.DATABASE_URL,
+                `UPDATE "StudentCard" SET "cardId" = ${sqlStr(card10)}, "cardNumber" = ${numCard}, "studentName" = ${sqlStr(fullname)}, "isActive" = true, "updatedAt" = NOW() WHERE "studentId" = ${id};`
+              );
+            } else {
+              await execPgSql(
+                crmEnv.DATABASE_URL,
+                `INSERT INTO "StudentCard" ("studentId", "cardId", "cardNumber", "studentName", "isActive", "createdAt", "updatedAt") VALUES (${id}, ${sqlStr(card10)}, ${numCard}, ${sqlStr(fullname)}, true, NOW(), NOW());`
+              );
+            }
+            try {
+              const zkSync = await syncStudentCardToZkteco({ studentId: id, studentName: fullname, cardId: card10, cardNumber: numCard });
+              const okCount = zkSync.filter((d) => d.ok).length;
+              zkMsg = ` (Karta ${card10} -> ${okCount} ta ZKTeco qurilmasiga yozildi)`;
+            } catch {}
+          }
+        }
+        return sendJson(res, 200, { success: true, message: "Talaba ma'lumotlari muvaffaqiyatli yangilandi!" + zkMsg });
       } else {
         const slugBase = fullname.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 12) || "talaba";
         const rawUsername = String(body.username || "").trim() || `${slugBase}_${Math.floor(1000 + Math.random() * 9000)}`;
@@ -6600,12 +6629,36 @@ MUHIM QOIDALAR:
         const finalUsername = dup.length > 0 ? `${rawUsername}_${Math.floor(10 + Math.random() * 89)}` : rawUsername;
         const passHash = bcrypt.hashSync(String(body.password || "Mezana2026!").trim() || "Mezana2026!", 10);
         const birthDateSql = birthDate ? `${sqlStr(birthDate)}::timestamp` : `'2005-01-01'::timestamp`;
-        await execPgSql(
-          crmEnv.DATABASE_URL,
+        const insRes = await pgPool.query(
           `INSERT INTO "Student" (username, password, fullname, "birthDate", gender, phone, "turkPhone", "uzbPhone", "fatherFullname", "fatherPhone", "motherFullname", "motherPhone", "tgUsername", address, "groupId", "studyPlace", "roomNumber", "totalPayment", "paidAmount", "remainingAmount", "plannedPayment", "paidUntilDate", "hasIqoma", "iqomaNumber", "iqomaExpiryDate", "passportNumber", "isActive", "isDeleted", "isArchived", "createdAt", "updatedAt")
-           VALUES (${sqlStr(finalUsername)}, ${sqlStr(passHash)}, ${sqlStr(fullname)}, ${birthDateSql}, ${sqlStr(gender)}::"Gender", ${sqlStr(phone)}, ${sqlStr(turkPhone)}, ${sqlStr(uzbPhone)}, ${sqlStr(fatherFullname)}, ${sqlStr(fatherPhone)}, ${sqlStr(motherFullname)}, ${sqlStr(motherPhone)}, ${sqlStr(tgUsername)}, ${sqlStr(address)}, ${groupId !== null ? groupId : "NULL"}, ${sqlStr(studyPlace)}, ${sqlStr(roomNumber)}, ${totalPayment}, 0, ${totalPayment}, ${plannedPayment}, ${paidUntilDate ? sqlStr(paidUntilDate) : "NULL"}, ${hasIqoma ? "true" : "false"}, ${sqlStr(iqomaNumber)}, ${iqomaExpiryDate ? sqlStr(iqomaExpiryDate) + "::timestamp" : "NULL"}, ${sqlStr(passportNumber)}, true, false, false, NOW(), NOW());`
+           VALUES ($1, $2, $3, ${birthDateSql}, $4::"Gender", $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, 0, $17, $18, $19, $20, $21, ${iqomaExpiryDate ? sqlStr(iqomaExpiryDate) + "::timestamp" : "NULL"}, $22, true, false, false, NOW(), NOW())
+           RETURNING id`,
+          [
+            finalUsername, passHash, fullname, gender, phone, turkPhone, uzbPhone,
+            fatherFullname, fatherPhone, motherFullname, motherPhone, tgUsername,
+            address, groupId, studyPlace, roomNumber, totalPayment, plannedPayment,
+            paidUntilDate, hasIqoma, iqomaNumber, passportNumber,
+          ]
         );
-        return sendJson(res, 201, { success: true, message: "Yangi talaba muvaffaqiyatli qo'shildi!" });
+        const newStudentId = insRes.rows[0]?.id;
+        let zkMsg = "";
+        const rawRfid = String(body.rfidCardNumber || "").replace(/\D/g, "").slice(0, 10);
+        const numCard = rawRfid ? Number(rawRfid) : 0;
+        if (newStudentId && numCard > 0) {
+          const card10 = String(numCard).padStart(10, "0");
+          await execPgSql(
+            crmEnv.DATABASE_URL,
+            `DELETE FROM "StudentCard" WHERE ("cardId" = ${sqlStr(card10)} OR "cardNumber" = ${numCard}) AND "studentId" <> ${newStudentId};
+             INSERT INTO "StudentCard" ("studentId", "cardId", "cardNumber", "studentName", "isActive", "createdAt", "updatedAt")
+             VALUES (${newStudentId}, ${sqlStr(card10)}, ${numCard}, ${sqlStr(fullname)}, true, NOW(), NOW());`
+          );
+          try {
+            const zkSync = await syncStudentCardToZkteco({ studentId: newStudentId, studentName: fullname, cardId: card10, cardNumber: numCard });
+            const okCount = zkSync.filter((d) => d.ok).length;
+            zkMsg = ` (Karta ${card10} -> ${okCount} ta ZKTeco qurilmasiga yozildi)`;
+          } catch {}
+        }
+        return sendJson(res, 201, { success: true, message: "Yangi talaba muvaffaqiyatli qo'shildi!" + zkMsg });
       }
     }
 

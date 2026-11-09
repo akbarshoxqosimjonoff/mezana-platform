@@ -346,6 +346,7 @@ export function UnifiedModules({
           hasIqoma: Boolean(studentModal.hasIqoma || studentModal.iqomaNumber),
           iqomaNumber: studentModal.iqomaNumber ?? "",
           iqomaExpiryDate: studentModal.iqomaExpiryDate || null,
+          rfidCardNumber: studentModal.rfidCardNumber ? String(studentModal.rfidCardNumber).replace(/\D/g, "") : "",
         }),
       });
       notify(res.message || "Saqlandi!");
@@ -824,6 +825,7 @@ export function UnifiedModules({
                     hasIqoma: false,
                     iqomaNumber: "",
                     iqomaExpiryDate: "",
+                    rfidCardNumber: "",
                   })
                 }
               >
@@ -1004,9 +1006,9 @@ export function UnifiedModules({
                           ) : (
                             <span className="badge badge-slate">Iqoma yo'q</span>
                           )}
-                          {s.card?.cardId && (
-                            <span className={`badge ${s.card.isActive ? "badge-emerald" : "badge-rose"}`}>
-                              Karta: {s.card.cardId}
+                          {(s.card?.cardNumber || s.card?.cardId) && (
+                            <span className={`badge ${s.card.isActive ? "badge-emerald" : "badge-rose"}`} style={{ fontFamily: "monospace", letterSpacing: 0.4 }}>
+                              💳 {s.card.cardNumber ? String(s.card.cardNumber).padStart(10, "0") : (/^\d+$/.test(String(s.card.cardId)) ? String(s.card.cardId).padStart(10, "0") : s.card.cardId)}
                             </span>
                           )}
                           {(s.comments || []).length > 0 && (
@@ -1041,9 +1043,10 @@ export function UnifiedModules({
                             className="btn btn-sm"
                             onClick={() => {
                               setStudentDetailModal(s);
+                              const c10 = s.card?.cardNumber ? String(s.card.cardNumber).padStart(10, "0") : (s.card?.cardId && /^\d+$/.test(String(s.card.cardId)) ? String(s.card.cardId).padStart(10, "0") : "");
                               setCardForm({
-                                cardId: s.card?.cardId || "",
-                                cardNumber: s.card?.cardNumber ? String(s.card.cardNumber) : "",
+                                cardId: c10,
+                                cardNumber: c10,
                               });
                               setZkRecentCards([]);
                               setContractEditVal(String(s.totalPayment || 0));
@@ -1083,6 +1086,7 @@ export function UnifiedModules({
                                 hasIqoma: Boolean(s.hasIqoma),
                                 iqomaNumber: s.iqomaNumber || "",
                                 iqomaExpiryDate: s.iqomaExpiryDate ? String(s.iqomaExpiryDate).slice(0, 10) : "",
+                                rfidCardNumber: s.card?.cardNumber ? String(s.card.cardNumber).padStart(10, "0") : (s.card?.cardId && /^\d+$/.test(String(s.card.cardId)) ? String(s.card.cardId).padStart(10, "0") : ""),
                               })
                             }
                           >
@@ -1272,10 +1276,10 @@ export function UnifiedModules({
               </div>
 
               {/* Turniket va Oshxona Kartasi Boshqaruvi */}
-              <div className="glass-card" style={{ padding: 12, marginTop: 12 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+              <div className="modal-section-card" style={{ marginTop: 12, borderColor: "rgba(16, 185, 129, 0.3)", background: "rgba(16, 185, 129, 0.06)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
                   <div style={{ fontWeight: 700, fontSize: 13.5, color: "#34d399" }}>
-                    🪪 Turniket va oshxona kartasi (ZKTeco Avto-Sinxron)
+                    🪧 Turniket va oshxona kartasi (10 xonali RFID • 3 ta ZKTeco sinxron)
                   </div>
                   <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                     <button
@@ -1288,18 +1292,18 @@ export function UnifiedModules({
                           const res = await apiFetch("/fin-api/crm/student-cards/zkteco-recent");
                           const items = res.items || [];
                           setZkRecentCards(items);
-                          const unbound = items.find((c: any) => !c.studentId);
-                          const pick = unbound || items[0];
+                          if ((res.recentLogs || []).length > 0 && res.recentLogs[0].cardNumber) {
+                            const c10 = String(res.recentLogs[0].cardNumber).replace(/\D/g, "").padStart(10, "0");
+                            setCardForm({ cardId: c10, cardNumber: c10 });
+                            notify(`Oxirgi urilgan 10 xonali karta olindi: ${c10} (${res.recentLogs[0].device})`);
+                            return;
+                          }
+                          const unbound = items.find((c: any) => !c.studentId && !c.staffId && c.cardNumber);
+                          const pick = unbound || items.find((c: any) => c.cardNumber) || items[0];
                           if (pick) {
-                            setCardForm({
-                              cardId: String(pick.userId || pick.cardNumber || ""),
-                              cardNumber: pick.cardNumber ? String(pick.cardNumber) : "",
-                            });
-                            notify(
-                              unbound
-                                ? `Yangi karta topildi: ID ${pick.userId}${pick.cardNumber ? " (RFID #" + pick.cardNumber + ")" : ""}`
-                                : `Oxirgi karta o'qildi: ID ${pick.userId}`
-                            );
+                            const c10 = String(pick.cardNumber || pick.userId || "").replace(/\D/g, "").padStart(10, "0");
+                            setCardForm({ cardId: c10, cardNumber: c10 });
+                            notify(`Karta o'qildi: ${c10}`);
                           } else {
                             notify("Qurilmalardan yangi karta topilmadi", "err");
                           }
@@ -1309,16 +1313,19 @@ export function UnifiedModules({
                           setZkBusy(false);
                         }
                       }}
-                      title="Turniketga bosilgan oxirgi kartalarni qurilmadan avtomatik o'qib olish"
+                      title="Turniketga bosilgan oxirgi 10 xonali RFID kartani qurilmadan avtomatik o'qib olish"
                     >
                       📡 {zkBusy ? "O'qilmoqda..." : "Qurilmadan oxirgi kartani o'qish"}
                     </button>
                     {studentDetailModal.card && (
                       <>
-                        <span className={`badge ${studentDetailModal.card.isActive ? "badge-emerald" : "badge-rose"}`}>
-                          {studentDetailModal.card.isActive ? `Faol (#${studentDetailModal.card.cardId})` : `Bloklangan (#${studentDetailModal.card.cardId})`}
+                        <span className={`badge ${studentDetailModal.card.isActive ? "badge-emerald" : "badge-rose"}`} style={{ fontFamily: "monospace" }}>
+                          {studentDetailModal.card.isActive
+                            ? `Faol (💳 ${String(studentDetailModal.card.cardNumber || studentDetailModal.card.cardId || "").padStart(10, "0")})`
+                            : `Bloklangan (💳 ${String(studentDetailModal.card.cardNumber || studentDetailModal.card.cardId || "").padStart(10, "0")})`}
                         </span>
                         <button
+                          type="button"
                           className="btn btn-sm"
                           onClick={async () => {
                             try {
@@ -1349,46 +1356,53 @@ export function UnifiedModules({
                 {zkRecentCards.length > 0 && (
                   <div style={{ marginBottom: 10, padding: "8px 10px", borderRadius: 8, background: "var(--bg-surface-elevated)", border: "1px solid var(--border-subtle)", fontSize: 12 }}>
                     <div style={{ fontWeight: 700, marginBottom: 6, color: "var(--text-secondary)" }}>
-                       Qurilmalardagi oxirgi kartalar (tanlash uchun bosing):
+                      📡 Qurilmalardagi oxirgi kartalar (tanlash uchun bosing):
                     </div>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                      {zkRecentCards.slice(0, 8).map((c: any, idx: number) => (
-                        <button
-                          key={idx}
-                          type="button"
-                          className={`btn btn-sm ${!c.studentId ? "btn-primary" : ""}`}
-                          onClick={() =>
-                            setCardForm({
-                              cardId: String(c.userId || c.cardNumber || ""),
-                              cardNumber: c.cardNumber ? String(c.cardNumber) : "",
-                            })
-                          }
-                        >
-                          ID: {c.userId} {c.cardNumber ? `(RFID: ${c.cardNumber})` : ""} • {c.studentName ? `🔗 ${c.studentName}` : "🆕 Bo'sh karta"}
-                        </button>
-                      ))}
+                      {zkRecentCards.slice(0, 8).map((c: any, idx: number) => {
+                        const c10 = String(c.cardNumber || c.userId || "").replace(/\D/g, "").padStart(10, "0");
+                        return (
+                          <button
+                            key={idx}
+                            type="button"
+                            className={`btn btn-sm ${!c.studentId && !c.staffId ? "btn-primary" : ""}`}
+                            style={{ fontFamily: "monospace" }}
+                            onClick={() => setCardForm({ cardId: c10, cardNumber: c10 })}
+                          >
+                            💳 {c10} • {c.studentName ? `🔗 ${c.studentName}` : c.staffName ? `👔 ${c.staffName}` : "🆕 Bo'sh karta"}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
                 <form
                   onSubmit={async (e) => {
                     e.preventDefault();
+                    const digits = String(cardForm.cardNumber || cardForm.cardId || "").replace(/\D/g, "").slice(0, 10);
+                    if (!digits || Number(digits) <= 0) {
+                      notify("10 xonali RFID karta raqamini kiriting", "err");
+                      return;
+                    }
+                    const padded10 = digits.padStart(10, "0");
                     try {
                       const res = await apiFetch("/fin-api/crm/student-cards", {
                         method: "POST",
                         body: JSON.stringify({
                           studentId: studentDetailModal.id,
-                          cardId: cardForm.cardId,
-                          cardNumber: cardForm.cardNumber ? Number(cardForm.cardNumber) : null,
+                          rfidCardNumber: padded10,
+                          cardId: padded10,
+                          cardNumber: Number(digits),
                         }),
                       });
-                      notify(res.message || "Karta saqlandi va ZKTeco qurilmalarga yozildi!");
+                      notify(res.message || "10 xonali karta saqlandi va 3 ta ZKTeco qurilmalarga yozildi!");
+                      setCardForm({ cardId: padded10, cardNumber: padded10 });
                       setStudentDetailModal({
                         ...studentDetailModal,
                         card: {
                           ...(studentDetailModal.card || {}),
-                          cardId: cardForm.cardId,
-                          cardNumber: cardForm.cardNumber ? Number(cardForm.cardNumber) : null,
+                          cardId: padded10,
+                          cardNumber: Number(digits),
                           isActive: true,
                         },
                       });
@@ -1397,26 +1411,32 @@ export function UnifiedModules({
                       notify(err.message, "err");
                     }
                   }}
-                  style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
+                  style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "end" }}
                 >
-                  <input
-                    className="input"
-                    placeholder="Karta ID raqami (masalan: 10120)"
-                    value={cardForm.cardId}
-                    onChange={(e) => setCardForm({ ...cardForm, cardId: e.target.value })}
-                    style={{ flex: 1, minWidth: 160 }}
-                    required
-                  />
-                  <input
-                    className="input"
-                    type="number"
-                    placeholder="RFID Karta raqami (ixtiyoriy)"
-                    value={cardForm.cardNumber}
-                    onChange={(e) => setCardForm({ ...cardForm, cardNumber: e.target.value })}
-                    style={{ flex: 1, minWidth: 160 }}
-                  />
-                  <button type="submit" className="btn btn-sm btn-primary">
-                    {studentDetailModal.card ? "Kartani yangilash + ZKTeco" : "Karta biriktirish + ZKTeco"}
+                  <div>
+                    <label>10 xonali RFID karta raqami (karta ustidagi 10 ta raqam, masalan: 0002655124)</label>
+                    <input
+                      className="input"
+                      maxLength={10}
+                      placeholder="Masalan: 0002655124"
+                      value={cardForm.cardNumber || cardForm.cardId || ""}
+                      onChange={(e) => {
+                        const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
+                        setCardForm({ cardId: digits, cardNumber: digits });
+                      }}
+                      onBlur={() => {
+                        const digits = String(cardForm.cardNumber || cardForm.cardId || "").replace(/\D/g, "");
+                        if (digits && Number(digits) > 0) {
+                          const p10 = digits.padStart(10, "0");
+                          setCardForm({ cardId: p10, cardNumber: p10 });
+                        }
+                      }}
+                      style={{ fontFamily: "monospace", fontSize: 15, fontWeight: 700, letterSpacing: 1.5 }}
+                      required
+                    />
+                  </div>
+                  <button type="submit" className="btn btn-primary" style={{ height: 38, whiteSpace: "nowrap" }}>
+                    💾 {studentDetailModal.card ? "Kartani yangilash + 3 ta ZKTeco" : "Karta biriktirish + 3 ta ZKTeco"}
                   </button>
                 </form>
               </div>
@@ -1560,117 +1580,218 @@ export function UnifiedModules({
 
         {studentModal && (
           <div className="modal-backdrop" onClick={() => setStudentModal(null)}>
-            <div className="modal-box modal-card animate-in" style={{ maxWidth: 680, maxHeight: "90vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
-              <h3 style={{ marginTop: 0 }}>{studentModal.id ? "Talaba ma'lumotlarini tahrirlash" : "Yangi talaba qo'shish"}</h3>
-              <form onSubmit={handleSaveStudent} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                <div className="grid-2">
-                  <div>
-                    <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>F.I.Sh. *</label>
-                    <input className="input" required value={studentModal.fullname} onChange={(e) => setStudentModal({ ...studentModal, fullname: e.target.value })} placeholder="Ism va familiya" />
+            <div className="modal-box modal-card animate-in" style={{ maxWidth: 740, width: "95%", maxHeight: "90vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                <div>
+                  <h3 style={{ margin: 0 }}>{studentModal.id ? "✏️ Talaba ma'lumotlarini tahrirlash" : "✨ Yangi talaba qo'shish"}</h3>
+                  <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 3 }}>
+                    Shaxsiy ma'lumotlar, ota-ona aloqalari, guruh, shartnoma va 10 xonali turniket/oshxona RFID kartasi
                   </div>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <div style={{ flex: 1 }}>
-                      <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Jinsi</label>
-                      <select className="select" value={studentModal.gender} onChange={(e) => setStudentModal({ ...studentModal, gender: e.target.value })}>
-                        <option value="MALE">Erkak</option>
-                        <option value="FEMALE">Ayol</option>
+                </div>
+                <button type="button" className="btn btn-sm" onClick={() => setStudentModal(null)}>?</button>
+              </div>
+
+              <form onSubmit={handleSaveStudent} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {/* 1. SHAXSIY VA AKADEMIK MA'LUMOTLAR */}
+                <div className="modal-section-card">
+                  <div className="modal-section-title" style={{ color: "#38bdf8" }}>
+                    👤 Shaxsiy va o'quv ma'lumotlari
+                  </div>
+                  <div className="grid-2" style={{ marginBottom: 10 }}>
+                    <div>
+                      <label>F.I.Sh. (To'liq ism va familiyasi) *</label>
+                      <input className="input" required value={studentModal.fullname} onChange={(e) => setStudentModal({ ...studentModal, fullname: e.target.value })} placeholder="Ism va familiya" />
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                        <label>Jinsi</label>
+                        <select className="select" value={studentModal.gender} onChange={(e) => setStudentModal({ ...studentModal, gender: e.target.value })}>
+                          <option value="MALE">👦 Erkak</option>
+                          <option value="FEMALE">👧 Ayol</option>
+                        </select>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                        <label>Tug'ilgan sana</label>
+                        <DateInput className="input" value={studentModal.birthDate || "2005-01-01"} onChange={(e) => setStudentModal({ ...studentModal, birthDate: e.target.value })} />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid-2" style={{ marginBottom: 10 }}>
+                    <div>
+                      <label>Guruh</label>
+                      <select className="select" value={studentModal.groupId} onChange={(e) => setStudentModal({ ...studentModal, groupId: e.target.value })}>
+                        <option value="">Guruh tanlang</option>
+                        {(academic.groups || []).map((g: any) => (
+                          <option key={g.id} value={g.id}>{g.name}</option>
+                        ))}
                       </select>
                     </div>
-                    <div style={{ flex: 1 }}>
-                      <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Tug'ilgan sana</label>
-                      <DateInput className="input" value={studentModal.birthDate || "2005-01-01"} onChange={(e) => setStudentModal({ ...studentModal, birthDate: e.target.value })} />
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                        <label>O'quv joyi / Yili</label>
+                        <input className="input" value={studentModal.studyPlace} onChange={(e) => setStudentModal({ ...studentModal, studyPlace: e.target.value })} placeholder="2026-2027 Akademiya" />
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                        <label>Yotoqxona xonasi</label>
+                        <input className="input" placeholder="Masalan: 101" value={studentModal.roomNumber || ""} onChange={(e) => setStudentModal({ ...studentModal, roomNumber: e.target.value })} />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid-2">
+                    <div>
+                      <label>Foydalanuvchi nomi (login)</label>
+                      <input className="input" value={studentModal.username || ""} onChange={(e) => setStudentModal({ ...studentModal, username: e.target.value })} placeholder="Bo'sh qolsa avtomatik yaratiladi" />
+                    </div>
+                    <div>
+                      <label>{studentModal.id ? "Yangi parol (o'zgartirish uchun)" : "Parol"}</label>
+                      <input className="input" value={studentModal.password || ""} onChange={(e) => setStudentModal({ ...studentModal, password: e.target.value })} placeholder={studentModal.id ? "O'zgartirmaslik uchun bo'sh qoldiring" : "Bo'sh qolsa: Mezana2026!"} />
                     </div>
                   </div>
                 </div>
-                <div className="grid-2">
-                  <div>
-                    <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Foydalanuvchi nomi (login)</label>
-                    <input className="input" value={studentModal.username || ""} onChange={(e) => setStudentModal({ ...studentModal, username: e.target.value })} placeholder="Bo'sh qolsa avtomatik yaratiladi" />
+
+                {/* 2. 10 XONALI RFID KARTA (ZKTeco 3 ta qurilma) */}
+                <div className="modal-section-card" style={{ background: "rgba(16, 185, 129, 0.07)", borderColor: "rgba(16, 185, 129, 0.28)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+                    <div className="modal-section-title" style={{ color: "#34d399", marginBottom: 0 }}>
+                      💳 10 xonali RFID Karta (Kirish, Oshxona va Masjid ZKTeco sinxron)
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-cyan"
+                      onClick={async () => {
+                        try {
+                          const r = await apiFetch("/fin-api/crm/student-cards/zkteco-recent");
+                          setZkRecentCards(r?.items || []);
+                          if ((r?.recentLogs || []).length > 0 && r.recentLogs[0].cardNumber) {
+                            const num10 = String(r.recentLogs[0].cardNumber).replace(/\D/g, "").padStart(10, "0");
+                            setStudentModal({ ...studentModal, rfidCardNumber: num10 });
+                            notify(`Oxirgi urilgan karta tanlandi: ${num10} (${r.recentLogs[0].device})`);
+                          } else {
+                            notify("Qurilmalardagi kartalar ro'yxati yuklandi");
+                          }
+                        } catch (err: any) {
+                          notify(err.message || "Qurilmadan o'qishda xatolik", "err");
+                        }
+                      }}
+                    >
+                      📡 Qurilmadan oxirgi urilgan kartani olish
+                    </button>
                   </div>
-                  <div>
-                    <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>{studentModal.id ? "Yangi parol (o'zgartirish uchun)" : "Parol"}</label>
-                    <input className="input" value={studentModal.password || ""} onChange={(e) => setStudentModal({ ...studentModal, password: e.target.value })} placeholder={studentModal.id ? "O'zgartirmaslik uchun bo'sh qoldiring" : "Bo'sh qolsa: Mezana2026!"} />
+                  <div className="grid-2" style={{ alignItems: "center" }}>
+                    <div style={{ display: "flex", flexDirection: "row", gap: 8, alignItems: "center" }}>
+                      <input
+                        className="input"
+                        maxLength={10}
+                        placeholder="Masalan: 0002655124 (10 xonali)"
+                        style={{ fontFamily: "monospace", fontSize: 14.5, fontWeight: 700, letterSpacing: 1.4 }}
+                        value={studentModal.rfidCardNumber || ""}
+                        onChange={(e) => {
+                          const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
+                          setStudentModal({ ...studentModal, rfidCardNumber: digits });
+                        }}
+                        onBlur={() => {
+                          const digits = String(studentModal.rfidCardNumber || "").replace(/\D/g, "");
+                          if (digits && Number(digits) > 0) {
+                            setStudentModal({ ...studentModal, rfidCardNumber: digits.padStart(10, "0") });
+                          }
+                        }}
+                      />
+                      {studentModal.rfidCardNumber && (
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          onClick={() => setStudentModal({ ...studentModal, rfidCardNumber: "" })}
+                          title="Tozalash"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
+                      {studentModal.rfidCardNumber && Number(studentModal.rfidCardNumber) > 0 ? (
+                        <span style={{ color: "#34d399", fontWeight: 600 }}>
+                          ✓ 10 xonali format: <code>{String(Number(studentModal.rfidCardNumber)).padStart(10, "0")}</code> (ZKTeco ID: <code>{Number(studentModal.rfidCardNumber)}</code>)
+                        </span>
+                      ) : (
+                        <span>Karta ustidagi 10 xonali raqam kiritilsa, 3 ta ZKTeco qurilmaga avtomatik yoziladi.</span>
+                      )}
+                    </div>
                   </div>
                 </div>
-                <div className="grid-2">
-                  <div>
-                    <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Asosiy telefon</label>
-                    <input className="input" value={studentModal.phone || ""} onChange={(e) => setStudentModal({ ...studentModal, phone: e.target.value })} placeholder="+90 / +998..." />
+
+                {/* 3. TELEFON VA OTA-ONA ALOQALARI */}
+                <div className="modal-section-card">
+                  <div className="modal-section-title" style={{ color: "#a78bfa" }}>
+                    📞 Aloqa va ota-ona ma'lumotlari
                   </div>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <div style={{ flex: 1 }}>
-                      <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Turkiya tel.</label>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                      <label>Asosiy telefon</label>
+                      <input className="input" value={studentModal.phone || ""} onChange={(e) => setStudentModal({ ...studentModal, phone: e.target.value })} placeholder="+90 / +998..." />
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                      <label>Turkiya telefoni</label>
                       <input className="input" value={studentModal.turkPhone || ""} onChange={(e) => setStudentModal({ ...studentModal, turkPhone: e.target.value })} placeholder="+90..." />
                     </div>
-                    <div style={{ flex: 1 }}>
-                      <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>O'zb. tel. / Telegram</label>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                      <label>O'zb. tel. / Telegram</label>
                       <input className="input" value={studentModal.uzbPhone || studentModal.tgUsername || ""} onChange={(e) => setStudentModal({ ...studentModal, uzbPhone: e.target.value })} placeholder="+998..." />
                     </div>
                   </div>
-                </div>
-                <div className="grid-2">
-                  <div>
-                    <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Otasining F.I.Sh. va telefoni</label>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <input className="input" placeholder="Otasining F.I.Sh." value={studentModal.fatherFullname || ""} onChange={(e) => setStudentModal({ ...studentModal, fatherFullname: e.target.value })} style={{ width: "55%" }} />
-                      <input className="input" placeholder="Tel." value={studentModal.fatherPhone || ""} onChange={(e) => setStudentModal({ ...studentModal, fatherPhone: e.target.value })} style={{ width: "45%" }} />
+                  <div className="grid-2">
+                    <div>
+                      <label>Otasining F.I.Sh. va telefoni</label>
+                      <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 8 }}>
+                        <input className="input" placeholder="Otasining F.I.Sh." value={studentModal.fatherFullname || ""} onChange={(e) => setStudentModal({ ...studentModal, fatherFullname: e.target.value })} />
+                        <input className="input" placeholder="Tel." value={studentModal.fatherPhone || ""} onChange={(e) => setStudentModal({ ...studentModal, fatherPhone: e.target.value })} />
+                      </div>
                     </div>
-                  </div>
-                  <div>
-                    <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Onasining F.I.Sh. va telefoni</label>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <input className="input" placeholder="Onasining F.I.Sh." value={studentModal.motherFullname || ""} onChange={(e) => setStudentModal({ ...studentModal, motherFullname: e.target.value })} style={{ width: "55%" }} />
-                      <input className="input" placeholder="Tel." value={studentModal.motherPhone || ""} onChange={(e) => setStudentModal({ ...studentModal, motherPhone: e.target.value })} style={{ width: "45%" }} />
-                    </div>
-                  </div>
-                </div>
-                <div className="grid-2">
-                  <div>
-                    <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Guruh</label>
-                    <select className="select" value={studentModal.groupId} onChange={(e) => setStudentModal({ ...studentModal, groupId: e.target.value })}>
-                      <option value="">Guruh tanlang</option>
-                      {(academic.groups || []).map((g: any) => (
-                        <option key={g.id} value={g.id}>{g.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Yotoqxona xonasi / Pasport</label>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <input className="input" placeholder="Xona (101)" value={studentModal.roomNumber || ""} onChange={(e) => setStudentModal({ ...studentModal, roomNumber: e.target.value })} style={{ width: "45%" }} />
-                      <input className="input" placeholder="Pasport №" value={studentModal.passportNumber || ""} onChange={(e) => setStudentModal({ ...studentModal, passportNumber: e.target.value })} style={{ width: "55%" }} />
+                    <div>
+                      <label>Onasining F.I.Sh. va telefoni</label>
+                      <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 8 }}>
+                        <input className="input" placeholder="Onasining F.I.Sh." value={studentModal.motherFullname || ""} onChange={(e) => setStudentModal({ ...studentModal, motherFullname: e.target.value })} />
+                        <input className="input" placeholder="Tel." value={studentModal.motherPhone || ""} onChange={(e) => setStudentModal({ ...studentModal, motherPhone: e.target.value })} />
+                      </div>
                     </div>
                   </div>
                 </div>
-                <div className="grid-2">
-                  <div>
-                    <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>O'quv joyi / Yili</label>
-                    <input className="input" value={studentModal.studyPlace} onChange={(e) => setStudentModal({ ...studentModal, studyPlace: e.target.value })} />
+
+                {/* 4. MOLIYA VA HUJJATLAR (PASPORT / IQOMA) */}
+                <div className="modal-section-card">
+                  <div className="modal-section-title" style={{ color: "#fbbf24" }}>
+                    💰 Shartnoma va hujjatlar (Pasport / Iqoma)
                   </div>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <div style={{ flex: 1 }}>
-                      <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Shartnoma ($)</label>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                      <label>Shartnoma summasi (₺)</label>
                       <input type="number" className="input" value={studentModal.totalPayment} onChange={(e) => setStudentModal({ ...studentModal, totalPayment: e.target.value })} />
                     </div>
-                    <div style={{ flex: 1 }}>
-                      <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>To'lov muddati</label>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                      <label>To'lov muddati</label>
                       <DateInput className="input" value={studentModal.paidUntilDate || ""} onChange={(e) => setStudentModal({ ...studentModal, paidUntilDate: e.target.value })} />
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                      <label>Pasport raqami</label>
+                      <input className="input" placeholder="Pasport ?" value={studentModal.passportNumber || ""} onChange={(e) => setStudentModal({ ...studentModal, passportNumber: e.target.value })} />
+                    </div>
+                  </div>
+                  <div className="grid-2">
+                    <div>
+                      <label>Iqoma (Kimlik) raqami</label>
+                      <input className="input" placeholder="99..." value={studentModal.iqomaNumber} onChange={(e) => setStudentModal({ ...studentModal, iqomaNumber: e.target.value, hasIqoma: Boolean(e.target.value) })} />
+                    </div>
+                    <div>
+                      <label>Iqoma amal qilish muddati</label>
+                      <DateInput className="input" value={studentModal.iqomaExpiryDate} onChange={(e) => setStudentModal({ ...studentModal, iqomaExpiryDate: e.target.value, hasIqoma: Boolean(e.target.value || studentModal.iqomaNumber) })} />
                     </div>
                   </div>
                 </div>
-                <div className="grid-2">
-                  <div>
-                    <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Iqoma raqami</label>
-                    <input className="input" value={studentModal.iqomaNumber} onChange={(e) => setStudentModal({ ...studentModal, iqomaNumber: e.target.value, hasIqoma: Boolean(e.target.value) })} />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Iqoma muddati</label>
-                    <DateInput className="input" value={studentModal.iqomaExpiryDate} onChange={(e) => setStudentModal({ ...studentModal, iqomaExpiryDate: e.target.value, hasIqoma: Boolean(e.target.value || studentModal.iqomaNumber) })} />
-                  </div>
-                </div>
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
                   <button type="button" className="btn" onClick={() => setStudentModal(null)}>Bekor qilish</button>
-                  <button type="submit" className="btn btn-primary">Saqlash</button>
+                  <button type="submit" className="btn btn-primary">💾 Saqlash va ZKTeco sinxronlash</button>
                 </div>
               </form>
             </div>
@@ -2916,7 +3037,7 @@ export function UnifiedModules({
                       }
                     }}
                   >
-                    ?? ZKTeco sinxronlash
+                    🔄 ZKTeco sinxronlash
                   </button>
                 </>
               )}
@@ -3350,8 +3471,10 @@ export function UnifiedModules({
                 <button type="button" className="btn btn-sm" onClick={() => setStaffModal(null)}>✕</button>
               </div>
 
-              <form onSubmit={handleSaveStaff} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                <div className="grid-2">
+              <form onSubmit={handleSaveStaff} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <div className="modal-section-card">
+                  <div className="modal-section-title" style={{ color: "#38bdf8" }}>👤 Asosiy hisob ma'lumotlari</div>
+                <div className="grid-2" style={{ marginBottom: 10 }}>
                   <div>
                     <label style={{ fontSize: 12, fontWeight: 600 }}>F.I.Sh. (To'liq ism-sharifi) *</label>
                     <input
@@ -3443,7 +3566,11 @@ export function UnifiedModules({
                   </div>
                 </div>
 
+                </div>
+
                 {/* ROL, LAVOZIM, BO'LIM VA JINS QAMROVI */}
+                <div className="modal-section-card">
+                  <div className="modal-section-title" style={{ color: "#a78bfa" }}>🛡️ Rol, lavozim, moliya hamyoni va aloqa</div>
                 <div className="grid-2">
                   <div>
                     <label style={{ fontSize: 12, fontWeight: 600 }}>Tizimdagi asosiy roli *</label>
@@ -3556,9 +3683,9 @@ export function UnifiedModules({
                   )}
                 </div>
 
-                <div className="grid-2">
-                  <div>
-                    <label style={{ fontSize: 12, fontWeight: 600 }}>Telefon raqami</label>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginTop: 10 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                    <label>Telefon raqami</label>
                     <input
                       className="input"
                       placeholder="+90 5... yoki +998 9..."
@@ -3566,26 +3693,26 @@ export function UnifiedModules({
                       onChange={(e) => setStaffModal({ ...staffModal, phone: e.target.value })}
                     />
                   </div>
-                  <div className="grid-2" style={{ gap: 8 }}>
-                    <div>
-                      <label style={{ fontSize: 12, fontWeight: 600 }}>Telegram @username</label>
-                      <input
-                        className="input"
-                        placeholder="username"
-                        value={staffModal.tgUsername}
-                        onChange={(e) => setStaffModal({ ...staffModal, tgUsername: e.target.value.replace(/^@/, "") })}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 12, fontWeight: 600 }}>Telegram ID (Bot uchun)</label>
-                      <input
-                        className="input"
-                        placeholder="Masalan: 7638562008"
-                        value={staffModal.telegramId}
-                        onChange={(e) => setStaffModal({ ...staffModal, telegramId: e.target.value })}
-                      />
-                    </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                    <label>Telegram @username</label>
+                    <input
+                      className="input"
+                      placeholder="username"
+                      value={staffModal.tgUsername}
+                      onChange={(e) => setStaffModal({ ...staffModal, tgUsername: e.target.value.replace(/^@/, "") })}
+                    />
                   </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                    <label>Telegram ID (Bot uchun)</label>
+                    <input
+                      className="input"
+                      placeholder="Masalan: 7638562008"
+                      value={staffModal.telegramId}
+                      onChange={(e) => setStaffModal({ ...staffModal, telegramId: e.target.value })}
+                    />
+                  </div>
+                </div>
+
                 </div>
 
                 {/* 10 XONALI XODIM RFID KARTASI (3 TA ZKTECO QURILMASI UCHUN) */}
@@ -3600,7 +3727,7 @@ export function UnifiedModules({
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
                     <div>
                       <div style={{ fontWeight: 700, fontSize: 13, color: "#34d399" }}>
-                        ?? Xodim RFID Kartasi (10 xonali raqam ? Turniket, Oshxona va Masjid)
+                        💳 Xodim RFID Kartasi (10 xonali raqam • Turniket, Oshxona va Masjid)
                       </div>
                       <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
                         Karta ustidagi 10 xonali raqamni kiriting (masalan: <code>0009404754</code>). Saqlaganingizda avtomatik ravishda 3 ta ZKTeco qurilmasiga (Kirish, Oshxona, Masjid) sinxronlanadi va barchasi approve beradi.
@@ -3627,7 +3754,7 @@ export function UnifiedModules({
                         }
                       }}
                     >
-                      ?? Qurilmadan oxirgi urilgan kartani olish
+                      📡 Qurilmadan oxirgi urilgan kartani olish
                     </button>
                   </div>
                   <div className="grid-2" style={{ alignItems: "center", gap: 10 }}>
@@ -3656,14 +3783,14 @@ export function UnifiedModules({
                           onClick={() => setStaffModal({ ...staffModal, rfidCardNumber: "" })}
                           title="Karta raqamini tozalash"
                         >
-                          ?
+                          ✕
                         </button>
                       )}
                     </div>
                     <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
                       {staffModal.rfidCardNumber && Number(staffModal.rfidCardNumber) > 0 ? (
                         <span style={{ color: "#34d399", fontWeight: 600 }}>
-                          ? 10 xonali format: <code>{String(Number(staffModal.rfidCardNumber)).padStart(10, "0")}</code> (ZKTeco ID: <code>{Number(staffModal.rfidCardNumber)}</code>)
+                          ✓ 10 xonali format: <code>{String(Number(staffModal.rfidCardNumber)).padStart(10, "0")}</code> (ZKTeco ID: <code>{Number(staffModal.rfidCardNumber)}</code>)
                         </span>
                       ) : (
                         <span>Ixtiyoriy: Karta raqami kiritilsa, Kirish, Oshxona va Masjid turniketlariga avtomatik yoziladi.</span>
@@ -3682,7 +3809,7 @@ export function UnifiedModules({
                             style={{ fontSize: 11, fontFamily: "monospace" }}
                             onClick={() => setStaffModal({ ...staffModal, rfidCardNumber: c10 })}
                           >
-                            ?? {c10} ({c.device?.split(" ")[0]}) {c.studentName ? "? " + c.studentName : "? Bo'sh"}
+                            💳 {c10} ({c.device?.split(" ")[0]}) {c.studentName ? "🔗 " + c.studentName : "🆕 Bo'sh"}
                           </button>
                         );
                       })}

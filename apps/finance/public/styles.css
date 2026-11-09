@@ -1352,3 +1352,59 @@ html.light .vaqf-switch-btn {
 .form-grid .date-input-wrap {
   width: 100%;
 }
+
+/* Clean Modal Form & Grid Layout Fixes */
+.grid-2 > div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.grid-2 > div > label,
+.modal-box form label:not([style*="display: flex"]):not([style*="display: inline-flex"]) {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  line-height: 1.35;
+}
+
+.grid-2 .input,
+.grid-2 .select,
+.grid-2 .textarea,
+.grid-2 .date-input-wrap,
+.form-field .input,
+.form-field .select,
+.form-field .textarea,
+.modal-section-card .input,
+.modal-section-card .select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.modal-section-card {
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+html.light .modal-section-card {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+.modal-section-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #38bdf8;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
