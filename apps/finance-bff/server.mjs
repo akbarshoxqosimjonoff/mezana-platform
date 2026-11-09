@@ -2576,7 +2576,7 @@ async function handleApi(req, res, url) {
       const title = rawTitle;
       const expDate = body.date || body.expenseDate || new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Istanbul" }).format(new Date());
       // Expenses (Xarajat) represent already-spent money from the employee wallet -> immediately PAID and deducted from wallet balance
-      const status = body.status === "PENDING" ? "PENDING" : "PAID";
+      const status = "PAID";
 
       await execPgSql(
         erpEnv.DATABASE_URL,
@@ -2630,21 +2630,22 @@ async function handleApi(req, res, url) {
           hour: "2-digit",
           minute: "2-digit",
         }).format(new Date());
+        const newWalletBal = Number(((Number(wallet?.balance || 0)) - amountInDefault).toFixed(2));
         notifyDirectorsOnTelegram(
-          `🔔 <b>Yangi xarajat kiritildi (Web Tizim)</b>\n\n` +
+          `✅ <b>Yangi xarajat kiritildi va hamyondan ayrildi (Web Tizim)</b>\n\n` +
           `👤 Hisob: <b>${empName}</b> (${access.sourceLabel || sess.user?.name || "Xodim"})\n` +
           `📂 Toifa: <b>${catName}</b>\n` +
           `📝 Izoh: <b>${desc}</b>\n` +
-          `💰 Summa: <b>₺${amountInDefault.toLocaleString("tr-TR")}</b> ($${amountUsd.toLocaleString("en-US")})\n` +
+          `💸 Ayrilgan summa: <b>-₺${amountInDefault.toLocaleString("tr-TR")}</b> ($${amountUsd.toLocaleString("en-US")})\n` +
+          `💳 Hamyon yangi qoldig'i: <b>₺${newWalletBal.toLocaleString("tr-TR")} TL</b>\n` +
           `📅 Asl xarajat sanasi: <b>${expDate}</b>\n` +
           `🕒 Tizimga kiritilgan vaqti: <b>${nowIstStr}</b>\n` +
-          `${flaggedLowBalance ? `⚠️ <b>Hamyon balansi yetarli emas!</b>\n` : ""}` +
-          `\n<i>Pastdagi tugmalar yoki Web tizim orqali tasdiqlashingiz / rad etishingiz mumkin:</i>`,
+          `${flaggedLowBalance ? `⚠️ <b>Hamyon balansi minusga o'tdi!</b>\n` : ""}` +
+          `\n<i>Agar xarajat noto'g'ri kiritilgan bo'lsa, bekor qilib summani hamyonga qaytarishingiz mumkin:</i>`,
           {
             inline_keyboard: [
               [
-                { text: "✅ Tasdiqlash (To'lash)", callback_data: `exp:app:${expId}` },
-                { text: "❌ Rad etish", callback_data: `exp:rej:${expId}` },
+                { text: "🔄 Bekor qilish (Hamyonga qaytarish)", callback_data: `exp:rej:${expId}` },
               ],
             ],
           }
