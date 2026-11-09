@@ -6095,12 +6095,44 @@ function App() {
                     }}
                   >
                     <div>
-                      <div style={{ fontWeight: 700, fontSize: 13.5 }}>{b.fileName}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <span style={{ fontWeight: 700, fontSize: 13.5 }}>{b.fileName}</span>
+                        {b.meta?.telegramSent ? (
+                          <span className="badge badge-emerald" style={{ fontSize: 10.5 }}>✅ Botga yuborilgan (Direktor + Dev)</span>
+                        ) : b.sizeMb > 49 ? (
+                          <span className="badge badge-amber" style={{ fontSize: 10.5 }}>⚠️ 50MB dan katta (eski media bilan)</span>
+                        ) : null}
+                      </div>
                       <div style={{ fontSize: 11.5, color: "var(--text-secondary)", marginTop: 2 }}>
                         📦 Hajmi: <b>{b.sizeMb} MB</b>
                         {b.meta ? ` (DB: ${b.meta.dbSizeMb} MB • Kodlar: ${b.meta.codeSizeMb} MB • Parollar/Tokenlar: ${b.meta.secretsSizeKb} KB)` : ""}
                       </div>
                     </div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {b.sizeMb <= 49 && (
+                        <button
+                          className="btn btn-sm btn-cyan"
+                          disabled={backupBusy}
+                          onClick={async () => {
+                            setBackupBusy(true);
+                            try {
+                              await apiFetch("/fin-api/system/backups/send-telegram", {
+                                method: "POST",
+                                body: JSON.stringify({ fileName: b.fileName }),
+                              });
+                              notify("success", `"${b.fileName}" Direktor va Developerga Telegram bot orqali yuborildi!`);
+                              const d = await apiFetch("/fin-api/system/backups");
+                              setBackupsList(d.backups || []);
+                            } catch (err: any) {
+                              notify("error", err.message || "Telegramga yuborishda xatolik");
+                            } finally {
+                              setBackupBusy(false);
+                            }
+                          }}
+                        >
+                          📤 Botga yuborish
+                        </button>
+                      )}
                     <button
                       className="btn btn-sm"
                       style={{ borderColor: "rgba(245,158,11,0.5)", color: "#fbbf24" }}
@@ -6127,6 +6159,7 @@ function App() {
                     >
                       ♻️ 1-Click Qayta tiklash
                     </button>
+                    </div>
                   </div>
                 ))
               )}

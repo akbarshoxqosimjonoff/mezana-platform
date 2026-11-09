@@ -1289,7 +1289,7 @@ export async function buildCampusSmartAnalytics(pgPool, { date: reqDate, month: 
                COALESCE(s.fullname, m."studentName") AS "studentName",
                s.photo,
                COALESCE(g.name, 'Guruhsiz') AS "group",
-               COALESCE(r.name, '-') AS "room",
+               COALESCE(s."roomNumber", '-') AS "room",
                m."cardId",
                m."mealType"::text AS "eventType",
                TO_CHAR(m."timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD') AS "date",
@@ -1298,7 +1298,6 @@ export async function buildCampusSmartAnalytics(pgPool, { date: reqDate, month: 
              FROM "MealRecord" m
              LEFT JOIN "Student" s ON s.id = m."studentId"
              LEFT JOIN "Group" g ON g.id = s."groupId"
-             LEFT JOIN "Room" r ON r.id = s."roomId"
              UNION ALL
              SELECT
                em.id + 1000000 AS id,

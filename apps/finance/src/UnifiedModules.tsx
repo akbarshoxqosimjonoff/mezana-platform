@@ -3740,7 +3740,7 @@ export function UnifiedModules({
                       onClick={async () => {
                         try {
                           const r = await apiFetch("/fin-api/crm/student-cards/zkteco-recent");
-                          setZktecoRecentCards(r?.items || []);
+                          setZkRecentCards(r?.items || []);
                           if ((r?.recentLogs || []).length > 0) {
                             const latest = r.recentLogs[0];
                             const num10 = String(latest.cardNumber || "").replace(/\D/g, "").padStart(10, "0");
@@ -3797,9 +3797,9 @@ export function UnifiedModules({
                       )}
                     </div>
                   </div>
-                  {zktecoRecentCards.length > 0 && (
+                  {zkRecentCards.length > 0 && (
                     <div style={{ marginTop: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
-                      {zktecoRecentCards.slice(0, 6).map((c: any, idx: number) => {
+                      {zkRecentCards.slice(0, 6).map((c: any, idx: number) => {
                         const c10 = String(c.cardNumber || "").replace(/\D/g, "").padStart(10, "0");
                         return (
                           <button

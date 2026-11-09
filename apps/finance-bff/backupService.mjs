@@ -298,6 +298,7 @@ export async function createFullBackup({ sendToTelegram = true, reason = "schedu
       `tar -czf "${codeTarPath}" ` +
         `--exclude="node_modules" --exclude=".git" --exclude="dist" --exclude=".next" --exclude="*.log" ` +
         `--exclude="late-photos" --exclude="*.onnx" --exclude=".venv" --exclude="venv" --exclude="uploads" ` +
+        `--exclude="*.tsbuildinfo" --exclude="apps/ezan-web/.import" --exclude="apps/ezan-web/docs/screenshots" --exclude="apps/ezan-web/public/media" ` +
         `-C /srv/data/apps mezana-platform`,
       { stdio: "pipe", timeout: 120000 }
     );
@@ -307,7 +308,7 @@ export async function createFullBackup({ sendToTelegram = true, reason = "schedu
       try {
         execSync(
           `tar -czf "${crmCodeTarPath}" ` +
-            `--exclude="node_modules" --exclude=".git" --exclude="dist" --exclude="uploads" --exclude="*.log" ` +
+            `--exclude="node_modules" --exclude=".git" --exclude="dist" --exclude="dist.*" --exclude="uploads" --exclude="*.log" --exclude="zkteco-logs.json" ` +
             `-C /srv/data/mezana-space/var/www mezana-crm`,
           { stdio: "pipe", timeout: 120000 }
         );
@@ -354,16 +355,17 @@ export async function createFullBackup({ sendToTelegram = true, reason = "schedu
       },
     };
 
-    fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), "utf8");
-
     // Cleanup temp workDir
     execSync(`rm -rf "${workDir}"`);
-    pruneOldBackups(14);
 
     let telegramResult = null;
     if (sendToTelegram) {
       telegramResult = await sendBackupToTelegram({ filePath: finalTarPath, fileName, meta });
+      meta.telegramSent = Boolean(telegramResult?.sent);
+      meta.telegramResults = telegramResult?.results || [];
     }
+    fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), "utf8");
+    pruneOldBackups(14);
 
     return {
       ok: true,
@@ -458,19 +460,54 @@ export async function restoreFromBackup(fileName, { restoreCode = false } = {}) 
 
 let lastMidnightBackupDate = "";
 
+export async function sendExistingBackupToTelegram(fileName) {
+  const safeName = path.basename(String(fileName || "").trim());
+  const fullPath = path.join(BACKUP_DIR, safeName);
+  if (!safeName || !fs.existsSync(fullPath)) {
+    throw new Error(`Zahira fayli topilmadi: ${safeName}`);
+  }
+  const metaPath = fullPath.replace(/\.tar\.gz$/, ".json");
+  let meta = {
+    fileName: safeName,
+    istanbulDate: safeName.slice(19, 29),
+    istanbulTime: "00:00:00",
+    totalSizeMb: Number((fs.statSync(fullPath).size / (1024 * 1024)).toFixed(2)),
+    dbSizeMb: "-",
+    codeSizeMb: "-",
+    secretsSizeKb: "-",
+  };
+  if (fs.existsSync(metaPath)) {
+    try {
+      meta = { ...meta, ...JSON.parse(fs.readFileSync(metaPath, "utf8")) };
+    } catch {}
+  }
+  const tg = await sendBackupToTelegram({ filePath: fullPath, fileName: safeName, meta });
+  meta.telegramSent = Boolean(tg?.sent);
+  meta.telegramResults = tg?.results || [];
+  try {
+    fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), "utf8");
+  } catch {}
+  return tg;
+}
+
 export function startMidnightBackupScheduler() {
-  // Check every 45 seconds if Istanbul time is 00:00..00:04 and we haven't run today's midnight backup yet
-  setInterval(async () => {
+  const checkAndRunDailyBackup = async (trigger = "interval") => {
     try {
       const { dateStr, hour, minute } = getIstanbulParts(new Date());
-      if (hour === 0 && minute <= 4 && lastMidnightBackupDate !== dateStr) {
+      const existingToday = listBackups().filter((b) => b.fileName.startsWith(`mezana_full_backup_${dateStr}_`));
+      const alreadySentToday = existingToday.some((b) => b.meta?.telegramSent === true && b.sizeMb < 49);
+
+      if ((hour === 0 && minute <= 10 && lastMidnightBackupDate !== dateStr) || (trigger === "startup" && !alreadySentToday)) {
         lastMidnightBackupDate = dateStr;
-        console.log(`[backupService] Starting automatic midnight backup for ${dateStr}...`);
-        const res = await createFullBackup({ sendToTelegram: true, reason: `midnight_auto_${dateStr}` });
-        console.log(`[backupService] Midnight backup completed:`, res?.fileName, `${res?.meta?.totalSizeMb} MB`);
+        console.log(`[backupService] Starting automatic daily backup (${trigger}) for ${dateStr}...`);
+        const res = await createFullBackup({ sendToTelegram: true, reason: `daily_auto_${dateStr}` });
+        console.log(`[backupService] Daily backup completed:`, res?.fileName, `${res?.meta?.totalSizeMb} MB`, "Telegram sent:", res?.telegram?.sent);
       }
     } catch (e) {
       console.error("[backupService] Scheduler error:", e?.message);
     }
-  }, 45 * 1000);
+  };
+
+  setTimeout(() => checkAndRunDailyBackup("startup"), 8000);
+  setInterval(() => checkAndRunDailyBackup("interval"), 45 * 1000);
 }

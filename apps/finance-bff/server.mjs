@@ -1,7 +1,7 @@
 import dns from "node:dns";
 dns.setDefaultResultOrder("ipv4first");
 import { createPsqlPool, platformPool, buildCampusSmartAnalytics, captureSixGatePhotos, simulateSmartTurnstileScan, pollGateTelegramReplies, pollKirishTurnstileLive, pollOshxonaAndMasjidTurnstilesLive, toggleBotRecipient, cleanupOldGatePhotos, syncStudentCardToZkteco, syncStaffCardToZkteco, syncAllCardsToZkteco, fetchRecentZktecoCards } from "./campusSmartService.mjs";
-import { createFullBackup, listBackups, restoreFromBackup, startMidnightBackupScheduler } from "./backupService.mjs";
+import { createFullBackup, listBackups, restoreFromBackup, sendExistingBackupToTelegram, startMidnightBackupScheduler } from "./backupService.mjs";
 import http from "node:http";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
@@ -7026,6 +7026,22 @@ MUHIM QOIDALAR:
         return sendJson(res, 500, { error: result.error || "Zahira olishda xatolik" });
       }
       return sendJson(res, 200, result);
+    }
+
+    if (pathname === "/fin-api/system/backups/send-telegram" && method === "POST") {
+      if (!access.isDirector) {
+        return sendJson(res, 403, { error: "Faqat Direktor zahirani botga yubora oladi" });
+      }
+      const body = await readJsonBody(req);
+      if (!body.fileName) {
+        return sendJson(res, 400, { error: "Zahira fayli nomini kiriting" });
+      }
+      const tg = await sendExistingBackupToTelegram(body.fileName);
+      if (!tg?.sent) {
+        const errDesc = (tg?.results || []).map((r) => r.description || r.error).filter(Boolean).join("; ") || "Telegram upload xatosi (hajm > 50MB bo'lishi mumkin)";
+        return sendJson(res, 500, { error: errDesc, telegram: tg });
+      }
+      return sendJson(res, 200, { ok: true, telegram: tg });
     }
 
     if (pathname === "/fin-api/system/backups/restore" && method === "POST") {
