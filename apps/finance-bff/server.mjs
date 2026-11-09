@@ -144,8 +144,10 @@ async function editTelegramHtml(chatId, messageId, htmlText, replyMarkup = null)
 function getEmployeeTelegramIds(employeeId, sourceKey, requesterTgId) {
   if (requesterTgId) return [String(requesterTgId)];
   const key = String(sourceKey || "").toLowerCase();
+  if (employeeId === "cmtlai0w1000zpir9b7ste5ze" || key.includes("abdurahmon")) return ["1859870426"];
   if (employeeId === "cmtlai0pv000upir9qk3vaotg" || key.includes("muhammadjon")) return ["490924335"];
   if (employeeId === "cmvaqfemp0000000000000001" || key.includes("vaqf")) return ["929885302"];
+  if (employeeId === "cmu5837xq000dseknha0g6jvs" || key.includes("mezana")) return ["6824836524"];
   if (employeeId === "cmtlai0it000ppir989mu70w1" || key.includes("idora")) return ["8142118072", "8014832689"];
   return [];
 }
@@ -250,8 +252,8 @@ const INITIAL_STAFF_SEEDS = [
     department: "Moliya",
     genderScope: "MALE",
     phone: "",
-    telegramId: "",
-    tgUsername: "",
+    telegramId: "1859870426",
+    tgUsername: "Beekeeper_uz",
     allowedTabs: ["dashboard", "payments", "debtors", "expenses", "wallets", "reports", "students_dir"],
     crmRole: "admin",
     crmId: 2,

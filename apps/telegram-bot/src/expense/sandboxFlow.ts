@@ -48,6 +48,18 @@ export interface AuthorizedUserConfig {
 
 // Muhammadjon added
 export const AUTHORIZED_USERS: Record<string, AuthorizedUserConfig> = {
+  "1859870426": {
+    telegramId: "1859870426",
+    personName: "Abdurahmon Abdullatif",
+    roleTitle: "Bosh hisobchi (Moliya)",
+    accountKey: "Abdurahmon",
+    accountLabel: "Abdurahmon (Moliya)",
+    crmUsername: "abdurahmon",
+    erpEmail: "abdurahmon@moliya.org",
+    userId: "cmtlai0vp000xpir90ttfiaq2",
+    employeeId: "cmtlai0w1000zpir9b7ste5ze",
+    walletId: "cmtlai0y20011pir95rtswvib",
+  },
     "490924335": {
     telegramId: "490924335",
     personName: "Muhammadjon",
