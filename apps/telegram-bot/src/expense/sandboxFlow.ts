@@ -391,7 +391,6 @@ async function saveReceiptToDiskAndDb(
   fileName?: string,
   mimeType?: string
 ): Promise<string> {
-  fs.mkdirSync(RECEIPT_UPLOADS_DIR, { recursive: true });
   const ext = (mimeType || "").includes("png")
     ? "png"
     : (mimeType || "").includes("pdf")
@@ -399,7 +398,14 @@ async function saveReceiptToDiskAndDb(
     : "jpg";
   const cleanFileName = fileName || `chek_${expenseId}.${ext}`;
   const storedFile = `tg_${Date.now()}_${expenseId}.${ext}`;
-  fs.writeFileSync(`${RECEIPT_UPLOADS_DIR}/${storedFile}`, buf);
+  try {
+    fs.mkdirSync(RECEIPT_UPLOADS_DIR, { recursive: true });
+    fs.writeFileSync(`${RECEIPT_UPLOADS_DIR}/${storedFile}`, buf);
+  } catch (diskErr) {
+    const fallbackDir = "/srv/data/apps/mezana-platform/apps/telegram-bot/late-photos";
+    fs.mkdirSync(fallbackDir, { recursive: true });
+    fs.writeFileSync(`${fallbackDir}/${storedFile}`, buf);
+  }
   const publicUrl = `/uploads/${storedFile}`;
   const recId = "rec_tg_" + crypto.randomBytes(8).toString("hex");
   const mime = mimeType || "image/jpeg";
@@ -2683,7 +2689,7 @@ Javobni FAQAT JSON formatda qaytaring:
   } else if (imageBase64Url) {
     userContent.push({
       type: "text",
-      text: "Ushbu chek/kvitansiya rasmini o'qing va xarajat ma'lumotlarini ajratib bering.",
+      text: "Ushbu chek/kvitansiya rasmini o'qing. MUHIM QOIDA: Bitta chek rasmi uchun 'items' massivida FAQAT BITTA (1 ta) umumiy xarajat obyektini qaytaring! Chek ichidagi har bir mahsulot qatorini alohida qoralama (items) qilib bo'lib yubormang! 'amount' maydoniga chekning eng pastidagi YAKUNIY JAMI SUMMASINI (TOPLAM / GENEL TOPLAM / TOTAL) yozing, 'title' ga do'kon yoki xarid nomini, 'description' ga esa chekdagi asosiy mahsulotlarni qisqacha yozing.",
     });
   }
   if (imageBase64Url) {
@@ -3135,7 +3141,22 @@ async function processUserExpenseInput(params: {
       userRequestMode.delete(userId);
     }
 
-    for (const rawItem of result.items) {
+    let itemsToProcess = result.items.filter((it: any) => Number(it?.amount || 0) > 0);
+    if (sourceType === "photo" && itemsToProcess.length > 1) {
+      const totalSum = Number(itemsToProcess.reduce((acc: number, it: any) => acc + Number(it.amount || 0), 0).toFixed(2));
+      const first = itemsToProcess[0]!;
+      const combinedTitles = itemsToProcess.map((it: any) => String(it.title || it.description || "").trim()).filter(Boolean);
+      itemsToProcess = [
+        {
+          ...first,
+          title: first.title || "Chek bo'yicha xarid",
+          description: combinedTitles.join(", ").slice(0, 250) || first.description || first.title || "Chek xarajati",
+          amount: totalSum,
+        },
+      ];
+    }
+
+    for (const rawItem of itemsToProcess) {
       const amt = Number(rawItem.amount || 0);
       if (!(amt > 0)) continue;
       const id = String(seqCounter++);
@@ -4658,10 +4679,17 @@ export function registerExpenseSandboxFlow(bot: Bot) {
   });
 
   // Photo messages (Receipt attachment to existing draft/expense OR Receipt OCR for new expense)
+  const processedPhotoLocks = new Set<string>();
   bot.on("message:photo", async (ctx) => {
     const userId = String(ctx.from.id);
     const photos = ctx.message.photo;
     if (!photos || photos.length === 0) return;
+    const dedupKey = ctx.message.media_group_id
+      ? `mg:${ctx.chat.id}:${ctx.message.media_group_id}`
+      : `msg:${ctx.chat.id}:${ctx.message.message_id}`;
+    if (processedPhotoLocks.has(dedupKey)) return;
+    processedPhotoLocks.add(dedupKey);
+    setTimeout(() => processedPhotoLocks.delete(dedupKey), 120000);
     const largest = photos[photos.length - 1]!;
     const caption = (ctx.message.caption || "").trim();
 

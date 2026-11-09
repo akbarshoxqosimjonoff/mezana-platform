@@ -1,3 +1,7 @@
+if (process.env.INVOCATION_ID && !process.env.pm_id) {
+  console.log("[mezana-telegram-bot] Bot PM2 orqali boshqarilmoqda. Systemd dublikat jarayoni to'xtatildi (exit 0).");
+  process.exit(0);
+}
 import dns from "node:dns";
 dns.setDefaultResultOrder("ipv4first");
 
