@@ -1420,6 +1420,12 @@ async function buildOverview(sess, { from, to } = {}) {
      ORDER BY e."createdAt" DESC, e.date DESC`
   ));
 
+  await execPgSql(erpEnv.DATABASE_URL, `UPDATE "Wallet" w
+       SET "totalSpent" = COALESCE((SELECT SUM(e."amountInDefault") FROM "Expense" e WHERE e."employeeId" = w."employeeId" AND e."deletedAt" IS NULL AND e.status = 'PAID'), 0),
+           "pendingAmount" = COALESCE((SELECT SUM(e."amountInDefault") FROM "Expense" e WHERE e."employeeId" = w."employeeId" AND e."deletedAt" IS NULL AND e.status = 'PENDING'), 0),
+           balance = COALESCE(w."totalAssigned", 0) - COALESCE((SELECT SUM(e."amountInDefault") FROM "Expense" e WHERE e."employeeId" = w."employeeId" AND e."deletedAt" IS NULL AND e.status = 'PAID'), 0)
+       WHERE w."totalSpent" != COALESCE((SELECT SUM(e."amountInDefault") FROM "Expense" e WHERE e."employeeId" = w."employeeId" AND e."deletedAt" IS NULL AND e.status = 'PAID'), 0)
+          OR w.balance != (COALESCE(w."totalAssigned", 0) - COALESCE((SELECT SUM(e."amountInDefault") FROM "Expense" e WHERE e."employeeId" = w."employeeId" AND e."deletedAt" IS NULL AND e.status = 'PAID'), 0));`).catch(() => {});
   const rawWallets = (await queryPgJson(
     erpEnv.DATABASE_URL,
     `SELECT
@@ -2569,8 +2575,8 @@ async function handleApi(req, res, url) {
       }
       const title = rawTitle;
       const expDate = body.date || body.expenseDate || new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Istanbul" }).format(new Date());
-      // Regular employees always submit as PENDING for Director approval unless Director explicitly creates PAID
-      const status = !access.isDirector ? "PENDING" : (body.status === "PENDING" ? "PENDING" : "PAID");
+      // Expenses (Xarajat) represent already-spent money from the employee wallet -> immediately PAID and deducted from wallet balance
+      const status = body.status === "PENDING" ? "PENDING" : "PAID";
 
       await execPgSql(
         erpEnv.DATABASE_URL,
@@ -2588,7 +2594,7 @@ async function handleApi(req, res, url) {
             erpEnv.DATABASE_URL,
             `UPDATE "Wallet" SET balance = balance - ${amountInDefault}, "totalSpent" = "totalSpent" + ${amountInDefault}, "updatedAt" = NOW() WHERE id = ${sqlStr(wallet.id)};
              INSERT INTO "WalletTransaction" (id, "referenceId", "walletId", type, amount, "balanceBefore", "balanceAfter", currency, description, "expenseId", "createdAt", "occurredAt")
-             VALUES (${sqlStr(txId)}, ${sqlStr(refId)}, ${sqlStr(wallet.id)}, 'EXPENSE_DEBIT'::"TransactionType", ${amountInDefault}, ${balBefore}, ${balAfter}, 'TL', ${sqlStr(desc)}, ${sqlStr(expId)}, NOW(), NOW());`
+             VALUES (${sqlStr(txId)}, ${sqlStr(refId)}, ${sqlStr(wallet.id)}, 'EXPENSE_DEBIT'::"TransactionType", ${amountInDefault}, ${balBefore}, ${balAfter}, 'TL', ${sqlStr(desc)}, ${sqlStr(expId)}, NOW(), ${sqlStr(expDate)}::timestamp);`
           );
           if (categoryId) {
             const [expYear, expMonth] = String(expDate).slice(0, 7).split("-").map(Number);
@@ -2607,7 +2613,7 @@ async function handleApi(req, res, url) {
         }
       }
 
-      if (status === "PENDING") {
+      if (!access.isDirector || status === "PENDING") {
         const notifId = "ntf_" + crypto.randomBytes(10).toString("hex");
         const notifTitle = `Yangi xarajat so'rovi: ${empName}`;
         const notifMsg = `${desc} — ₺${amountInDefault.toLocaleString("tr-TR")} ($${amountUsd.toLocaleString("en-US")})`;
@@ -2767,7 +2773,7 @@ async function handleApi(req, res, url) {
       }
 
       if (action === "approve" || action === "pay") {
-        const targetStatus = action === "pay" ? "PAID" : "APPROVED";
+        const targetStatus = "PAID";
         const wRows = await queryPgJson(
           erpEnv.DATABASE_URL,
           `SELECT id, balance::float AS balance FROM "Wallet" WHERE "employeeId" = ${sqlStr(empId)} LIMIT 1`
@@ -3014,9 +3020,7 @@ async function handleApi(req, res, url) {
         if (!isOwner) {
           return sendJson(res, 403, { error: "Faqat o'zingiz kiritgan xarajatni tahrirlay olasiz" });
         }
-        if (exp.status !== "PENDING" && exp.status !== "REJECTED") {
-          return sendJson(res, 403, { error: "Tasdiqlangan yoki to'langan xarajatni faqat Direktor o'zgartira oladi" });
-        }
+        // Owner can edit their own expense; wallet balance is automatically adjusted below
       }
 
       const categoryId = body.categoryId || exp.categoryId;
@@ -3071,10 +3075,11 @@ async function handleApi(req, res, url) {
           erpEnv.DATABASE_URL,
           `UPDATE "Wallet" SET "pendingAmount" = "pendingAmount" + ${amountInDefault}, "updatedAt" = NOW() WHERE "employeeId" = ${sqlStr(exp.employeeId)};`
         );
-      } else if (access.isDirector && exp.status === "PAID" && deltaTl !== 0) {
+      } else if (exp.status === "PAID" && deltaTl !== 0) {
         await execPgSql(
           erpEnv.DATABASE_URL,
-          `UPDATE "Wallet" SET balance = balance - (${deltaTl}), "totalSpent" = GREATEST(0, "totalSpent" + (${deltaTl})), "updatedAt" = NOW() WHERE "employeeId" = ${sqlStr(exp.employeeId)};`
+          `UPDATE "Wallet" SET balance = balance - (${deltaTl}), "totalSpent" = GREATEST(0, "totalSpent" + (${deltaTl})), "updatedAt" = NOW() WHERE "employeeId" = ${sqlStr(exp.employeeId)};
+           UPDATE "WalletTransaction" SET amount = ${amountInDefault}, "balanceAfter" = "balanceBefore" - ${amountInDefault}, description = ${sqlStr(desc)} WHERE "expenseId" = ${sqlStr(targetExpId)} AND type = 'EXPENSE_DEBIT';`
         );
       }
       if (exp.requestId) {
@@ -3133,9 +3138,7 @@ async function handleApi(req, res, url) {
         if (!isOwner) {
           return sendJson(res, 403, { error: "Faqat o'zingiz kiritgan xarajatni o'chira olasiz" });
         }
-        if (exp.status !== "PENDING" && exp.status !== "REJECTED") {
-          return sendJson(res, 403, { error: "Tasdiqlangan yoki to'langan xarajatni faqat Direktor bekor qila oladi" });
-        }
+        // Owner can delete their own expense; wallet balance is automatically refunded below
       }
 
       const amtTl = Number(exp.amountInDefault || 0);
@@ -3148,7 +3151,8 @@ async function handleApi(req, res, url) {
         );
       } else if (exp.status === "PAID") {
         sqlParts.push(
-          `UPDATE "Wallet" SET balance = balance + ${amtTl}, "totalSpent" = GREATEST(0, "totalSpent" - ${amtTl}), "updatedAt" = NOW() WHERE "employeeId" = ${sqlStr(exp.employeeId)};`
+          `UPDATE "Wallet" SET balance = balance + ${amtTl}, "totalSpent" = GREATEST(0, "totalSpent" - ${amtTl}), "updatedAt" = NOW() WHERE "employeeId" = ${sqlStr(exp.employeeId)};
+           DELETE FROM "WalletTransaction" WHERE "expenseId" = ${sqlStr(targetExpId)} AND type = 'EXPENSE_DEBIT';`
         );
         sqlParts.push(
           `UPDATE "Budget" SET spent = GREATEST(0, spent - ${amtTl}), "updatedAt" = NOW()
@@ -3943,6 +3947,12 @@ async function handleApi(req, res, url) {
     }
 
     if (pathname === "/fin-api/erp/wallets" && method === "GET") {
+      await execPgSql(erpEnv.DATABASE_URL, `UPDATE "Wallet" w
+       SET "totalSpent" = COALESCE((SELECT SUM(e."amountInDefault") FROM "Expense" e WHERE e."employeeId" = w."employeeId" AND e."deletedAt" IS NULL AND e.status = 'PAID'), 0),
+           "pendingAmount" = COALESCE((SELECT SUM(e."amountInDefault") FROM "Expense" e WHERE e."employeeId" = w."employeeId" AND e."deletedAt" IS NULL AND e.status = 'PENDING'), 0),
+           balance = COALESCE(w."totalAssigned", 0) - COALESCE((SELECT SUM(e."amountInDefault") FROM "Expense" e WHERE e."employeeId" = w."employeeId" AND e."deletedAt" IS NULL AND e.status = 'PAID'), 0)
+       WHERE w."totalSpent" != COALESCE((SELECT SUM(e."amountInDefault") FROM "Expense" e WHERE e."employeeId" = w."employeeId" AND e."deletedAt" IS NULL AND e.status = 'PAID'), 0)
+          OR w.balance != (COALESCE(w."totalAssigned", 0) - COALESCE((SELECT SUM(e."amountInDefault") FROM "Expense" e WHERE e."employeeId" = w."employeeId" AND e."deletedAt" IS NULL AND e.status = 'PAID'), 0));`).catch(() => {});
       const now = new Date();
       const year = Number(url.searchParams.get("year") || now.getFullYear());
       const month = Number(url.searchParams.get("month") || (now.getMonth() + 1));
