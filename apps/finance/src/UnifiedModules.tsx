@@ -245,6 +245,7 @@ export function UnifiedModules({
   const [hrSearch, setHrSearch] = useState("");
   const [staffModal, setStaffModal] = useState<any | null>(null);
   const [resetPwdModal, setResetPwdModal] = useState<any | null>(null);
+  const [crmEmpCardModal, setCrmEmpCardModal] = useState<any | null>(null);
   const [staffBusy, setStaffBusy] = useState(false);
 
   const [orgSubView, setOrgSubView] = useState<"categories" | "offices" | "transactions" | "expenses_archive">("categories");
@@ -2703,7 +2704,8 @@ export function UnifiedModules({
           s.position?.toLowerCase().includes(q) ||
           s.department?.toLowerCase().includes(q) ||
           s.phone?.toLowerCase().includes(q) ||
-          s.tgUsername?.toLowerCase().includes(q);
+          s.tgUsername?.toLowerCase().includes(q) ||
+          s.rfidCardNumber?.toLowerCase().includes(q);
         if (!match) return false;
       }
       return true;
@@ -2734,6 +2736,7 @@ export function UnifiedModules({
         phone: "",
         telegramId: "",
         tgUsername: "",
+        rfidCardNumber: "",
         walletMode: "own",
         linkedErpEmployeeId: "",
         allowedTabs: ["dashboard", "payments", "debtors", "expenses", "wallets", "students_dir", "groups_courses", "attendance", "canteen_mosque", "discipline_rooms"],
@@ -2756,6 +2759,7 @@ export function UnifiedModules({
         phone: s.phone || "",
         telegramId: s.telegramId || "",
         tgUsername: s.tgUsername || "",
+        rfidCardNumber: s.rfidCardNumber || "",
         walletMode: s.linkedErpEmployeeId ? "shared" : "none",
         linkedErpEmployeeId: s.linkedErpEmployeeId || "",
         allowedTabs: Array.isArray(s.allowedTabs) && s.allowedTabs.length > 0 ? s.allowedTabs : [...ALL_TAB_IDS],
@@ -2781,11 +2785,11 @@ export function UnifiedModules({
       }
       setStaffBusy(true);
       try {
-        await apiFetch("/fin-api/hr/staff/save", {
+        const resSave = await apiFetch("/fin-api/hr/staff/save", {
           method: "POST",
           body: JSON.stringify(staffModal),
         });
-        notify(staffModal.id ? "Xodim ma'lumotlari va huquqlari yangilandi!" : "Yangi xodim muvaffaqiyatli qo'shildi!");
+        notify(resSave?.message || (staffModal.id ? "Xodim ma'lumotlari va huquqlari yangilandi!" : "Yangi xodim muvaffaqiyatli qo'shildi!"));
         setStaffModal(null);
         await loadDomain();
       } catch (err: any) {
@@ -2894,10 +2898,27 @@ export function UnifiedModules({
                   <option value="all">🌐 Barchasi (Faol + Arxiv)</option>
                 </select>
               )}
-              {hrSubView === "staff" && (
-                <button className="btn btn-primary" onClick={openNewStaffModal}>
-                  <Plus size={15} /> Yangi xodim qo'shish
-                </button>
+              {hrSubView !== "tasks" && (
+                <>
+                  <button className="btn btn-primary" onClick={openNewStaffModal}>
+                    <Plus size={15} /> Yangi xodim qo'shish
+                  </button>
+                  <button
+                    className="btn"
+                    title="Barcha xodim va talaba RFID kartalarini 3 ta ZKTeco qurilmasiga (Oshxona, Kirish, Masjid) sinxronlash"
+                    onClick={async () => {
+                      try {
+                        notify("ZKTeco qurilmalariga kartalar sinxronlanmoqda...");
+                        const r = await apiFetch("/fin-api/crm/student-cards/sync-zkteco", { method: "POST" });
+                        notify(r?.message || "Barcha kartalar ZKTeco qurilmalariga sinxronlandi!");
+                      } catch (err: any) {
+                        notify(err.message || "Sinxronlashda xatolik", "err");
+                      }
+                    }}
+                  >
+                    ?? ZKTeco sinxronlash
+                  </button>
+                </>
               )}
               {hrSubView === "tasks" && (
                 <button
@@ -3196,6 +3217,7 @@ export function UnifiedModules({
                     <th>Lavozim</th>
                     <th>Telefon (Turkiya / O'zbekiston)</th>
                     <th>Telegram</th>
+                    <th>RFID Karta (10 xonali)</th>
                     <th>Pasport</th>
                     <th>Holati</th>
                   </tr>
@@ -3564,6 +3586,108 @@ export function UnifiedModules({
                       />
                     </div>
                   </div>
+                </div>
+
+                {/* 10 XONALI XODIM RFID KARTASI (3 TA ZKTECO QURILMASI UCHUN) */}
+                <div
+                  style={{
+                    padding: 14,
+                    borderRadius: 12,
+                    background: "rgba(16, 185, 129, 0.07)",
+                    border: "1px solid rgba(16, 185, 129, 0.28)",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: "#34d399" }}>
+                        ?? Xodim RFID Kartasi (10 xonali raqam ? Turniket, Oshxona va Masjid)
+                      </div>
+                      <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
+                        Karta ustidagi 10 xonali raqamni kiriting (masalan: <code>0009404754</code>). Saqlaganingizda avtomatik ravishda 3 ta ZKTeco qurilmasiga (Kirish, Oshxona, Masjid) sinxronlanadi va barchasi approve beradi.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      style={{ fontSize: 11.5 }}
+                      onClick={async () => {
+                        try {
+                          const r = await apiFetch("/fin-api/crm/student-cards/zkteco-recent");
+                          setZktecoRecentCards(r?.items || []);
+                          if ((r?.recentLogs || []).length > 0) {
+                            const latest = r.recentLogs[0];
+                            const num10 = String(latest.cardNumber || "").replace(/\D/g, "").padStart(10, "0");
+                            setStaffModal({ ...staffModal, rfidCardNumber: num10 });
+                            notify(`Oxirgi urilgan karta tanlandi: ${num10} (${latest.device})`);
+                          } else {
+                            notify("Qurilmalardagi kartalar ro'yxati yuklandi");
+                          }
+                        } catch (err: any) {
+                          notify(err.message || "Qurilmadan o'qishda xatolik", "err");
+                        }
+                      }}
+                    >
+                      ?? Qurilmadan oxirgi urilgan kartani olish
+                    </button>
+                  </div>
+                  <div className="grid-2" style={{ alignItems: "center", gap: 10 }}>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input
+                        className="input"
+                        maxLength={10}
+                        placeholder="Masalan: 0009404754 (10 xonali)"
+                        style={{ fontFamily: "monospace", fontSize: 14, fontWeight: 700, letterSpacing: 1.2 }}
+                        value={staffModal.rfidCardNumber || ""}
+                        onChange={(e) => {
+                          const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
+                          setStaffModal({ ...staffModal, rfidCardNumber: digits });
+                        }}
+                        onBlur={() => {
+                          const digits = String(staffModal.rfidCardNumber || "").replace(/\D/g, "");
+                          if (digits && Number(digits) > 0) {
+                            setStaffModal({ ...staffModal, rfidCardNumber: digits.padStart(10, "0") });
+                          }
+                        }}
+                      />
+                      {staffModal.rfidCardNumber && (
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          onClick={() => setStaffModal({ ...staffModal, rfidCardNumber: "" })}
+                          title="Karta raqamini tozalash"
+                        >
+                          ?
+                        </button>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
+                      {staffModal.rfidCardNumber && Number(staffModal.rfidCardNumber) > 0 ? (
+                        <span style={{ color: "#34d399", fontWeight: 600 }}>
+                          ? 10 xonali format: <code>{String(Number(staffModal.rfidCardNumber)).padStart(10, "0")}</code> (ZKTeco ID: <code>{Number(staffModal.rfidCardNumber)}</code>)
+                        </span>
+                      ) : (
+                        <span>Ixtiyoriy: Karta raqami kiritilsa, Kirish, Oshxona va Masjid turniketlariga avtomatik yoziladi.</span>
+                      )}
+                    </div>
+                  </div>
+                  {zktecoRecentCards.length > 0 && (
+                    <div style={{ marginTop: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {zktecoRecentCards.slice(0, 6).map((c: any, idx: number) => {
+                        const c10 = String(c.cardNumber || "").replace(/\D/g, "").padStart(10, "0");
+                        return (
+                          <button
+                            key={idx}
+                            type="button"
+                            className="btn btn-sm"
+                            style={{ fontSize: 11, fontFamily: "monospace" }}
+                            onClick={() => setStaffModal({ ...staffModal, rfidCardNumber: c10 })}
+                          >
+                            ?? {c10} ({c.device?.split(" ")[0]}) {c.studentName ? "? " + c.studentName : "? Bo'sh"}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {/* BO'LIMLARGA KIRISH HUQUQLARI (GRANULAR PERMISSIONS) */}

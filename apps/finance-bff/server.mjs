@@ -1,6 +1,6 @@
 import dns from "node:dns";
 dns.setDefaultResultOrder("ipv4first");
-import { createPsqlPool, platformPool, buildCampusSmartAnalytics, captureSixGatePhotos, simulateSmartTurnstileScan, pollGateTelegramReplies, pollKirishTurnstileLive, pollOshxonaAndMasjidTurnstilesLive, toggleBotRecipient, cleanupOldGatePhotos, syncStudentCardToZkteco, syncAllCardsToZkteco, fetchRecentZktecoCards } from "./campusSmartService.mjs";
+import { createPsqlPool, platformPool, buildCampusSmartAnalytics, captureSixGatePhotos, simulateSmartTurnstileScan, pollGateTelegramReplies, pollKirishTurnstileLive, pollOshxonaAndMasjidTurnstilesLive, toggleBotRecipient, cleanupOldGatePhotos, syncStudentCardToZkteco, syncStaffCardToZkteco, syncAllCardsToZkteco, fetchRecentZktecoCards } from "./campusSmartService.mjs";
 import { createFullBackup, listBackups, restoreFromBackup, startMidnightBackupScheduler } from "./backupService.mjs";
 import http from "node:http";
 import fs from "node:fs";
@@ -5566,7 +5566,7 @@ MUHIM QOIDALAR:
         `SELECT id, "fullName", username, email, "mustChangePassword", "passwordChangedAt",
                 role, position, department, "genderScope", phone, "telegramId", "tgUsername",
                 "allowedTabs", "readOnlyTabs", "crmRole", "crmId", "erpUserId", "erpEmployeeId",
-                "walletId", "isActive", "isDeleted", notes, "lastLoginAt", "createdAt", "updatedAt"
+                "walletId", "rfidCardNumber", "zktecoUid", "crmEmployeeId", "isActive", "isDeleted", notes, "lastLoginAt", "createdAt", "updatedAt"
          FROM "StaffAccount"
          WHERE "isDeleted" = false
          ORDER BY
@@ -5578,6 +5578,20 @@ MUHIM QOIDALAR:
       const erpEmpById = new Map();
       for (const ee of allErpEmployees) {
         erpEmpById.set(ee.id, ee);
+      }
+
+      const empCardsRows = await queryPgJson(
+        crmEnv.DATABASE_URL,
+        `SELECT "employeeId", "cardId", "cardNumber", "isActive" FROM "EmployeeCard" WHERE "isActive" = true`
+      );
+      const empCardByEmpId = new Map();
+      for (const ec of empCardsRows) {
+        empCardByEmpId.set(Number(ec.employeeId), ec);
+      }
+      for (const ce of allCrmEmployees) {
+        const ec = empCardByEmpId.get(Number(ce.id));
+        ce.rfidCardNumber = ec?.cardNumber ? String(ec.cardNumber).padStart(10, "0") : null;
+        ce.cardId = ec?.cardId || null;
       }
 
       const staffAccounts = rawStaffRows.map((st) => {
@@ -5753,7 +5767,41 @@ MUHIM QOIDALAR:
         }
       }
 
+      // Parse 10-digit RFID card number
+      const rawRfidDigits = String(body.rfidCardNumber || "").replace(/\D/g, "").slice(0, 10);
+      const numericRfid = rawRfidDigits ? Number(rawRfidDigits) : 0;
+      const formattedRfid10 = numericRfid > 0 ? String(numericRfid).padStart(10, "0") : null;
+
+      // Ensure CRM Employee record exists for turnstile / canteen tracking
+      let crmEmployeeId = existingStaff?.crmEmployeeId || null;
+      if (!crmEmployeeId) {
+        const crmEmpCheck = await pgPool.query(
+          `SELECT id FROM "Employee" WHERE LOWER(COALESCE(username, '')) = LOWER($1) OR LOWER(fullname) = LOWER($2) LIMIT 1`,
+          [username, fullName]
+        );
+        if (crmEmpCheck.rows[0]) {
+          crmEmployeeId = crmEmpCheck.rows[0].id;
+        } else {
+          const insEmp = await pgPool.query(
+            `INSERT INTO "Employee" (fullname, username, "turkPhone", "tgUsername", position, "birthYear", "isActive", "isDeleted", "createdAt", "updatedAt")
+             VALUES ($1, $2, $3, $4, $5, 1995, $6, false, NOW(), NOW())
+             RETURNING id`,
+            [fullName, username, phone, tgUsername, position, isActive]
+          ).catch(() => ({ rows: [] }));
+          crmEmployeeId = insEmp.rows[0]?.id || null;
+        }
+      } else {
+        await pgPool.query(
+          `UPDATE "Employee"
+           SET fullname = $1, "turkPhone" = $2, "tgUsername" = $3, position = $4, "isActive" = $5, "updatedAt" = NOW()
+           WHERE id = $6`,
+          [fullName, phone, tgUsername, position, isActive, crmEmployeeId]
+        ).catch(() => {});
+      }
+
+      let savedStaffId = id;
       if (id && existingStaff) {
+        const zktecoUid = existingStaff.zktecoUid || (9000 + Number(id));
         await pgPool.query(
           `UPDATE "StaffAccount"
            SET "fullName" = $1,
@@ -5776,8 +5824,11 @@ MUHIM QOIDALAR:
                "erpEmployeeId" = $17,
                "walletId" = $18,
                "isActive" = $19,
+               "rfidCardNumber" = $20,
+               "zktecoUid" = $21,
+               "crmEmployeeId" = $22,
                "updatedAt" = NOW()
-           WHERE id = $20`,
+           WHERE id = $23`,
           [
             fullName,
             username,
@@ -5798,18 +5849,23 @@ MUHIM QOIDALAR:
             erpEmployeeId,
             walletId,
             isActive,
+            formattedRfid10,
+            zktecoUid,
+            crmEmployeeId,
             id,
           ]
         );
       } else {
         const finalHash = passwordHash || bcrypt.hashSync("Mezana2026!", 10);
-        await pgPool.query(
+        const insStaff = await pgPool.query(
           `INSERT INTO "StaffAccount" (
              "fullName", username, email, "passwordHash", "mustChangePassword",
              role, position, department, "genderScope", phone, "telegramId", "tgUsername",
-             "allowedTabs", "readOnlyTabs", "crmRole", "crmId", "erpUserId", "erpEmployeeId", "walletId", "isActive"
+             "allowedTabs", "readOnlyTabs", "crmRole", "crmId", "erpUserId", "erpEmployeeId", "walletId", "isActive",
+             "rfidCardNumber", "crmEmployeeId"
            )
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14::jsonb, $15, $16, $17, $18, $19, $20)`,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14::jsonb, $15, $16, $17, $18, $19, $20, $21, $22)
+           RETURNING id`,
           [
             fullName,
             username,
@@ -5831,14 +5887,116 @@ MUHIM QOIDALAR:
             erpEmployeeId,
             walletId,
             isActive,
+            formattedRfid10,
+            crmEmployeeId,
           ]
         );
+        savedStaffId = insStaff.rows[0]?.id;
+        if (savedStaffId) {
+          await pgPool.query(`UPDATE "StaffAccount" SET "zktecoUid" = $1 WHERE id = $2`, [9000 + Number(savedStaffId), savedStaffId]);
+        }
+      }
+
+      const finalZkUid = existingStaff?.zktecoUid || (9000 + Number(savedStaffId || 1));
+
+      // Sync EmployeeCard in CRM DB and push to all 3 ZKTeco devices
+      let zkSync = [];
+      if (numericRfid > 0) {
+        if (crmEmployeeId) {
+          await pgPool.query(
+            `DELETE FROM "EmployeeCard" WHERE ("cardId" = $1 OR "cardNumber" = $2) AND "employeeId" <> $3`,
+            [String(finalZkUid), numericRfid, crmEmployeeId]
+          ).catch(() => {});
+          const exEc = await pgPool.query(`SELECT id FROM "EmployeeCard" WHERE "employeeId" = $1 LIMIT 1`, [crmEmployeeId]);
+          if (exEc.rows[0]) {
+            await pgPool.query(
+              `UPDATE "EmployeeCard" SET "cardId" = $1, "cardNumber" = $2, "isActive" = $3, "updatedAt" = NOW() WHERE "employeeId" = $4`,
+              [String(finalZkUid), numericRfid, isActive, crmEmployeeId]
+            );
+          } else {
+            await pgPool.query(
+              `INSERT INTO "EmployeeCard" ("employeeId", "cardId", "cardNumber", "isActive", "createdAt", "updatedAt")
+               VALUES ($1, $2, $3, $4, NOW(), NOW())`,
+              [crmEmployeeId, String(finalZkUid), numericRfid, isActive]
+            );
+          }
+        }
+        try {
+          zkSync = await syncStaffCardToZkteco({
+            staffId: savedStaffId,
+            fullName,
+            cardNumber: formattedRfid10,
+            deviceUserId: finalZkUid,
+          });
+        } catch {}
+      } else if (crmEmployeeId && !formattedRfid10) {
+        await pgPool.query(`UPDATE "EmployeeCard" SET "isActive" = false, "updatedAt" = NOW() WHERE "employeeId" = $1`, [crmEmployeeId]).catch(() => {});
       }
 
       await refreshCrmAuthCache();
+      const syncedCount = zkSync.filter((d) => d.ok).length;
+      const cardMsg = formattedRfid10
+        ? ` (Karta ${formattedRfid10} -> ${syncedCount} ta ZKTeco qurilmasiga yozildi va ADMS navbatiga qo'shildi)`
+        : "";
       return sendJson(res, 200, {
         success: true,
-        message: id ? "Xodim ma'lumotlari va huquqlari yangilandi!" : "Yangi xodim muvaffaqiyatli qo'shildi!",
+        zkSync,
+        message: (id ? "Xodim ma'lumotlari va huquqlari yangilandi!" : "Yangi xodim muvaffaqiyatli qo'shildi!") + cardMsg,
+      });
+    }
+
+    if (pathname === "/fin-api/hr/crm-employee/card" && method === "POST") {
+      if (!access.isDirector) {
+        return sendJson(res, 403, { error: "Faqat Direktor xodim kartasini boshqara oladi" });
+      }
+      const body = await readJsonBody(req);
+      const employeeId = Number(body.employeeId);
+      const rawDigits = String(body.rfidCardNumber || "").replace(/\D/g, "").slice(0, 10);
+      const numericCard = rawDigits ? Number(rawDigits) : 0;
+      if (!employeeId || numericCard <= 0) {
+        return sendJson(res, 400, { error: "Xodimni tanlang va 10 xonali RFID karta raqamini kiriting" });
+      }
+      const formatted10 = String(numericCard).padStart(10, "0");
+      const empRes = await pgPool.query(`SELECT id, fullname FROM "Employee" WHERE id = $1 LIMIT 1`, [employeeId]);
+      const emp = empRes.rows[0];
+      if (!emp) return sendJson(res, 404, { error: "Xodim topilmadi" });
+
+      const deviceUserId = String(9500 + employeeId);
+      await pgPool.query(
+        `DELETE FROM "EmployeeCard" WHERE ("cardId" = $1 OR "cardNumber" = $2) AND "employeeId" <> $3`,
+        [deviceUserId, numericCard, employeeId]
+      ).catch(() => {});
+
+      const exRes = await pgPool.query(`SELECT id FROM "EmployeeCard" WHERE "employeeId" = $1 LIMIT 1`, [employeeId]);
+      if (exRes.rows[0]) {
+        await pgPool.query(
+          `UPDATE "EmployeeCard" SET "cardId" = $1, "cardNumber" = $2, "isActive" = true, "updatedAt" = NOW() WHERE "employeeId" = $3`,
+          [deviceUserId, numericCard, employeeId]
+        );
+      } else {
+        await pgPool.query(
+          `INSERT INTO "EmployeeCard" ("employeeId", "cardId", "cardNumber", "isActive", "createdAt", "updatedAt")
+           VALUES ($1, $2, $3, true, NOW(), NOW())`,
+          [employeeId, deviceUserId, numericCard]
+        );
+      }
+
+      await pgPool.query(
+        `UPDATE "StaffAccount" SET "rfidCardNumber" = $1, "updatedAt" = NOW() WHERE "crmEmployeeId" = $2`,
+        [formatted10, employeeId]
+      ).catch(() => {});
+
+      const zkSync = await syncStaffCardToZkteco({
+        staffId: employeeId,
+        fullName: emp.fullname,
+        cardNumber: formatted10,
+        deviceUserId: Number(deviceUserId),
+      });
+      const syncedCount = zkSync.filter((d) => d.ok).length;
+      return sendJson(res, 200, {
+        success: true,
+        zkSync,
+        message: `${emp.fullname} uchun ${formatted10} kartasi saqlandi va ${syncedCount} ta ZKTeco qurilmasiga sinxronlandi!`,
       });
     }
 

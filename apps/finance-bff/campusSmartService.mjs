@@ -1281,24 +1281,42 @@ export async function buildCampusSmartAnalytics(pgPool, { date: reqDate, month: 
       alerts: canteenAlertsRes.rows,
       recentLiveScans: (
         await pgPool.query(
-          `SELECT
-             m.id,
-             'CANTEEN' AS "deviceType",
-             m."studentId",
-             COALESCE(s.fullname, m."studentName") AS "studentName",
-             s.photo,
-             COALESCE(g.name, 'Guruhsiz') AS "group",
-             COALESCE(r.name, '-') AS "room",
-             m."cardId",
-             m."mealType"::text AS "eventType",
-             TO_CHAR(m."timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD') AS "date",
-             TO_CHAR(m."timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'HH24:MI:SS') AS "time",
-             m."timestamp"
-           FROM "MealRecord" m
-           LEFT JOIN "Student" s ON s.id = m."studentId"
-           LEFT JOIN "Group" g ON g.id = s."groupId"
-           LEFT JOIN "Room" r ON r.id = s."roomId"
-           ORDER BY m."timestamp" DESC
+          `SELECT * FROM (
+             SELECT
+               m.id,
+               'CANTEEN' AS "deviceType",
+               m."studentId",
+               COALESCE(s.fullname, m."studentName") AS "studentName",
+               s.photo,
+               COALESCE(g.name, 'Guruhsiz') AS "group",
+               COALESCE(r.name, '-') AS "room",
+               m."cardId",
+               m."mealType"::text AS "eventType",
+               TO_CHAR(m."timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD') AS "date",
+               TO_CHAR(m."timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'HH24:MI:SS') AS "time",
+               m."timestamp"
+             FROM "MealRecord" m
+             LEFT JOIN "Student" s ON s.id = m."studentId"
+             LEFT JOIN "Group" g ON g.id = s."groupId"
+             LEFT JOIN "Room" r ON r.id = s."roomId"
+             UNION ALL
+             SELECT
+               em.id + 1000000 AS id,
+               'CANTEEN' AS "deviceType",
+               em."employeeId" AS "studentId",
+               COALESCE(e.fullname, em."employeeName") || ' (Xodim)' AS "studentName",
+               e."profilePicture" AS photo,
+               'Xodim: ' || COALESCE(e.position, 'Xizmat') AS "group",
+               'Xodimlar' AS "room",
+               em."cardId",
+               em."mealType"::text AS "eventType",
+               TO_CHAR(em."timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD') AS "date",
+               TO_CHAR(em."timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'HH24:MI:SS') AS "time",
+               em."timestamp"
+             FROM "EmployeeMealRecord" em
+             LEFT JOIN "Employee" e ON e.id = em."employeeId"
+           ) combined_meals
+           ORDER BY "timestamp" DESC
            LIMIT 35`
         )
       ).rows,
@@ -1571,44 +1589,177 @@ function withZkTimeout(promise, ms, zk) {
   });
 }
 
-export async function syncStudentCardToZkteco({ studentId, studentName, cardId, cardNumber }) {
-  const rawCard = String(cardNumber || cardId || "").replace(/\D/g, "");
+function resolveDeviceUidForCard(existingUsers, { preferredUid, userId, numericCard }) {
+  const strUserId = String(userId || "").trim();
+  // 1. Check if this exact cardno already exists on the device
+  if (numericCard > 0) {
+    const byCard = existingUsers.find((u) => Number(u.cardno) === numericCard);
+    if (byCard && Number(byCard.uid) > 0) {
+      return { uid: Number(byCard.uid), userId: String(byCard.userId || strUserId || byCard.uid) };
+    }
+  }
+  // 2. Check if this userId already exists on the device
+  if (strUserId) {
+    const byUserId = existingUsers.find((u) => String(u.userId) === strUserId);
+    if (byUserId && Number(byUserId.uid) > 0) {
+      return { uid: Number(byUserId.uid), userId: strUserId };
+    }
+  }
+  // 3. Otherwise pick preferredUid if unused, or maxUid + 1
+  const usedUids = new Set(existingUsers.map((u) => Number(u.uid)).filter((n) => n > 0));
+  let safePref = Math.max(1, Math.min(65000, Number(preferredUid) || 1));
+  if (!usedUids.has(safePref)) {
+    return { uid: safePref, userId: strUserId || String(safePref) };
+  }
+  let maxUid = 0;
+  for (const u of usedUids) {
+    if (u > maxUid && u < 65000) maxUid = u;
+  }
+  const nextUid = Math.min(65534, maxUid + 1);
+  return { uid: nextUid, userId: strUserId || String(nextUid) };
+}
+
+async function queueAdmsUserSync({ userId, name, cardno }) {
+  if (!cardno || Number(cardno) <= 0) return;
+  try {
+    await fetch("http://127.0.0.1:8081/api/zkteco/add-user", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId: String(userId),
+        name: String(name || "").slice(0, 23),
+        cardno: Number(cardno),
+      }),
+      signal: AbortSignal.timeout(1500),
+    });
+  } catch {}
+}
+
+export async function syncCardToZktecoDevices({ preferredUid, userId, name, cardNumber, role = 0 }) {
+  const rawCard = String(cardNumber || "").replace(/\D/g, "");
   const numericCard = Number(rawCard) || 0;
-  const uid = Number(studentId) || 1;
-  const userBuf = buildZkUserBuffer72({
-    uid,
-    userId: String(uid),
-    name: studentName || `Student ${uid}`,
-    cardno: numericCard,
-  });
+  const cleanUserId = String(userId || preferredUid || 1).trim();
+  const cleanName = String(name || `User ${cleanUserId}`).trim();
+
+  await queueAdmsUserSync({ userId: cleanUserId, name: cleanName, cardno: numericCard });
 
   const results = [];
   for (const dev of ZKTECO_DEVICES) {
-    const zk = new ZKLibTCP(dev.ip, dev.port, 2500);
+    const zk = new ZKLibTCP(dev.ip, dev.port, 3000);
     try {
+      let assignedSlot = null;
       await withZkTimeout((async () => {
         await connectZkWithAuth(zk, dev.commKey);
+        let existingUsers = [];
+        try {
+          const uResp = await zk.getUsers();
+          existingUsers = uResp?.data || [];
+        } catch {}
+        const resolved = resolveDeviceUidForCard(existingUsers, {
+          preferredUid: Number(preferredUid) || 1,
+          userId: cleanUserId,
+          numericCard,
+        });
+        assignedSlot = resolved;
+        const userBuf = buildZkUserBuffer72({
+          uid: resolved.uid,
+          userId: resolved.userId,
+          name: cleanName,
+          cardno: numericCard,
+          role,
+        });
         await zk.executeCmd(8, userBuf); // CMD_USER_WRQ = 8
         await zk.executeCmd(1013, "");   // CMD_REFRESHDATA = 1013
         await zk.disconnect();
-      })(), 3500, zk);
-      results.push({ device: dev.name, ok: true });
+      })(), 4500, zk);
+      results.push({ device: dev.name, ok: true, uid: assignedSlot?.uid, userId: assignedSlot?.userId, cardno: numericCard });
     } catch (err) {
       try { zk?.socket?.destroy(); } catch {}
-      results.push({ device: dev.name, ok: false, error: err.message });
+      results.push({ device: dev.name, ok: false, error: err.message, queuedInAdms: true });
     }
   }
   return results;
 }
 
+export async function syncStudentCardToZkteco({ studentId, studentName, cardId, cardNumber }) {
+  const rawCard = String(cardNumber || cardId || "").replace(/\D/g, "");
+  return syncCardToZktecoDevices({
+    preferredUid: Number(studentId) || 1,
+    userId: String(studentId || cardId),
+    name: studentName || `Student ${studentId}`,
+    cardNumber: rawCard,
+    role: 0,
+  });
+}
+
+export async function syncStaffCardToZkteco({ staffId, fullName, cardNumber, deviceUserId }) {
+  const rawCard = String(cardNumber || "").replace(/\D/g, "");
+  const staffUid = Number(deviceUserId) || (9000 + (Number(staffId) || 1));
+  return syncCardToZktecoDevices({
+    preferredUid: staffUid,
+    userId: String(staffUid),
+    name: fullName || `Xodim ${staffId}`,
+    cardNumber: rawCard,
+    role: 0,
+  });
+}
+
 export async function syncAllCardsToZkteco(pgPool) {
-  const res = await pgPool.query(
+  const stRes = await pgPool.query(
     `SELECT sc."studentId", sc."cardId", sc."cardNumber", s.fullname
      FROM "StudentCard" sc
      JOIN "Student" s ON s.id = sc."studentId"
      WHERE sc."isActive" = true AND s."isDeleted" = false`
   );
-  const cards = res.rows || [];
+  const staffRes = await pgPool.query(
+    `SELECT id AS "staffId", "fullName", "rfidCardNumber", COALESCE("zktecoUid", 9000 + id) AS "zktecoUid"
+     FROM "StaffAccount"
+     WHERE "isDeleted" = false AND "isActive" = true
+       AND "rfidCardNumber" IS NOT NULL AND TRIM("rfidCardNumber") <> ''`
+  );
+  const empCardRes = await pgPool.query(
+    `SELECT ec."employeeId", ec."cardId", ec."cardNumber", e.fullname
+     FROM "EmployeeCard" ec
+     JOIN "Employee" e ON e.id = ec."employeeId"
+     WHERE ec."isActive" = true AND e."isDeleted" = false`
+  );
+
+  const itemsToSync = [];
+  for (const c of stRes.rows || []) {
+    const rawCard = String(c.cardNumber || c.cardId || "").replace(/\D/g, "");
+    if (!rawCard) continue;
+    itemsToSync.push({
+      preferredUid: Number(c.studentId),
+      userId: String(c.studentId),
+      name: c.fullname || `Student ${c.studentId}`,
+      numericCard: Number(rawCard) || 0,
+    });
+  }
+  const seenStaffCards = new Set();
+  for (const s of staffRes.rows || []) {
+    const rawCard = String(s.rfidCardNumber || "").replace(/\D/g, "");
+    const numCard = Number(rawCard) || 0;
+    if (!numCard) continue;
+    seenStaffCards.add(numCard);
+    itemsToSync.push({
+      preferredUid: Number(s.zktecoUid) || (9000 + Number(s.staffId)),
+      userId: String(s.zktecoUid || (9000 + Number(s.staffId))),
+      name: s.fullName || `Xodim ${s.staffId}`,
+      numericCard: numCard,
+    });
+  }
+  for (const ec of empCardRes.rows || []) {
+    const rawCard = String(ec.cardNumber || ec.cardId || "").replace(/\D/g, "");
+    const numCard = Number(rawCard) || 0;
+    if (!numCard || seenStaffCards.has(numCard)) continue;
+    itemsToSync.push({
+      preferredUid: 9500 + Number(ec.employeeId),
+      userId: String(ec.cardId || (9500 + Number(ec.employeeId))),
+      name: ec.fullname || `Xodim ${ec.employeeId}`,
+      numericCard: numCard,
+    });
+  }
+
   const summary = [];
   for (const dev of ZKTECO_DEVICES) {
     const zk = new ZKLibTCP(dev.ip, dev.port, 4000);
@@ -1616,27 +1767,60 @@ export async function syncAllCardsToZkteco(pgPool) {
     try {
       await withZkTimeout((async () => {
         await connectZkWithAuth(zk, dev.commKey);
-        for (const c of cards) {
-          const rawCard = String(c.cardNumber || c.cardId || "").replace(/\D/g, "");
+        let existingUsers = [];
+        try {
+          const uResp = await zk.getUsers();
+          existingUsers = uResp?.data || [];
+        } catch {}
+        for (const item of itemsToSync) {
+          const resolved = resolveDeviceUidForCard(existingUsers, {
+            preferredUid: item.preferredUid,
+            userId: item.userId,
+            numericCard: item.numericCard,
+          });
+          const cleanName = String(item.name || "")
+            .normalize("NFKD")
+            .replace(/[^\x20-\x7E]/g, "")
+            .trim()
+            .slice(0, 23);
+          const existingIdx = existingUsers.findIndex((u) => Number(u.uid) === resolved.uid);
+          const cur = existingIdx >= 0 ? existingUsers[existingIdx] : null;
+          if (
+            cur &&
+            Number(cur.cardno) === Number(item.numericCard) &&
+            String(cur.userId) === String(resolved.userId) &&
+            String(cur.name || "").trim() === cleanName
+          ) {
+            synced++;
+            continue;
+          }
           const userBuf = buildZkUserBuffer72({
-            uid: Number(c.studentId),
-            userId: String(c.studentId),
-            name: c.fullname || `Student ${c.studentId}`,
-            cardno: Number(rawCard) || 0,
+            uid: resolved.uid,
+            userId: resolved.userId,
+            name: item.name,
+            cardno: item.numericCard,
           });
           await zk.executeCmd(8, userBuf);
+          const updatedEntry = { uid: resolved.uid, userId: resolved.userId, name: cleanName, cardno: item.numericCard };
+          if (existingIdx >= 0) existingUsers[existingIdx] = updatedEntry;
+          else existingUsers.push(updatedEntry);
           synced++;
         }
         await zk.executeCmd(1013, "");
         await zk.disconnect();
-      })(), 15000, zk);
+      })(), 45000, zk);
       summary.push({ device: dev.name, ok: true, synced });
     } catch (err) {
       try { zk?.socket?.destroy(); } catch {}
       summary.push({ device: dev.name, ok: false, synced, error: err.message });
     }
   }
-  return { totalCards: cards.length, devices: summary };
+  return {
+    totalCards: itemsToSync.length,
+    studentCardsCount: (stRes.rows || []).length,
+    staffCardsCount: itemsToSync.length - (stRes.rows || []).length,
+    devices: summary,
+  };
 }
 
 export async function fetchRecentZktecoCards(pgPool) {
@@ -1646,12 +1830,37 @@ export async function fetchRecentZktecoCards(pgPool) {
      LEFT JOIN "Student" s ON s.id = sc."studentId"
      WHERE sc."isActive" = true`
   );
+  const staffRes = await pgPool.query(
+    `SELECT id AS "staffId", "fullName", "rfidCardNumber", COALESCE("zktecoUid", 9000 + id) AS "zktecoUid"
+     FROM "StaffAccount"
+     WHERE "isDeleted" = false AND "rfidCardNumber" IS NOT NULL AND TRIM("rfidCardNumber") <> ''`
+  );
+
   const assignedByCard = new Map();
   const assignedByUid = new Map();
   for (const r of assignedRes.rows || []) {
-    if (r.cardId) assignedByCard.set(String(r.cardId), r);
-    if (r.cardNumber) assignedByCard.set(String(r.cardNumber), r);
-    if (r.studentId) assignedByUid.set(String(r.studentId), r);
+    const entry = { studentId: r.studentId, fullname: r.fullname, ownerType: "STUDENT" };
+    if (r.cardId) assignedByCard.set(String(r.cardId), entry);
+    if (r.cardNumber) {
+      assignedByCard.set(String(r.cardNumber), entry);
+      assignedByCard.set(String(r.cardNumber).padStart(10, "0"), entry);
+    }
+    if (r.studentId) assignedByUid.set(String(r.studentId), entry);
+  }
+  for (const s of staffRes.rows || []) {
+    const cleanNum = String(s.rfidCardNumber || "").replace(/\D/g, "");
+    const numVal = Number(cleanNum) || 0;
+    const entry = {
+      studentId: s.zktecoUid,
+      staffId: s.staffId,
+      fullname: `${s.fullName} (Xodim)`,
+      ownerType: "STAFF",
+    };
+    if (numVal > 0) {
+      assignedByCard.set(String(numVal), entry);
+      assignedByCard.set(String(numVal).padStart(10, "0"), entry);
+    }
+    if (s.zktecoUid) assignedByUid.set(String(s.zktecoUid), entry);
   }
 
   const deviceUsers = [];
@@ -1672,8 +1881,10 @@ export async function fetchRecentZktecoCards(pgPool) {
               userById.set(String(u.userId), u);
               if ((u.cardno && Number(u.cardno) > 0) || u.userId) {
                 const cardStr = u.cardno && Number(u.cardno) > 0 ? String(u.cardno) : "";
+                const card10 = cardStr ? cardStr.padStart(10, "0") : "";
                 const dbMatch =
                   (cardStr && assignedByCard.get(cardStr)) ||
+                  (card10 && assignedByCard.get(card10)) ||
                   assignedByCard.get(String(u.userId)) ||
                   assignedByUid.get(String(u.userId));
                 deviceUsers.push({
@@ -1682,6 +1893,8 @@ export async function fetchRecentZktecoCards(pgPool) {
                   userId: String(u.userId),
                   nameOnDevice: u.name || "",
                   cardNumber: cardStr || String(u.userId),
+                  cardNumber10: card10 || String(u.userId).padStart(10, "0"),
+                  ownerType: dbMatch?.ownerType || null,
                   studentId: dbMatch?.studentId || null,
                   studentName: dbMatch?.fullname || null,
                   assignedStudentId: dbMatch?.studentId || null,
@@ -1696,14 +1909,20 @@ export async function fetchRecentZktecoCards(pgPool) {
             for (const l of logs) {
               const u = userById.get(String(l.deviceUserId));
               const cardStr = u?.cardno ? String(u.cardno) : String(l.deviceUserId);
-              const dbMatch = assignedByCard.get(cardStr) || assignedByUid.get(String(l.deviceUserId));
+              const card10 = u?.cardno ? String(u.cardno).padStart(10, "0") : "";
+              const dbMatch =
+                assignedByCard.get(cardStr) ||
+                (card10 && assignedByCard.get(card10)) ||
+                assignedByUid.get(String(l.deviceUserId));
               recentLogs.push({
                 device: dev.name,
                 userId: String(l.deviceUserId),
                 deviceUserId: String(l.deviceUserId),
                 cardNumber: cardStr,
+                cardNumber10: card10 || cardStr.padStart(10, "0"),
                 nameOnDevice: u?.name || "",
                 recordTime: l.recordTime,
+                ownerType: dbMatch?.ownerType || null,
                 studentId: dbMatch?.studentId || null,
                 studentName: dbMatch?.fullname || null,
                 assignedStudentId: dbMatch?.studentId || null,
@@ -1741,23 +1960,60 @@ export async function pollKirishTurnstileLive(pgPool) {
   try {
     await connectZkWithAuth(zk, 0);
     const size = await zk.getAttendanceSize();
-    await zk.disconnect();
-
-    if (!Number.isFinite(size)) return;
+    if (!Number.isFinite(size)) {
+      await zk.disconnect();
+      return;
+    }
     if (_lastKirishSize === null) {
       _lastKirishSize = size;
+      await zk.disconnect();
       return;
     }
     if (size > _lastKirishSize) {
+      let lastDeviceUserId = null;
+      try {
+        const attResp = await zk.getAttendances();
+        const logs = attResp?.data || [];
+        if (logs.length > 0) {
+          lastDeviceUserId = String(logs[logs.length - 1].deviceUserId || "").trim();
+        }
+      } catch {}
+      await zk.disconnect();
       _lastKirishSize = size;
+
+      // Check if the card scanned at Kirish belongs to a Staff / Employee
+      if (lastDeviceUserId) {
+        const staffRes = await pgPool.query(
+          `SELECT s.id, s."fullName", s."rfidCardNumber"
+           FROM "StaffAccount" s
+           LEFT JOIN "EmployeeCard" ec ON ec."employeeId" = s."crmEmployeeId"
+           WHERE s."isDeleted" = false AND s."isActive" = true
+             AND (
+               COALESCE(s."zktecoUid", 9000 + s.id)::text = $1
+               OR REGEXP_REPLACE(COALESCE(s."rfidCardNumber", ), D, , g) = REGEXP_REPLACE($1, ^0+, )
+               OR ec."cardId" = $1
+               OR ec."cardNumber"::text = $1
+             )
+           LIMIT 1`,
+          [lastDeviceUserId]
+        );
+        if (staffRes.rows[0]) {
+          console.log(`[Kirish Turnstile] Xodim kartasi tasdiqlandi: ${staffRes.rows[0].fullName} (ID=${lastDeviceUserId})`);
+          return;
+        }
+      }
+
       const ist = getIstanbulParts(new Date());
       const isNight = ist.hour >= 22 || ist.hour < 5 || (ist.hour === 5 && ist.minute <= 30);
       if (isNight) {
-        console.log(`[Kirish Turnstile] Kechki kirish aniqlandi (size=${size}, vaqt=${ist.timeStr}) -> 4 ta rasm olinmoqda...`);
+        console.log(`[Kirish Turnstile] Kechki kirish aniqlandi (size=${size}, userId=${lastDeviceUserId}, vaqt=${ist.timeStr}) -> 4 ta rasm olinmoqda...`);
         await captureSixGatePhotos(pgPool, {
+          cardId: lastDeviceUserId || null,
           note: `Kirish eshigi turniketidan karta urildi (${ist.timeStr})`,
         });
       }
+    } else {
+      await zk.disconnect();
     }
   } catch {
     try { await zk.disconnect(); } catch {}
@@ -1779,7 +2035,7 @@ export async function pollOshxonaAndMasjidTurnstilesLive(pgPool, { forceFullScan
       { id: "mosque", type: "MOSQUE", ip: "192.168.1.172", port: 8082, commKey: 2026, clockOffsetHours: 0 },
     ];
 
-    // Load student cards mapping once
+    // Load student cards mapping
     const cardsRes = await pgPool.query(
       `SELECT sc."cardId", sc."cardNumber", sc."studentId", s.fullname
        FROM "StudentCard" sc
@@ -1788,9 +2044,65 @@ export async function pollOshxonaAndMasjidTurnstilesLive(pgPool, { forceFullScan
     );
     const mapByKey = new Map();
     for (const r of cardsRes.rows || []) {
-      if (r.cardId) mapByKey.set(String(r.cardId), r);
-      if (r.cardNumber) mapByKey.set(String(r.cardNumber), r);
-      if (r.studentId) mapByKey.set(String(r.studentId), r);
+      const entry = { ...r, isStaff: false };
+      if (r.cardId) mapByKey.set(String(r.cardId), entry);
+      if (r.cardNumber) {
+        mapByKey.set(String(r.cardNumber), entry);
+        mapByKey.set(String(r.cardNumber).padStart(10, "0"), entry);
+      }
+      if (r.studentId) mapByKey.set(String(r.studentId), entry);
+    }
+
+    // Load staff / employee cards mapping
+    const staffCardsRes = await pgPool.query(
+      `SELECT
+         s.id AS "staffId",
+         s."fullName" AS fullname,
+         s."rfidCardNumber",
+         COALESCE(s."zktecoUid", 9000 + s.id) AS "zktecoUid",
+         s."crmEmployeeId"
+       FROM "StaffAccount" s
+       WHERE s."isDeleted" = false AND s."isActive" = true
+         AND s."rfidCardNumber" IS NOT NULL AND TRIM(s."rfidCardNumber") <> ''`
+    );
+    for (const sr of staffCardsRes.rows || []) {
+      const cleanCard = String(sr.rfidCardNumber || "").replace(/\D/g, "");
+      const numCard = Number(cleanCard) || 0;
+      const entry = {
+        isStaff: true,
+        staffId: sr.staffId,
+        employeeId: sr.crmEmployeeId || null,
+        fullname: sr.fullName,
+        cardId: cleanCard ? cleanCard.padStart(10, "0") : String(sr.zktecoUid),
+        cardNumber: numCard,
+      };
+      mapByKey.set(String(sr.zktecoUid), entry);
+      if (numCard > 0) {
+        mapByKey.set(String(numCard), entry);
+        mapByKey.set(String(numCard).padStart(10, "0"), entry);
+      }
+    }
+
+    const empCardsRes = await pgPool.query(
+      `SELECT ec."employeeId", ec."cardId", ec."cardNumber", e.fullname
+       FROM "EmployeeCard" ec
+       JOIN "Employee" e ON e.id = ec."employeeId"
+       WHERE ec."isActive" = true AND e."isDeleted" = false`
+    );
+    for (const er of empCardsRes.rows || []) {
+      const entry = {
+        isStaff: true,
+        employeeId: er.employeeId,
+        fullname: er.fullname,
+        cardId: String(er.cardId || er.cardNumber || ""),
+        cardNumber: er.cardNumber,
+      };
+      if (er.cardId && !mapByKey.has(String(er.cardId))) mapByKey.set(String(er.cardId), entry);
+      if (er.cardNumber) {
+        if (!mapByKey.has(String(er.cardNumber))) mapByKey.set(String(er.cardNumber), entry);
+        const p10 = String(er.cardNumber).padStart(10, "0");
+        if (!mapByKey.has(p10)) mapByKey.set(p10, entry);
+      }
     }
 
     for (const dev of devicesToPoll) {
@@ -1809,14 +2121,23 @@ export async function pollOshxonaAndMasjidTurnstilesLive(pgPool, { forceFullScan
 
           const newCount = prevCount !== undefined ? Math.max(5, currentCount - prevCount + 5) : 30;
           const attResp = await zk.getAttendances();
+          let devUsersById = new Map();
+          try {
+            const uResp = await zk.getUsers();
+            for (const u of uResp?.data || []) {
+              devUsersById.set(String(u.userId), u);
+            }
+          } catch {}
           await zk.disconnect();
           _lastLogCountByDevice.set(dev.id, currentCount);
 
           const logs = (attResp?.data || []).slice(-newCount);
           for (const log of logs) {
             const devUserId = String(log.deviceUserId || "").trim();
-            const stMatch = mapByKey.get(devUserId);
-            if (!stMatch || !stMatch.studentId) continue;
+            const devUser = devUsersById.get(devUserId);
+            const devCardNo = devUser?.cardno ? String(devUser.cardno) : null;
+            const match = mapByKey.get(devUserId) || (devCardNo ? mapByKey.get(devCardNo) : null);
+            if (!match) continue;
 
             const rawDate = new Date(log.recordTime);
             if (isNaN(rawDate.getTime())) continue;
@@ -1834,21 +2155,43 @@ export async function pollOshxonaAndMasjidTurnstilesLive(pgPool, { forceFullScan
 
               if (!mealType) continue;
 
+              if (match.isStaff) {
+                if (!match.employeeId) continue;
+                const empExists = await pgPool.query(
+                  `SELECT id FROM "EmployeeMealRecord"
+                   WHERE "employeeId" = $1
+                     AND "mealType"::text = $2
+                     AND TO_CHAR("timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD') = $3
+                   LIMIT 1`,
+                  [match.employeeId, mealType, ist.dateStr]
+                );
+                if (empExists.rows.length === 0) {
+                  await pgPool.query(
+                    `INSERT INTO "EmployeeMealRecord" ("employeeId", "employeeName", "cardId", "mealType", "timestamp")
+                     VALUES ($1, $2, $3, $4::"MealType", $5)`,
+                    [match.employeeId, match.fullname, match.cardId || devUserId, mealType, adjustedUtc]
+                  );
+                  console.log(`[Live Turnstile Oshxona - Xodim] ${match.fullname} (${devUserId}) -> ${mealType} (${ist.dateStr} ${ist.timeSecStr})`);
+                }
+                continue;
+              }
+
+              if (!match.studentId) continue;
               const existsRes = await pgPool.query(
                 `SELECT id FROM "MealRecord"
                  WHERE "studentId" = $1
                    AND "mealType"::text = $2
                    AND TO_CHAR("timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD') = $3
                  LIMIT 1`,
-                [stMatch.studentId, mealType, ist.dateStr]
+                [match.studentId, mealType, ist.dateStr]
               );
               if (existsRes.rows.length === 0) {
                 await pgPool.query(
                   `INSERT INTO "MealRecord" ("studentId", "studentName", "cardId", "mealType", "timestamp")
                    VALUES ($1, $2, $3, $4::"MealType", $5)`,
-                  [stMatch.studentId, stMatch.fullname, stMatch.cardId || devUserId, mealType, adjustedUtc]
+                  [match.studentId, match.fullname, match.cardId || devUserId, mealType, adjustedUtc]
                 );
-                console.log(`[Live Turnstile Oshxona] ${stMatch.fullname} (${devUserId}) -> ${mealType} (${ist.dateStr} ${ist.timeSecStr})`);
+                console.log(`[Live Turnstile Oshxona] ${match.fullname} (${devUserId}) -> ${mealType} (${ist.dateStr} ${ist.timeSecStr})`);
               }
             } else if (dev.type === "MOSQUE") {
               const cfgRes = await pgPool.query(
@@ -1866,21 +2209,27 @@ export async function pollOshxonaAndMasjidTurnstilesLive(pgPool, { forceFullScan
               }
               if (!matchedPrayer) continue;
 
+              if (match.isStaff) {
+                console.log(`[Live Turnstile Masjid - Xodim] ${match.fullname} (${devUserId}) -> ${matchedPrayer} (${ist.dateStr} ${ist.timeSecStr})`);
+                continue;
+              }
+
+              if (!match.studentId) continue;
               const existsPrayer = await pgPool.query(
                 `SELECT id FROM "PrayerRecord"
                  WHERE "studentId" = $1
                    AND "prayerType"::text = $2
                    AND TO_CHAR("timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD') = $3
                  LIMIT 1`,
-                [stMatch.studentId, matchedPrayer, ist.dateStr]
+                [match.studentId, matchedPrayer, ist.dateStr]
               );
               if (existsPrayer.rows.length === 0) {
                 await pgPool.query(
                   `INSERT INTO "PrayerRecord" ("studentId", "studentName", "cardId", "prayerType", "timestamp")
                    VALUES ($1, $2, $3, $4::"PrayerType", $5)`,
-                  [stMatch.studentId, stMatch.fullname, stMatch.cardId || devUserId, matchedPrayer, adjustedUtc]
+                  [match.studentId, match.fullname, match.cardId || devUserId, matchedPrayer, adjustedUtc]
                 );
-                console.log(`[Live Turnstile Masjid] ${stMatch.fullname} (${devUserId}) -> ${matchedPrayer} (${ist.dateStr} ${ist.timeSecStr})`);
+                console.log(`[Live Turnstile Masjid] ${match.fullname} (${devUserId}) -> ${matchedPrayer} (${ist.dateStr} ${ist.timeSecStr})`);
               }
             }
           }
