@@ -355,7 +355,7 @@ const INITIAL_STAFF_SEEDS = [
     department: "Ayollar bo'limi",
     genderScope: "FEMALE",
     phone: "998903479600",
-    telegramId: "",
+    telegramId: "6824836524",
     tgUsername: "mezanamurojaat",
     allowedTabs: ["dashboard", "payments", "debtors", "expenses", "wallets", "students_dir", "groups_courses", "attendance", "discipline_rooms", "hr_tasks"],
     crmRole: "admin",
