@@ -712,7 +712,9 @@ export function UnifiedModules({
           s.iqomaNumber?.toLowerCase().includes(q) ||
           s.passportNumber?.toLowerCase().includes(q) ||
           s.studyPlace?.toLowerCase().includes(q) ||
-          s.roomNumber?.toLowerCase().includes(q);
+          s.roomNumber?.toLowerCase().includes(q) ||
+          String(s.card?.cardNumber || "").toLowerCase().includes(q) ||
+          String(s.card?.cardId || "").toLowerCase().includes(q);
         if (!match) return false;
       }
       return true;
@@ -1014,9 +1016,36 @@ export function UnifiedModules({
                           ) : (
                             <span className="badge badge-slate">Iqoma yo'q</span>
                           )}
-                          {(s.card?.cardNumber || s.card?.cardId) && (
-                            <span className={`badge ${s.card.isActive ? "badge-emerald" : "badge-rose"}`} style={{ fontFamily: "monospace", letterSpacing: 0.4 }}>
-                              💳 {s.card.cardNumber ? String(s.card.cardNumber).padStart(10, "0") : (/^\d+$/.test(String(s.card.cardId)) ? String(s.card.cardId).padStart(10, "0") : s.card.cardId)}
+                          {(s.card?.cardNumber || s.card?.cardId) ? (
+                            <span
+                              className={`badge ${s.card.isActive ? "badge-emerald" : "badge-rose"}`}
+                              style={{ fontFamily: "monospace", letterSpacing: 0.4, cursor: "pointer" }}
+                              title="Kartani ko'rish yoki yo'qolgan kartani yangisiga almashtirish uchun bosing"
+                              onClick={() => {
+                                setStudentDetailModal(s);
+                                const c10 = s.card?.cardNumber ? String(s.card.cardNumber).padStart(10, "0") : (s.card?.cardId && /^\d+$/.test(String(s.card.cardId)) ? String(s.card.cardId).padStart(10, "0") : "");
+                                setCardForm({ cardId: c10, cardNumber: c10 });
+                                setZkRecentCards([]);
+                                setContractEditVal(String(s.totalPayment || 0));
+                                setCommentText("");
+                              }}
+                            >
+                              ?? {s.card.cardNumber ? String(s.card.cardNumber).padStart(10, "0") : (/^\d+$/.test(String(s.card.cardId)) ? String(s.card.cardId).padStart(10, "0") : s.card.cardId)}
+                            </span>
+                          ) : (
+                            <span
+                              className="badge badge-slate"
+                              style={{ cursor: "pointer" }}
+                              title="Yangi 10 xonali RFID karta biriktirish uchun bosing"
+                              onClick={() => {
+                                setStudentDetailModal(s);
+                                setCardForm({ cardId: "", cardNumber: "" });
+                                setZkRecentCards([]);
+                                setContractEditVal(String(s.totalPayment || 0));
+                                setCommentText("");
+                              }}
+                            >
+                              + Karta biriktirish
                             </span>
                           )}
                           {(s.comments || []).length > 0 && (
@@ -1224,6 +1253,7 @@ export function UnifiedModules({
                         hasIqoma: Boolean(s.hasIqoma),
                         iqomaNumber: s.iqomaNumber || "",
                         iqomaExpiryDate: s.iqomaExpiryDate ? String(s.iqomaExpiryDate).slice(0, 10) : "",
+                        rfidCardNumber: s.card?.cardNumber ? String(s.card.cardNumber).padStart(10, "0") : (s.card?.cardId && /^\d+$/.test(String(s.card.cardId)) ? String(s.card.cardId).padStart(10, "0") : ""),
                       });
                     }}
                   >
@@ -1431,7 +1461,11 @@ export function UnifiedModules({
                   style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "end" }}
                 >
                   <div>
-                    <label>10 xonali RFID karta raqami (karta ustidagi 10 ta raqam, masalan: 0002655124)</label>
+                    <label>
+                      {studentDetailModal.card
+                        ? "Yangi yoki almashtirilayotgan 10 xonali RFID karta ID (karta yo'qolgan bo'lsa yangi 10 xonali raqamni yozing)"
+                        : "10 xonali RFID karta raqami (karta ustidagi 10 ta raqam, masalan: 0002655124)"}
+                    </label>
                     <input
                       className="input"
                       maxLength={10}
@@ -1452,9 +1486,22 @@ export function UnifiedModules({
                       required
                     />
                   </div>
-                  <button type="submit" className="btn btn-primary" style={{ height: 38, whiteSpace: "nowrap" }}>
-                    💾 {studentDetailModal.card ? "Kartani yangilash + 3 ta ZKTeco" : "Karta biriktirish + 3 ta ZKTeco"}
-                  </button>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    {studentDetailModal.card && (
+                      <button
+                        type="button"
+                        className="btn"
+                        style={{ height: 38, whiteSpace: "nowrap" }}
+                        onClick={() => setCardForm({ cardId: "", cardNumber: "" })}
+                        title="Maydonni tozalab, yangi karta raqamini kiritish"
+                      >
+                        ?? Boshqa karta kiritish
+                      </button>
+                    )}
+                    <button type="submit" className="btn btn-primary" style={{ height: 38, whiteSpace: "nowrap" }}>
+                      ?? {studentDetailModal.card ? "Yangi kartaga almashtirish + 3 ta ZKTeco" : "Karta biriktirish + 3 ta ZKTeco"}
+                    </button>
+                  </div>
                 </form>
               </div>
 

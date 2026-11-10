@@ -705,7 +705,7 @@ export async function buildCampusSmartAnalytics(pgPool, { date: reqDate, month: 
   // 1. Active students
   const stRes = await pgPool.query(
     `SELECT s.id, s.fullname, COALESCE(g.name, 'Guruhsiz') AS "group", COALESCE(s."roomNumber", '—') AS room, s.phone, s."profilePicture" AS photo,
-            sc."cardId", sc."cardNumber"
+            COALESCE(LPAD(NULLIF(sc."cardNumber"::text, ''), 10, '0'), sc."cardId") AS "cardId", sc."cardNumber"
      FROM "Student" s
      LEFT JOIN "Group" g ON g.id = s."groupId"
      LEFT JOIN "StudentCard" sc ON sc."studentId" = s.id AND sc."isActive" = true
@@ -717,7 +717,7 @@ export async function buildCampusSmartAnalytics(pgPool, { date: reqDate, month: 
 
   // 2. Available dates in MealRecord / PrayerRecord
   const datesRes = await pgPool.query(
-    `SELECT DISTINCT TO_CHAR("timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD') AS d
+    `SELECT DISTINCT TO_CHAR("timestamp", 'YYYY-MM-DD') AS d
      FROM "MealRecord"
      ORDER BY d DESC`
   );
@@ -746,14 +746,14 @@ export async function buildCampusSmartAnalytics(pgPool, { date: reqDate, month: 
        "cardId",
        "mealType"::text AS "mealType",
        "timestamp",
-       TO_CHAR("timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD') AS d,
-       TO_CHAR("timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'HH24:MI') AS t,
-       EXTRACT(HOUR FROM ("timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul'))::int AS hr
+       TO_CHAR("timestamp", 'YYYY-MM-DD') AS d,
+       TO_CHAR("timestamp", 'HH24:MI') AS t,
+       EXTRACT(HOUR FROM "timestamp")::int AS hr
      FROM "MealRecord"
-     WHERE TO_CHAR("timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM') = $1
+     WHERE TO_CHAR("timestamp", 'YYYY-MM') = $1
         OR (
-          ("timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul')::date >= ($2::date - INTERVAL '7 days')
-          AND ("timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul')::date <= $2::date
+          "timestamp"::date >= ($2::date - INTERVAL '7 days')
+          AND "timestamp"::date <= $2::date
         )
      ORDER BY "timestamp" ASC`,
     [selectedMonth, selectedDate]
@@ -1028,11 +1028,11 @@ export async function buildCampusSmartAnalytics(pgPool, { date: reqDate, month: 
        "cardId",
        "prayerType"::text AS "prayerType",
        "timestamp",
-       TO_CHAR("timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD') AS d,
-       TO_CHAR("timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'HH24:MI') AS t
+       TO_CHAR("timestamp", 'YYYY-MM-DD') AS d,
+       TO_CHAR("timestamp", 'HH24:MI') AS t
      FROM "PrayerRecord"
-     WHERE TO_CHAR("timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM') = $1
-        OR TO_CHAR("timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD') = $2
+     WHERE TO_CHAR("timestamp", 'YYYY-MM') = $1
+        OR TO_CHAR("timestamp", 'YYYY-MM-DD') = $2
      ORDER BY "timestamp" ASC`,
     [selectedMonth, selectedDate]
   );
@@ -1290,14 +1290,15 @@ export async function buildCampusSmartAnalytics(pgPool, { date: reqDate, month: 
                s."profilePicture" AS photo,
                COALESCE(g.name, 'Guruhsiz') AS "group",
                COALESCE(s."roomNumber", '-') AS "room",
-               m."cardId",
+               COALESCE(LPAD(NULLIF(sc."cardNumber"::text, ''), 10, '0'), m."cardId") AS "cardId",
                m."mealType"::text AS "eventType",
-               TO_CHAR(m."timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD') AS "date",
-               TO_CHAR(m."timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'HH24:MI:SS') AS "time",
+               TO_CHAR(m."timestamp", 'YYYY-MM-DD') AS "date",
+               TO_CHAR(m."timestamp", 'HH24:MI:SS') AS "time",
                m."timestamp"
              FROM "MealRecord" m
              LEFT JOIN "Student" s ON s.id = m."studentId"
              LEFT JOIN "Group" g ON g.id = s."groupId"
+             LEFT JOIN "StudentCard" sc ON sc."studentId" = m."studentId" AND sc."isActive" = true
              UNION ALL
              SELECT
                em.id + 1000000 AS id,
@@ -1309,8 +1310,8 @@ export async function buildCampusSmartAnalytics(pgPool, { date: reqDate, month: 
                'Xodimlar' AS "room",
                em."cardId",
                em."mealType"::text AS "eventType",
-               TO_CHAR(em."timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD') AS "date",
-               TO_CHAR(em."timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'HH24:MI:SS') AS "time",
+               TO_CHAR(em."timestamp", 'YYYY-MM-DD') AS "date",
+               TO_CHAR(em."timestamp", 'HH24:MI:SS') AS "time",
                em."timestamp"
              FROM "EmployeeMealRecord" em
              LEFT JOIN "Employee" e ON e.id = em."employeeId"
@@ -1340,14 +1341,15 @@ export async function buildCampusSmartAnalytics(pgPool, { date: reqDate, month: 
              s."profilePicture" AS photo,
              COALESCE(g.name, 'Guruhsiz') AS "group",
              COALESCE(s."roomNumber", '-') AS "room",
-             p."cardId",
+             COALESCE(LPAD(NULLIF(sc."cardNumber"::text, ''), 10, '0'), p."cardId") AS "cardId",
              p."prayerType"::text AS "eventType",
-             TO_CHAR(p."timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD') AS "date",
-             TO_CHAR(p."timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'HH24:MI:SS') AS "time",
+             TO_CHAR(p."timestamp", 'YYYY-MM-DD') AS "date",
+             TO_CHAR(p."timestamp", 'HH24:MI:SS') AS "time",
              p."timestamp"
            FROM "PrayerRecord" p
            LEFT JOIN "Student" s ON s.id = p."studentId"
            LEFT JOIN "Group" g ON g.id = s."groupId"
+           LEFT JOIN "StudentCard" sc ON sc."studentId" = p."studentId" AND sc."isActive" = true
            ORDER BY p."timestamp" DESC
            LIMIT 35`
         )
@@ -1587,20 +1589,34 @@ function withZkTimeout(promise, ms, zk) {
   });
 }
 
-function resolveDeviceUidForCard(existingUsers, { preferredUid, userId, numericCard }) {
+function resolveDeviceUidForCard(existingUsers, { preferredUid, userId, oldUserId, numericCard, oldNumericCard }) {
   const strUserId = String(userId || "").trim();
-  // 1. Check if this exact cardno already exists on the device
-  if (numericCard > 0) {
-    const byCard = existingUsers.find((u) => Number(u.cardno) === numericCard);
-    if (byCard && Number(byCard.uid) > 0) {
-      return { uid: Number(byCard.uid), userId: String(byCard.userId || strUserId || byCard.uid) };
-    }
-  }
-  // 2. Check if this userId already exists on the device
+  const strOldUserId = String(oldUserId || "").trim();
+  // 1. Check if this userId or oldUserId already exists on the device (prefer updating existing student slot in-place!)
   if (strUserId) {
     const byUserId = existingUsers.find((u) => String(u.userId) === strUserId);
     if (byUserId && Number(byUserId.uid) > 0) {
       return { uid: Number(byUserId.uid), userId: strUserId };
+    }
+  }
+  if (strOldUserId) {
+    const byOldUserId = existingUsers.find((u) => String(u.userId) === strOldUserId);
+    if (byOldUserId && Number(byOldUserId.uid) > 0) {
+      return { uid: Number(byOldUserId.uid), userId: String(byOldUserId.userId || strOldUserId) };
+    }
+  }
+  // 2. Check if oldNumericCard (lost card being replaced) exists on the device
+  if (oldNumericCard > 0) {
+    const byOldCard = existingUsers.find((u) => Number(u.cardno) === oldNumericCard);
+    if (byOldCard && Number(byOldCard.uid) > 0) {
+      return { uid: Number(byOldCard.uid), userId: String(byOldCard.userId || strUserId || byOldCard.uid) };
+    }
+  }
+  // 3. Check if this exact cardno already exists on the device
+  if (numericCard > 0) {
+    const byCard = existingUsers.find((u) => Number(u.cardno) === numericCard);
+    if (byCard && Number(byCard.uid) > 0) {
+      return { uid: Number(byCard.uid), userId: String(byCard.userId || strUserId || byCard.uid) };
     }
   }
   // 3. Otherwise pick preferredUid if unused, or maxUid + 1
@@ -1633,10 +1649,13 @@ async function queueAdmsUserSync({ userId, name, cardno }) {
   } catch {}
 }
 
-export async function syncCardToZktecoDevices({ preferredUid, userId, name, cardNumber, role = 0 }) {
+export async function syncCardToZktecoDevices({ preferredUid, userId, oldUserId = "", name, cardNumber, oldCardNumber = "", role = 0 }) {
   const rawCard = String(cardNumber || "").replace(/\D/g, "");
   const numericCard = Number(rawCard) || 0;
+  const rawOldCard = String(oldCardNumber || "").replace(/\D/g, "");
+  const oldNumericCard = Number(rawOldCard) || 0;
   const cleanUserId = String(userId || preferredUid || 1).trim();
+  const cleanOldUserId = String(oldUserId || "").trim();
   const cleanName = String(name || `User ${cleanUserId}`).trim();
 
   await queueAdmsUserSync({ userId: cleanUserId, name: cleanName, cardno: numericCard });
@@ -1656,9 +1675,28 @@ export async function syncCardToZktecoDevices({ preferredUid, userId, name, card
         const resolved = resolveDeviceUidForCard(existingUsers, {
           preferredUid: Number(preferredUid) || 1,
           userId: cleanUserId,
+          oldUserId: cleanOldUserId,
           numericCard,
+          oldNumericCard,
         });
         assignedSlot = resolved;
+        // If replacing a lost card, zero out cardno on any other slot that still holds oldNumericCard
+        if (oldNumericCard > 0 && oldNumericCard !== numericCard) {
+          for (const u of existingUsers) {
+            if (Number(u.cardno) === oldNumericCard && Number(u.uid) !== Number(resolved.uid)) {
+              try {
+                const clearBuf = buildZkUserBuffer72({
+                  uid: Number(u.uid),
+                  userId: String(u.userId || u.uid),
+                  name: String(u.name || "").trim(),
+                  cardno: 0,
+                  role: Number(u.role) || 0,
+                });
+                await zk.executeCmd(8, clearBuf);
+              } catch {}
+            }
+          }
+        }
         const userBuf = buildZkUserBuffer72({
           uid: resolved.uid,
           userId: resolved.userId,
@@ -1679,13 +1717,15 @@ export async function syncCardToZktecoDevices({ preferredUid, userId, name, card
   return results;
 }
 
-export async function syncStudentCardToZkteco({ studentId, studentName, cardId, cardNumber }) {
+export async function syncStudentCardToZkteco({ studentId, studentName, cardId, cardNumber, oldCardId = "", oldCardNumber = "" }) {
   const rawCard = String(cardNumber || cardId || "").replace(/\D/g, "");
   return syncCardToZktecoDevices({
     preferredUid: Number(studentId) || 1,
-    userId: String(studentId || cardId),
+    userId: String(cardId || oldCardId || studentId),
+    oldUserId: String(oldCardId || studentId || ""),
     name: studentName || `Student ${studentId}`,
     cardNumber: rawCard,
+    oldCardNumber: String(oldCardNumber || ""),
     role: 0,
   });
 }
@@ -2042,7 +2082,8 @@ export async function pollOshxonaAndMasjidTurnstilesLive(pgPool, { forceFullScan
     );
     const mapByKey = new Map();
     for (const r of cardsRes.rows || []) {
-      const entry = { ...r, isStaff: false };
+      const fullCardId = r.cardNumber ? String(r.cardNumber).padStart(10, "0") : String(r.cardId || "");
+      const entry = { ...r, cardId: fullCardId, zktecoPin: r.cardId, isStaff: false };
       if (r.cardId) mapByKey.set(String(r.cardId), entry);
       if (r.cardNumber) {
         mapByKey.set(String(r.cardNumber), entry);
@@ -2159,7 +2200,7 @@ export async function pollOshxonaAndMasjidTurnstilesLive(pgPool, { forceFullScan
                   `SELECT id FROM "EmployeeMealRecord"
                    WHERE "employeeId" = $1
                      AND "mealType"::text = $2
-                     AND TO_CHAR("timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD') = $3
+                     AND TO_CHAR("timestamp", 'YYYY-MM-DD') = $3
                    LIMIT 1`,
                   [match.employeeId, mealType, ist.dateStr]
                 );
@@ -2179,7 +2220,7 @@ export async function pollOshxonaAndMasjidTurnstilesLive(pgPool, { forceFullScan
                 `SELECT id FROM "MealRecord"
                  WHERE "studentId" = $1
                    AND "mealType"::text = $2
-                   AND TO_CHAR("timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD') = $3
+                   AND TO_CHAR("timestamp", 'YYYY-MM-DD') = $3
                  LIMIT 1`,
                 [match.studentId, mealType, ist.dateStr]
               );
@@ -2217,7 +2258,7 @@ export async function pollOshxonaAndMasjidTurnstilesLive(pgPool, { forceFullScan
                 `SELECT id FROM "PrayerRecord"
                  WHERE "studentId" = $1
                    AND "prayerType"::text = $2
-                   AND TO_CHAR("timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD') = $3
+                   AND TO_CHAR("timestamp", 'YYYY-MM-DD') = $3
                  LIMIT 1`,
                 [match.studentId, matchedPrayer, ist.dateStr]
               );

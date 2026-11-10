@@ -5348,7 +5348,7 @@ MUHIM QOIDALAR:
 
       const allCards = (await queryPgJson(
         crmEnv.DATABASE_URL,
-        `SELECT id, "studentId"::text AS "studentId", "cardId", "cardNumber", "studentName", "isActive", "createdAt" FROM "StudentCard" ORDER BY id DESC`
+        `SELECT id, "studentId"::text AS "studentId", COALESCE(LPAD(NULLIF("cardNumber"::text, ''), 10, '0'), "cardId") AS "cardId", "cardId" AS "zktecoPin", COALESCE(LPAD(NULLIF("cardNumber"::text, ''), 10, '0'), "cardId") AS "cardNumber", "studentName", "isActive", "createdAt" FROM "StudentCard" ORDER BY id DESC`
       ));
       const cardByStudent = new Map();
       for (const c of allCards) cardByStudent.set(String(c.studentId), c);
@@ -6490,22 +6490,25 @@ MUHIM QOIDALAR:
         `DELETE FROM "StudentCard" WHERE ("cardId" = ${sqlStr(cardId)} OR (${cardNumber ?? "NULL"} IS NOT NULL AND "cardNumber" = ${cardNumber ?? "NULL"})) AND "studentId" <> ${studentId};`
       );
 
-      const existing = (await queryPgJson(crmEnv.DATABASE_URL, `SELECT id FROM "StudentCard" WHERE "studentId" = ${studentId} LIMIT 1`));
+      const existing = (await queryPgJson(crmEnv.DATABASE_URL, `SELECT id, "cardId", "cardNumber" FROM "StudentCard" WHERE "studentId" = ${studentId} LIMIT 1`));
+      const oldCardId = existing[0]?.cardId ? String(existing[0].cardId) : "";
+      const oldCardNumber = existing[0]?.cardNumber ? String(existing[0].cardNumber) : "";
+      const preservedPin = (oldCardId && oldCardId.length < 8) ? oldCardId : cardId;
       if (existing.length > 0) {
         await execPgSql(
           crmEnv.DATABASE_URL,
-          `UPDATE "StudentCard" SET "cardId" = ${sqlStr(cardId)}, "cardNumber" = ${cardNumber ?? "NULL"}, "studentName" = ${sqlStr(studentName)}, "isActive" = true, "updatedAt" = NOW() WHERE "studentId" = ${studentId};`
+          `UPDATE "StudentCard" SET "cardId" = ${sqlStr(preservedPin)}, "cardNumber" = ${cardNumber ?? "NULL"}, "studentName" = ${sqlStr(studentName)}, "isActive" = true, "updatedAt" = NOW() WHERE "studentId" = ${studentId};`
         );
       } else {
         await execPgSql(
           crmEnv.DATABASE_URL,
-          `INSERT INTO "StudentCard" ("studentId", "cardId", "cardNumber", "studentName", "isActive", "createdAt", "updatedAt") VALUES (${studentId}, ${sqlStr(cardId)}, ${cardNumber ?? "NULL"}, ${sqlStr(studentName)}, true, NOW(), NOW());`
+          `INSERT INTO "StudentCard" ("studentId", "cardId", "cardNumber", "studentName", "isActive", "createdAt", "updatedAt") VALUES (${studentId}, ${sqlStr(preservedPin)}, ${cardNumber ?? "NULL"}, ${sqlStr(studentName)}, true, NOW(), NOW());`
         );
       }
 
       let zkSync = [];
       try {
-        zkSync = await syncStudentCardToZkteco({ studentId, studentName, cardId, cardNumber });
+        zkSync = await syncStudentCardToZkteco({ studentId, studentName, cardId: preservedPin, cardNumber, oldCardId, oldCardNumber });
       } catch {}
       const syncedCount = zkSync.filter((d) => d.ok).length;
       const zkNote = syncedCount > 0 ? ` va ${syncedCount} ta ZKTeco qurilmasiga avtomatik yozildi` : "";
@@ -6659,20 +6662,23 @@ MUHIM QOIDALAR:
               crmEnv.DATABASE_URL,
               `DELETE FROM "StudentCard" WHERE ("cardId" = ${sqlStr(card10)} OR "cardNumber" = ${numCard}) AND "studentId" <> ${id};`
             );
-            const exCard = await queryPgJson(crmEnv.DATABASE_URL, `SELECT id FROM "StudentCard" WHERE "studentId" = ${id} LIMIT 1`);
+            const exCard = await queryPgJson(crmEnv.DATABASE_URL, `SELECT id, "cardId", "cardNumber" FROM "StudentCard" WHERE "studentId" = ${id} LIMIT 1`);
+            const oldCardId = exCard[0]?.cardId ? String(exCard[0].cardId) : "";
+            const oldCardNumber = exCard[0]?.cardNumber ? String(exCard[0].cardNumber) : "";
+            const preservedPin = (oldCardId && oldCardId.length < 8) ? oldCardId : card10;
             if (exCard.length > 0) {
               await execPgSql(
                 crmEnv.DATABASE_URL,
-                `UPDATE "StudentCard" SET "cardId" = ${sqlStr(card10)}, "cardNumber" = ${numCard}, "studentName" = ${sqlStr(fullname)}, "isActive" = true, "updatedAt" = NOW() WHERE "studentId" = ${id};`
+                `UPDATE "StudentCard" SET "cardId" = ${sqlStr(preservedPin)}, "cardNumber" = ${numCard}, "studentName" = ${sqlStr(fullname)}, "isActive" = true, "updatedAt" = NOW() WHERE "studentId" = ${id};`
               );
             } else {
               await execPgSql(
                 crmEnv.DATABASE_URL,
-                `INSERT INTO "StudentCard" ("studentId", "cardId", "cardNumber", "studentName", "isActive", "createdAt", "updatedAt") VALUES (${id}, ${sqlStr(card10)}, ${numCard}, ${sqlStr(fullname)}, true, NOW(), NOW());`
+                `INSERT INTO "StudentCard" ("studentId", "cardId", "cardNumber", "studentName", "isActive", "createdAt", "updatedAt") VALUES (${id}, ${sqlStr(preservedPin)}, ${numCard}, ${sqlStr(fullname)}, true, NOW(), NOW());`
               );
             }
             try {
-              const zkSync = await syncStudentCardToZkteco({ studentId: id, studentName: fullname, cardId: card10, cardNumber: numCard });
+              const zkSync = await syncStudentCardToZkteco({ studentId: id, studentName: fullname, cardId: preservedPin, cardNumber: numCard, oldCardId, oldCardNumber });
               const okCount = zkSync.filter((d) => d.ok).length;
               zkMsg = ` (Karta ${card10} -> ${okCount} ta ZKTeco qurilmasiga yozildi)`;
             } catch {}
