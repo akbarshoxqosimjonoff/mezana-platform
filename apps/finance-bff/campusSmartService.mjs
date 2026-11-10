@@ -1287,7 +1287,7 @@ export async function buildCampusSmartAnalytics(pgPool, { date: reqDate, month: 
                'CANTEEN' AS "deviceType",
                m."studentId",
                COALESCE(s.fullname, m."studentName") AS "studentName",
-               s.photo,
+               s."profilePicture" AS photo,
                COALESCE(g.name, 'Guruhsiz') AS "group",
                COALESCE(s."roomNumber", '-') AS "room",
                m."cardId",
@@ -1337,9 +1337,9 @@ export async function buildCampusSmartAnalytics(pgPool, { date: reqDate, month: 
              'MOSQUE' AS "deviceType",
              p."studentId",
              COALESCE(s.fullname, p."studentName") AS "studentName",
-             s.photo,
+             s."profilePicture" AS photo,
              COALESCE(g.name, 'Guruhsiz') AS "group",
-             COALESCE(r.name, '-') AS "room",
+             COALESCE(s."roomNumber", '-') AS "room",
              p."cardId",
              p."prayerType"::text AS "eventType",
              TO_CHAR(p."timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD') AS "date",
@@ -1348,7 +1348,6 @@ export async function buildCampusSmartAnalytics(pgPool, { date: reqDate, month: 
            FROM "PrayerRecord" p
            LEFT JOIN "Student" s ON s.id = p."studentId"
            LEFT JOIN "Group" g ON g.id = s."groupId"
-           LEFT JOIN "Room" r ON r.id = s."roomId"
            ORDER BY p."timestamp" DESC
            LIMIT 35`
         )

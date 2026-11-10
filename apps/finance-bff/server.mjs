@@ -2622,7 +2622,7 @@ async function handleApi(req, res, url) {
             if (expYear && expMonth) {
               await execPgSql(
                 erpEnv.DATABASE_URL,
-                `UPDATE "Budget" SET spent = spent + ${amountInDefault}, "updatedAt" = NOW() WHERE "categoryId" = ${sqlStr(categoryId)} AND year = ${expYear} AND month = ${expMonth};`
+                `UPDATE "Budget" SET spent = spent + ${amountInDefault}, "updatedAt" = NOW() WHERE "categoryId" = ${sqlStr(categoryId)} AND EXTRACT(YEAR FROM "periodStart")::int = ${expYear} AND EXTRACT(MONTH FROM "periodStart")::int = ${expMonth};`
               );
             }
           }
@@ -2845,8 +2845,8 @@ async function handleApi(req, res, url) {
             `UPDATE "Budget"
              SET spent = spent + ${amtTl}, "updatedAt" = NOW()
              WHERE "categoryId" = ${sqlStr(exp.categoryId)}
-               AND month = EXTRACT(MONTH FROM NOW())::int
-               AND year = EXTRACT(YEAR FROM NOW())::int;`
+               AND EXTRACT(MONTH FROM "periodStart")::int = EXTRACT(MONTH FROM NOW())::int
+               AND EXTRACT(YEAR FROM "periodStart")::int = EXTRACT(YEAR FROM NOW())::int;`
           );
         }
 
@@ -2930,8 +2930,8 @@ async function handleApi(req, res, url) {
             `UPDATE "Budget"
              SET spent = GREATEST(0, spent - ${amtTl}), "updatedAt" = NOW()
              WHERE "categoryId" = ${sqlStr(exp.categoryId)}
-               AND month = EXTRACT(MONTH FROM NOW())::int
-               AND year = EXTRACT(YEAR FROM NOW())::int;`
+               AND EXTRACT(MONTH FROM "periodStart")::int = EXTRACT(MONTH FROM NOW())::int
+               AND EXTRACT(YEAR FROM "periodStart")::int = EXTRACT(YEAR FROM NOW())::int;`
           );
         }
         if (exp.requestId) {
@@ -3204,8 +3204,8 @@ async function handleApi(req, res, url) {
         sqlParts.push(
           `UPDATE "Budget" SET spent = GREATEST(0, spent - ${amtTl}), "updatedAt" = NOW()
            WHERE "categoryId" = ${sqlStr(exp.categoryId)}
-             AND month = EXTRACT(MONTH FROM NOW())::int
-             AND year = EXTRACT(YEAR FROM NOW())::int;`
+             AND EXTRACT(MONTH FROM "periodStart")::int = EXTRACT(MONTH FROM NOW())::int
+             AND EXTRACT(YEAR FROM "periodStart")::int = EXTRACT(YEAR FROM NOW())::int;`
         );
       }
       if (exp.requestId) {
